@@ -20,8 +20,9 @@ exactly what the person can see, with no extra credential to manage.
 3. Leave the result on `window.__kpi` and hand it over as a file.
 4. Convert it to KIF with the adapter's `--from-extract`.
 
-The Asana adapter works exactly this way - `adapters/asana/browser_extract.js` is the script,
-and it has been used on five live projects.
+The Asana adapter works exactly this way: it takes whatever your extractor leaves on
+`window.__kpi` and converts it. The extractor itself is yours to write - see
+`adapters/asana/README.md`.
 
 ## Practical notes
 
