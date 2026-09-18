@@ -16,11 +16,10 @@ KIF.
 ## Why the browser, not the API
 
 Nobody has to create, store or paste a personal access token, and the extractor sees exactly
-what the person can see. The script that does the reading, `browser_extract.js`, has been in
-real use on five live Northwind projects. This adapter converts its output rather than
-reimplementing it - the judgement encoded in it (what counts as delivered, which QA failure
-is rework, which cards are grouping cards) was learned from real boards, and rewriting it
-would mean rediscovering all of that.
+what the person can see. This adapter is the converter: hand it the extractor's output and
+it produces valid KIF. Keeping the two apart means the judgement about what counts as
+delivered, which QA failure is rework and which cards are grouping cards lives in the engine
+and the profile, where it is shared, rather than inside one tracker's extractor.
 
 ## How to run it
 
