@@ -1,0 +1,597 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://enosis.internal/kpi-copilot/kif.schema.json",
+  "title": "KPI Interchange Format (KIF) v1.0",
+  "description": "The one contract between a tracker adapter and the KPI engine. An adapter's only job is to emit a valid KIF document. Everything downstream - KPI values, notes, the workbook, the PMS payload - is computed from this and never talks to the tracker. Unknown facts are null, never guessed: the engine reports 'Not measured' with a reason instead of inventing a number.",
+  "type": "object",
+  "required": [
+    "kif_version",
+    "project",
+    "periods",
+    "tasks",
+    "defects"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "kif_version": {
+      "const": "1.0"
+    },
+    "generated": {
+      "type": "object",
+      "description": "Provenance. Written by the adapter so a reader can tell where the numbers came from.",
+      "properties": {
+        "adapter": {
+          "type": "string",
+          "description": "Adapter id, e.g. 'asana', 'jira', 'csv'."
+        },
+        "adapter_version": {
+          "type": "string"
+        },
+        "at": {
+          "type": "string",
+          "description": "ISO timestamp of extraction."
+        },
+        "source_url": {
+          "type": "string",
+          "description": "Board / project URL the data came from."
+        },
+        "capabilities": {
+          "type": "array",
+          "description": "What this adapter could actually observe. A capability that is absent makes every KPI that depends on it 'Not measured' with a stated reason, rather than a wrong number. See adapters/_contract.md.",
+          "items": {
+            "enum": [
+              "status_history",
+              "comments",
+              "assignee",
+              "estimates",
+              "story_points",
+              "issue_links",
+              "labels",
+              "issue_type",
+              "created_date",
+              "closed_date",
+              "reporter"
+            ]
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Anything the adapter could not resolve, in plain language. Surfaced to the user in the review step."
+        }
+      }
+    },
+    "project": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "tracker": {
+          "type": "string",
+          "description": "Human name of the tracker, e.g. 'Asana', 'Jira'."
+        },
+        "tracker_url": {
+          "type": "string"
+        },
+        "pms_project_id": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "PMS project id. Null until the profile supplies one."
+        },
+        "pms_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "period_type": {
+          "type": "string",
+          "enum": [
+            "Milestone",
+            "Delivery cycle",
+            "Sprint",
+            "Month",
+            "Quarter",
+            "Full project"
+          ],
+          "default": "Delivery cycle"
+        },
+        "velocity_unit": {
+          "type": "string",
+          "enum": [
+            "Estimated Hours",
+            "Story Points"
+          ],
+          "default": "Estimated Hours"
+        },
+        "client_date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Project-level fallback: date the client expects delivery (YYYY-MM-DD)."
+        },
+        "commit_date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Project-level fallback: date the team committed to."
+        },
+        "client_check": {
+          "type": "string",
+          "enum": [
+            "Handover",
+            "Delivery"
+          ],
+          "default": "Handover",
+          "description": "Handover = the client date is met when the period's handover build reached the client by the date. Delivery = met when the item itself was delivered by the date (use for a feature freeze where bug fixes may follow)."
+        },
+        "dates_why": {
+          "type": "string",
+          "description": "Why these dates are the agreed ones, with links. Shown in the workbook, never sent to PMS."
+        },
+        "sources_text": {
+          "type": "string",
+          "description": "Where scope and hours came from, as '[words](url)' markdown."
+        }
+      }
+    },
+    "periods": {
+      "type": "array",
+      "description": "One entry per PMS period, in order. A project with no period structure has exactly one, usually named 'Full Project'.",
+      "items": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 25,
+            "description": "PMS enforces 25 characters."
+          },
+          "old_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Set when the period exists in PMS under a different name; the push renames it."
+          },
+          "pms_period_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "start": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "end": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "client_date": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "commit_date": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "client_check": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "Handover",
+              "Delivery",
+              null
+            ]
+          },
+          "handover_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Date the period's build reached the client. Null = not handed over yet, which the notes say out loud."
+          },
+          "team_hours": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Team-level effort not attributable to one item (bug fixing, regression, QA support) counted in Velocity."
+          },
+          "plan_client_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What the original plan said, kept for the 'Original plan: ...' remark when an agreed date differs."
+          },
+          "plan_commit_date": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "description": "The period's story in the workbook, with '[words](url)' links."
+          },
+          "plan_text": {
+            "type": "string",
+            "description": "What the original plan said, with links."
+          }
+        }
+      }
+    },
+    "tasks": {
+      "type": "array",
+      "description": "One row per unit of deliverable work. Excluded rows stay in the list with type 'Excluded' and a reason, so the workbook can show what was left out and why.",
+      "items": {
+        "type": "object",
+        "required": [
+          "period",
+          "key",
+          "type"
+        ],
+        "properties": {
+          "period": {
+            "type": "string",
+            "description": "Must match a periods[].name."
+          },
+          "key": {
+            "type": "string",
+            "description": "Ticket key as humans say it. Falls back to the tracker id when the team has no key convention."
+          },
+          "link": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "Task",
+              "CR",
+              "Scope",
+              "Excluded"
+            ],
+            "description": "Task = in the agreed plan. CR = an approved addition after the plan. Scope = in-scope work that is neither (e.g. planned feedback handling). Excluded = not our deliverable."
+          },
+          "exclude_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required when type is Excluded."
+          },
+          "planned": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Was this in the initial scope of its period."
+          },
+          "hours_dev": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "hours_qa": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Counted into Velocity only once the item's QA is done."
+          },
+          "hours_source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "'Project plan', 'Estimates sheet', 'Tracker estimate' - so a reader knows which number won."
+          },
+          "story_points": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "assignee": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "delivered": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Date the item reached the team's delivery event (profile workflow.delivered_when). Null = not delivered yet."
+          },
+          "closed": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Tracker status as-is, for the reader."
+          },
+          "understood": {
+            "enum": [
+              "Yes",
+              "No",
+              null
+            ],
+            "description": "Requirement understood without going back to the client. Null = no history of its own, left out of the denominator."
+          },
+          "understood_evidence": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "understood_why": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "met_client_date": {
+            "enum": [
+              "Yes",
+              "No",
+              "Pending",
+              null
+            ],
+            "description": "Pending = not there yet and the date has not passed; left out of the denominator."
+          },
+          "client_date": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "client_date_evidence": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "met_commitment": {
+            "enum": [
+              "Yes",
+              "No",
+              "Pending",
+              null
+            ],
+            "description": "Did this item meet the date the team committed to. Null = the team made no commitment on it, which leaves it out of Delivery Commitment entirely - that KPI measures the reliability of promises made, so an item nobody promised is not evidence either way. Pending = committed but not yet due."
+          },
+          "commit_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The date the team negotiated and committed to for this item. Its presence is what makes the item part of Delivery Commitment."
+          },
+          "commitment_evidence": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reopened": {
+            "enum": [
+              "Yes",
+              "No",
+              null
+            ],
+            "description": "Closed, then reopened. A QA fail while the item is still being tested for the first time is not rework."
+          },
+          "rework_evidence": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "remarks": {
+            "type": "string",
+            "description": "Anything a reader needs, with '[words](url)' links."
+          }
+        }
+      }
+    },
+    "defects": {
+      "type": "array",
+      "description": "One row per reported issue, including the ones that will not be counted - the notes name what was left out and why.",
+      "items": {
+        "type": "object",
+        "required": [
+          "period",
+          "key"
+        ],
+        "properties": {
+          "period": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "link": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "Bug",
+              "Observation",
+              "Improvement",
+              "Query",
+              "Other"
+            ],
+            "default": "Bug",
+            "description": "Only Bug counts by default; the counting policy can include Observation and Improvement."
+          },
+          "reported_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reported_on": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phase": {
+            "enum": [
+              "QA",
+              "Post-release",
+              "UAT",
+              "Development",
+              null
+            ],
+            "description": "Post-release = found by the client or users after the handover build. Drives Escaped Defect Rate."
+          },
+          "pre_existing": {
+            "enum": [
+              "Yes",
+              "No",
+              null
+            ],
+            "description": "Already in the product before this work. Not counted by default."
+          },
+          "rejected": {
+            "enum": [
+              "Yes",
+              "No",
+              null
+            ],
+            "description": "Invalid, by design, duplicate, not reproducible, not feasible. Never counted as a defect."
+          },
+          "rejection_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "evidence": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "final_status": {
+            "enum": [
+              "Fixed",
+              "Closed",
+              "Open",
+              "Deferred",
+              "Rejected",
+              null
+            ]
+          },
+          "against_task": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Task key the defect was found against, when the tracker records it."
+          },
+          "remarks": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "review": {
+      "type": "array",
+      "description": "Judgement calls the adapter could not make on its own. The run skill turns these into one round of questions instead of many.",
+      "items": {
+        "type": "object",
+        "required": [
+          "kind",
+          "subject",
+          "question"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "classification",
+              "date",
+              "understood",
+              "rework",
+              "rejection",
+              "scope",
+              "hours",
+              "other"
+            ]
+          },
+          "subject": {
+            "type": "string",
+            "description": "Ticket key or period name the question is about."
+          },
+          "question": {
+            "type": "string"
+          },
+          "proposal": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What the adapter would do if nobody answers. Always offer one."
+          },
+          "link": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

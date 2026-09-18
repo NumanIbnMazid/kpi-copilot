@@ -1,0 +1,182 @@
+{
+  "registry_version": "1.0",
+  "source": "bundled-fallback",
+  "synced_at": null,
+  "note": "This is the offline fallback. The real registry is read from PMS by scripts/kpi_registry.py --refresh, which overwrites ids, names, thresholds and the official descriptions with whatever PMS says today, and fills 'projects' with the per-project targets PMS holds. Thresholds in 'kpis' are the PMS DEFAULTS; a project that sets its own in PMS appears under 'projects' and wins. Treat anything here as 'what PMS said in September 2026' and refresh before a run that matters. If PMS adds a KPI, the refresh picks it up and the engine reports it as unsupported rather than silently ignoring it.",
+  "value_range": {
+    "default": [
+      0,
+      100
+    ],
+    "Velocity": [
+      0,
+      1000
+    ]
+  },
+  "kpis": [
+    {
+      "key": "velocity",
+      "pms_id": 9,
+      "name": "Velocity",
+      "direction": "higher-is-better",
+      "threshold": 10,
+      "unit": "configurable",
+      "range": [
+        0,
+        1000
+      ],
+      "description_pms": "Work completed in the period, measured in the project's unit of estimation.",
+      "basis": "Sum of the effort of every item delivered in the period, plus team-level effort that is not attributable to a single item.",
+      "heading": "Work finished in this cycle",
+      "requires": [
+        "estimates"
+      ],
+      "formula_pms": "Total work completed in the period (story points / hours)."
+    },
+    {
+      "key": "task_comprehension",
+      "pms_id": 1,
+      "name": "Task Comprehension",
+      "direction": "higher-is-better",
+      "threshold": 80,
+      "unit": "%",
+      "range": [
+        0,
+        100
+      ],
+      "description_pms": "Share of tasks the team understood from the requirement without needing clarification from the client.",
+      "basis": "Every item worked on in the period - plan items and approved additions alike. Items with no history of their own are left out of the denominator.",
+      "heading": "Requirements the team understood without asking the client",
+      "requires": [
+        "status_history"
+      ],
+      "formula_pms": "Understood task count / Total task count"
+    },
+    {
+      "key": "client_expectation",
+      "pms_id": 2,
+      "name": "Client Expectation",
+      "direction": "higher-is-better",
+      "threshold": 90,
+      "unit": "%",
+      "range": [
+        0,
+        100
+      ],
+      "description_pms": "Share of work delivered by the date the client expected.",
+      "basis": "Items whose client-expected date was met, over the items whose date has been settled. Items not yet due are Pending and left out of the denominator.",
+      "heading": "Work the client expected by {date}",
+      "requires": [],
+      "formula_pms": "On-time delivered (client-expected) / Total client-expected tasks"
+    },
+    {
+      "key": "delivery_commitment",
+      "pms_id": 4,
+      "name": "Delivery Commitment",
+      "direction": "higher-is-better",
+      "threshold": 100,
+      "unit": "%",
+      "range": [
+        0,
+        100
+      ],
+      "description_pms": "Team-negotiated commitments that were delivered on time. Formula: task count delivered on time / total team-committed task count. Insight: reliability of the team.",
+      "basis": "Only items the team actually committed to. An item nobody promised a date for is not evidence of reliability either way, so it is left out and named. What counts as delivering a commitment is set per team - delivery to QA, delivery to the client, or completion - because teams commit to different things.",
+      "heading": "Commitments the team met on time",
+      "requires": [
+        "status_history"
+      ],
+      "formula_pms": "Delivered on time (committed) / Total team-committed tasks"
+    },
+    {
+      "key": "defect_rate",
+      "pms_id": 5,
+      "name": "Defect Rate",
+      "direction": "lower-is-better",
+      "threshold": 15,
+      "unit": "%",
+      "range": [
+        0,
+        100
+      ],
+      "description_pms": "Defects found in the work delivered, relative to the volume delivered.",
+      "basis": "Counted defects over delivered items. Rejected reports never count. Observations, improvements and pre-existing defects count only if the team's counting rules say so.",
+      "heading": "Bugs found in the work we delivered",
+      "requires": [],
+      "formula_pms": "Number of defects found / Total task count"
+    },
+    {
+      "key": "escaped_defect_rate",
+      "pms_id": 8,
+      "name": "Escaped Defect Rate",
+      "direction": "lower-is-better",
+      "threshold": 5,
+      "unit": "%",
+      "range": [
+        0,
+        100
+      ],
+      "description_pms": "Defects that reached the client instead of being caught before handover.",
+      "basis": "Non-rejected defects reported after the handover, over all non-rejected defects in the period - before and after release alike. The denominator is defects, not delivered items: the question is what share of the problems reached the client, not how much work was done.",
+      "heading": "Bugs the client found after handover",
+      "requires": [],
+      "formula_pms": "Defects found after release / Total defects (before + after release)"
+    },
+    {
+      "key": "rejection_rate",
+      "pms_id": 7,
+      "name": "Defect Rejection Rate",
+      "direction": "lower-is-better",
+      "threshold": 15,
+      "unit": "%",
+      "range": [
+        0,
+        100
+      ],
+      "description_pms": "Share of reported issues that turned out not to be defects.",
+      "basis": "Reports closed as invalid, by design, duplicate, not reproducible or not feasible, over all reports in the period.",
+      "heading": "Reports that turned out not to be bugs",
+      "requires": [
+        "comments"
+      ],
+      "formula_pms": "Rejected defects / Total reported defects"
+    },
+    {
+      "key": "rework_rate",
+      "pms_id": 6,
+      "name": "Rework Rate",
+      "direction": "lower-is-better",
+      "threshold": 10,
+      "unit": "%",
+      "range": [
+        0,
+        100
+      ],
+      "description_pms": "Tasks that had to be reopened at least once after being closed, over all completed tasks.",
+      "basis": "A QA failure while the item is still being tested for the first time is normal testing, not rework: it is named in the note and left out of the count.",
+      "heading": "Finished tasks that had to be reopened",
+      "requires": [
+        "status_history"
+      ],
+      "formula_pms": "Tasks reopened / Total tasks completed"
+    },
+    {
+      "key": "cr_rate",
+      "pms_id": 3,
+      "name": "CR Rate",
+      "direction": "lower-is-better",
+      "threshold": 20,
+      "unit": "%",
+      "range": [
+        0,
+        100
+      ],
+      "description_pms": "Change requests raised against the agreed scope.",
+      "basis": "Approved additions over the planned items. A period made only of change requests is measured against the project's planned scope instead.",
+      "heading": "Extra work the client added after the plan",
+      "requires": [],
+      "formula_pms": "CR count / Initial task count"
+    }
+  ],
+  "projects": {}
+}

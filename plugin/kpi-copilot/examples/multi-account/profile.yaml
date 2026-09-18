@@ -1,0 +1,268 @@
+profile_version: "1.0"
+
+# Example C - one project lead, two clients, two trackers, two chat tools, two output modes.
+#
+# This is the shape most leads actually have, and the reason accounts exist. Read it top to
+# bottom: the top level is how this person usually works, each account says what is true for
+# that client, and a project only speaks up when it differs from its account.
+#
+# Try it:
+#   python3 scripts/profile_lib.py --profile examples/multi-account/profile.yaml --list
+#   python3 scripts/profile_lib.py --profile examples/multi-account/profile.yaml \
+#     --project acme-identity --section tracker
+
+owner:
+  name: A. Rahman
+  email: lead@example.com
+  role: Software Project Lead
+  timezone: Asia/Dhaka
+
+organization:
+  pms_base_url: https://pms.example.com
+  kpi_registry: kpi_registry.json
+  note_format: "what is measured || the numbers || what was left out || why"
+  evidence_required: true
+
+# One registry for everything this person works on. A tool with no accounts or projects
+# listed is shared; the rest are tagged, so a run on Acme never reaches into Northwind's chat.
+tools:
+  - id: pms
+    kind: pms
+    name: Enosis PMS
+    url_or_id: https://pms.example.com
+    description: "Where every project's KPIs end up, whichever client they belong to."
+    used_for: [output]
+    access: Enosis SSO
+
+  - id: drive-trackers
+    kind: doc-store
+    name: KPI trackers (Drive folder)
+    url_or_id: 1ExampleDriveFolderId000000000000
+    description: "Where the working files go, for all accounts. One subfolder per client."
+    used_for: [output]
+    access: Google Drive
+
+  # ---- Northwind -------------------------------------------------------------------
+  - id: asana
+    kind: issue-tracker
+    name: Asana
+    url_or_id: https://app.asana.com
+    description: "Northwind's boards. Card history is what proves a delivery date."
+    used_for: [scope, dates, defects, evidence]
+    accounts: [northwind]
+    access: Google SSO
+
+  - id: chat-northwind-devqa
+    kind: chat
+    name: Northwind Dev-QA (Google Chat)
+    url_or_id: AAAAexampleDevQA
+    description: "Builds, QA rounds, environment problems. Best source for when something reached QA."
+    used_for: [evidence, handover]
+    accounts: [northwind]
+    client_facing: false
+    access: Google SSO
+    note: "Internal. Nothing agreed here counts as a client commitment."
+
+  - id: chat-northwind-mgmt
+    kind: chat
+    name: Northwind-Management (Google Chat)
+    url_or_id: AAAAexampleMgmt
+    description: "Weekly call summaries and client deadlines. Where an agreed date usually appears first."
+    used_for: [dates, evidence]
+    accounts: [northwind]
+    people: [Dana Whitfield, Evan Hollis, Sasha Lindo, Stefan Barrow]
+    client_facing: true
+    access: Google SSO
+    note: "Quiet between releases. A date agreed here beats anything in the plan."
+
+  # ---- Acme ----------------------------------------------------------------------
+  - id: jira
+    kind: issue-tracker
+    name: Jira
+    url_or_id: https://example.atlassian.net
+    description: "Acme's delivery board. Stories, bugs and change requests split by sprint."
+    used_for: [scope, dates, defects, evidence]
+    accounts: [acme]
+    access: Atlassian SSO
+
+  - id: slack-acme
+    kind: chat
+    name: "#acme-delivery (Slack)"
+    url_or_id: C07ACMEDEL
+    description: "Where builds are announced and QA rounds discussed. Best evidence for handover dates."
+    used_for: [evidence, handover]
+    accounts: [acme]
+    people: [Client PM]
+    client_facing: true
+    access: Slack SSO
+
+  - id: confluence-acme
+    kind: wiki
+    name: Acme Delivery Plan (Confluence)
+    url_or_id: https://example.atlassian.net/wiki/spaces/ACME/pages/2294
+    description: "The agreed scope and sprint commitments. The client signed this page."
+    used_for: [scope, dates]
+    accounts: [acme]
+    access: Atlassian SSO
+
+  # ---- one project only ----------------------------------------------------------
+  - id: sheet-gateway-timeline
+    kind: spreadsheet
+    name: Gateway Timeline and Changelog
+    url_or_id: 1ExampleTimelineSheetId00000000000000000000
+    description: "Date revisions for the Gateway integration specifically. No other project uses it."
+    used_for: [dates, timeline]
+    projects: [gateway]
+    access: Google Drive
+
+# ---------------------------------------------------------------------------------
+# Defaults: how this person works when nothing says otherwise.
+# ---------------------------------------------------------------------------------
+tracker:
+  adapter: csv
+  estimate_field: Estimated Time
+
+conventions:
+  defect_by: issue-type
+  defect_values: [Bug]
+  observation_values: [Observation, Improvement]
+  exclude_patterns:
+    - '^Milestone\b'
+    - '^QA Checklist'
+
+workflow:
+  delivered_when: {signal: status-entered, values: [Ready for QA]}
+  closed_when: {values: [Closed]}
+  reopened_when: {values: [In Progress], ignore_first_qa_fail: true}
+  clarification_when: {values: [Awaiting Feedback], also_comments: true}
+
+sources:
+  hours_first: tracker
+  hours_basis: dev
+
+periods:
+  model: Delivery cycle
+  client_check_default: Handover
+
+policy:
+  count_observations: false
+  count_improvements: false
+  count_pre_existing: false
+  count_post_release: true
+
+output:
+  mode: assisted-push
+  unattended: false
+  workbook: google-sheets
+  workbook_location: 1ExampleDriveFolderId000000000000
+  run_folder: runs
+
+custom_instructions:
+  notes_style: "Short sentences. Name the ticket, never the person. Dates as mm/dd."
+  never:
+    - "Never push to PMS on a Friday after 5pm Dhaka time."
+
+# ---------------------------------------------------------------------------------
+# Accounts: what is true for every project on this client.
+# ---------------------------------------------------------------------------------
+accounts:
+  - id: northwind
+    name: Northwind
+    notes: "Asana and Google Chat. Plans are PDFs on Drive; change requests come from an estimates sheet."
+    overrides:
+      tracker:
+        adapter: asana
+        url: https://app.asana.com
+        key_field: TKT
+      conventions:
+        key_pattern: 'TKT-\d+'
+        defect_by: title-pattern
+        defect_pattern: '^(Bug|Observation|Improvement) ?\d+'
+        cr_marker: '\[CR\]'
+        exclude_patterns:
+          - '^Milestone\b'
+          - '^Checklist\b'
+          - '^Bug Reporting$'
+          - '^Regression Testing'
+          - '^\[Duplicate\]'
+        client_names: [Dana Whitfield, Evan Hollis, Sasha Lindo, Stefan Barrow]
+      workflow:
+        delivered_when:
+          values: [Ready for QA, Testing, Testing Failed, Dev Complete, Closed]
+          from_date: "2026-09-10"
+          fallback_values: [Dev Complete, Ready for QA]
+        closed_when:
+          values: [Closed]
+          completed_flag_means: "On these boards Asana's own 'complete' means merged, not accepted."
+        reopened_when: {values: [In Progress, Testing Failed, Ready for QA], ignore_first_qa_fail: true}
+      sources:
+        evidence_channels: [chat-northwind-devqa, chat-northwind-mgmt]
+        hours_first: plan
+        hours_basis: dev+qa
+
+  - id: acme
+    name: Acme
+    notes: "Jira via CSV export, Slack, Confluence. This client's numbers are typed into PMS by hand."
+    overrides:
+      tracker:
+        adapter: csv
+        url: https://example.atlassian.net
+        options:
+          tracker_name: Jira
+          file: ../acme-jira/board_export.csv
+          columns: {period: Sprint}
+      conventions:
+        key_pattern: '[A-Z]+-\d+'
+        defect_by: issue-type
+        cr_marker: 'change-request'
+        exclude_patterns:
+          - '^Sprint Goal'
+          - '^QA Checklist'
+        client_names: [Client PM]
+      workflow:
+        delivered_when: {values: [In Review, Done]}
+        closed_when: {values: [Done, Closed]}
+        reopened_when: {values: [In Progress, Reopened], ignore_first_qa_fail: true}
+        clarification_when: {values: [Blocked - Client], also_comments: true}
+      sources:
+        evidence_channels: [slack-acme]
+        plan: {tool_id: confluence-acme, kind: wiki, ref: "https://example.atlassian.net/wiki/spaces/ACME/pages/2294"}
+      periods:
+        model: Sprint
+        client_check_default: Handover
+      output:
+        mode: review-only          # nothing is pushed for this client
+        workbook: xlsx
+        workbook_location: ./runs
+
+# ---------------------------------------------------------------------------------
+# Projects: only what differs from the account.
+# ---------------------------------------------------------------------------------
+projects:
+  - id: q3-release
+    name: Northwind Q3 Release Items
+    account: northwind
+    pms_project_id: 101
+    tracker_ref: "1100000000000001"
+    period_model: Delivery cycle
+    velocity_unit: Estimated Hours
+    notes: "Q3 feature freeze 09/11; bug fixes allowed until 09/25."
+
+  - id: gateway
+    name: Northwind Gateway Integration
+    account: northwind
+    pms_project_id: 102
+    tracker_ref: "1100000000000002"
+    velocity_unit: Estimated Hours
+    notes: "Same conventions as the rest of Northwind; only the timeline sheet is its own."
+    overrides:
+      sources:
+        timeline: {tool_id: sheet-gateway-timeline, kind: sheet, ref: 1ExampleTimelineSheetId00000000000000000000}
+
+  - id: acme-identity
+    name: Acme Identity Platform
+    account: acme
+    pms_project_id: 201
+    tracker_ref: ACME
+    velocity_unit: Story Points
+    notes: "Two-week sprints, Monday to Friday."

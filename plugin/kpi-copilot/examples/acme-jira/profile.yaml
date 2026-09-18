@@ -1,0 +1,123 @@
+profile_version: "1.0"
+
+# Example profile B - a team on Jira + Slack + Confluence, working in sprints and story
+# points, who do NOT want anything pushed automatically. Same engine, same nine KPIs,
+# nothing in common with example A's tooling.
+
+owner:
+  name: A. Rahman
+  email: lead@example.com
+  role: Project Lead
+  account: Acme
+  timezone: Asia/Dhaka
+
+organization:
+  pms_base_url: https://pms.example.com
+  kpi_registry: kpi_registry.json
+  note_format: "what is measured || the numbers || what was left out || why"
+  evidence_required: true
+
+tools:
+  - id: tracker
+    kind: issue-tracker
+    name: Jira
+    url_or_id: https://example.atlassian.net/jira/software/projects/ACME/boards/7
+    description: "The Acme delivery board. Stories, bugs and change requests all live here, split by sprint."
+    used_for: [scope, dates, defects, evidence]
+    access: Atlassian SSO
+  - id: chat
+    kind: chat
+    name: "#acme-delivery (Slack)"
+    url_or_id: C07ACMEDEL
+    description: "Where builds are announced and QA rounds are discussed. Best evidence for handover dates."
+    used_for: [evidence, handover]
+    access: Slack SSO
+  - id: plan
+    kind: wiki
+    name: Acme Delivery Plan (Confluence)
+    url_or_id: https://example.atlassian.net/wiki/spaces/ACME/pages/2294
+    description: "The agreed scope and the sprint commitments. The client signed this page."
+    used_for: [scope, dates]
+    access: Atlassian SSO
+  - id: pms
+    kind: pms
+    name: Enosis PMS
+    url_or_id: https://pms.example.com/all-projects/201/kpis
+    description: "Where the KPIs are recorded. This team types them in by hand after reviewing the sheet."
+    used_for: [output]
+    access: Enosis SSO
+
+tracker:
+  adapter: csv
+  project_ref: ACME
+  url: https://example.atlassian.net
+  options:
+    tracker_name: Jira
+    file: board_export.csv
+    columns:
+      period: Sprint
+
+conventions:
+  key_pattern: '[A-Z]+-\d+'
+  defect_by: issue-type
+  defect_values: [Bug]
+  observation_values: [Improvement, Observation]
+  exclude_patterns:
+    - '^Sprint Goal'
+    - '^QA Checklist'
+  cr_marker: 'change-request'
+  client_names: [Client PM]
+
+workflow:
+  delivered_when:
+    signal: status-entered
+    values: [In Review, Done]
+  closed_when:
+    values: [Done, Closed]
+  reopened_when:
+    values: [In Progress, Reopened]
+    ignore_first_qa_fail: true
+  clarification_when:
+    values: [Blocked - Client]
+    also_comments: true
+
+sources:
+  plan: {tool_id: plan, kind: wiki, ref: "https://example.atlassian.net/wiki/spaces/ACME/pages/2294", note: "Sprint commitments agreed with the client."}
+  estimates: {kind: none}
+  timeline: {kind: none}
+  evidence_channels: [chat]
+  hours_first: tracker
+  hours_basis: dev
+
+periods:
+  model: Sprint
+  naming: "Sprint N"
+  client_check_default: Handover
+
+policy:
+  count_observations: false
+  count_improvements: false
+  count_pre_existing: false
+  count_post_release: true
+
+output:
+  mode: review-only
+  unattended: false
+  workbook: xlsx
+  workbook_location: ./runs
+  run_folder: runs
+
+custom_instructions:
+  notes_style: "Plain and short. This team's management reads on a phone."
+  never:
+    - "Never write to PMS. This team enters KPIs by hand after review."
+  glossary:
+    - "A sprint here is two weeks, Monday to Friday."
+
+projects:
+  - id: acme-identity
+    name: Acme Identity Platform
+    pms_project_id: 201
+    tracker_ref: ACME
+    period_model: Sprint
+    velocity_unit: Story Points

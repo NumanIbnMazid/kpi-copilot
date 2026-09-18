@@ -1,0 +1,10 @@
+# The only text a human writes. Its job is to add what the numbers cannot say.
+# Do not repeat a count the sheet already prints, and do not restate the heading.
+Initial Scope:
+  Velocity: "The hours for the additional requests come from the Additional Effort Estimates sheet; Northwind approved them on 07/31 and 08/12."
+  Client Expectation: "Against the original plan the handover was two weeks late (planned 07/29, done 08/12) because of the bug count in the first test round and the test server problems."
+  Delivery Commitment: "Only the delivery documentation slipped; it went out with the 08/12 handover."
+  Defect Rate: "Most bugs were in the kiosk and the web app, around the new access rule validation and the checkbox question type."
+Additional Requests 1:
+  Velocity: "QA hours for the calendar sync will be added when this cycle is handed over."
+  Delivery Commitment: "The calendar sync needed more work than estimated because the estimate missed delete events."
