@@ -1,0 +1,1160 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://enosis.internal/kpi-copilot/profile.schema.json",
+  "title": "KPI Copilot Profile v1.0",
+  "description": "Everything that varies between one project lead and another. The engine, the KPI set and the counting rules do not live here - those are the same for everyone. This file has two faces: profile.yaml (what the tools read) and the KPI Profile Workbook (what a human reads and edits). scripts/workbook.py converts between them and uses the 'x-workbook' annotations below to lay the workbook out, so the two can never drift.",
+  "type": "object",
+  "required": [
+    "profile_version",
+    "owner",
+    "organization",
+    "tracker",
+    "conventions",
+    "workflow",
+    "output"
+  ],
+  "properties": {
+    "profile_version": {
+      "const": "1.0"
+    },
+    "owner": {
+      "type": "object",
+      "x-workbook": {
+        "tab": "Owner",
+        "title": "Who this profile belongs to"
+      },
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "x-workbook": {
+            "label": "Name"
+          }
+        },
+        "email": {
+          "type": "string",
+          "x-workbook": {
+            "label": "Work email"
+          }
+        },
+        "role": {
+          "type": "string",
+          "x-workbook": {
+            "label": "Role",
+            "hint": "e.g. Software Project Lead"
+          }
+        },
+        "account": {
+          "type": "string",
+          "x-workbook": {
+            "label": "Client account / business unit",
+            "hint": "e.g. Northwind. Used to name output folders."
+          }
+        },
+        "timezone": {
+          "type": "string",
+          "default": "Asia/Dhaka",
+          "x-workbook": {
+            "label": "Timezone",
+            "hint": "Dates in notes are written in this timezone."
+          }
+        }
+      }
+    },
+    "organization": {
+      "type": "object",
+      "x-workbook": {
+        "tab": "Organization",
+        "title": "Things that are the same for everyone at Enosis",
+        "readonly_hint": "Do not change these unless the company changes. They are what makes one lead's KPIs comparable with another's."
+      },
+      "required": [
+        "pms_base_url"
+      ],
+      "properties": {
+        "pms_base_url": {
+          "type": "string",
+          "default": "https://pms.example.com",
+          "x-workbook": {
+            "label": "PMS base URL"
+          }
+        },
+        "kpi_registry": {
+          "type": "string",
+          "default": "kpi_registry.json",
+          "description": "Local cache of the KPI definitions read from PMS: ids, names, the official descriptions, the default targets, and the targets each project sets for itself. Refreshed by scripts/kpi_registry.py --refresh. Never hand-edited - a target changed in PMS is picked up by the next refresh, and a target changed here would make the workbook and PMS disagree.",
+          "x-workbook": {
+            "label": "KPI definition cache",
+            "hint": "Synced from PMS. Read-only."
+          }
+        },
+        "note_format": {
+          "type": "string",
+          "default": "what is measured || the numbers || what was left out || why",
+          "x-workbook": {
+            "label": "Note format",
+            "hint": "Fixed company-wide so management reads every project the same way."
+          }
+        },
+        "evidence_required": {
+          "type": "boolean",
+          "default": true,
+          "x-workbook": {
+            "label": "Require evidence on every judgement",
+            "hint": "Yes = a Yes/No with no link is flagged in review."
+          }
+        }
+      }
+    },
+    "tools": {
+      "type": "array",
+      "description": "The tool registry: every place your projects' truth lives, with a plain-language note on what it is for. One registry covers all your projects - list the Google Chat space for one account and the Slack channel for another, and tag each with the projects it belongs to. A tool with no projects listed is available to all of them (PMS, your Drive folder). This is what lets Claude find things without being told each time, and what lets a new team member understand the setup at a glance.",
+      "x-workbook": {
+        "tab": "Tools",
+        "title": "Where everything lives",
+        "as_table": true,
+        "columns": [
+          "id",
+          "kind",
+          "name",
+          "url_or_id",
+          "description",
+          "used_for",
+          "accounts",
+          "projects",
+          "people",
+          "client_facing",
+          "access",
+          "note"
+        ]
+      },
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Short handle used elsewhere in the profile, e.g. 'tracker', 'chat-devqa', 'plan-doc'."
+          },
+          "kind": {
+            "enum": [
+              "issue-tracker",
+              "chat",
+              "email",
+              "doc-store",
+              "spreadsheet",
+              "document",
+              "wiki",
+              "pms",
+              "time-tracking",
+              "ci",
+              "other"
+            ],
+            "description": "What sort of thing it is. Drives which steps can use it."
+          },
+          "name": {
+            "type": "string",
+            "description": "What people call it, e.g. 'Asana', 'Northwind Dev-QA'."
+          },
+          "url_or_id": {
+            "type": "string",
+            "description": "Link, space id, sheet id or folder id."
+          },
+          "description": {
+            "type": "string",
+            "description": "One sentence: what this is and why it matters. Written for a person who has never seen the project."
+          },
+          "used_for": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "scope",
+                "estimates",
+                "dates",
+                "defects",
+                "evidence",
+                "handover",
+                "status",
+                "timeline",
+                "output",
+                "approval"
+              ]
+            },
+            "description": "Which parts of a KPI run read or write this."
+          },
+          "access": {
+            "type": "string",
+            "description": "How to get in, e.g. 'Google SSO', 'Atlassian account'. Never a credential."
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Project ids this tool belongs to. Leave empty when it applies to all of them, such as PMS or a shared Drive folder."
+          },
+          "accounts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Account ids this tool belongs to. A Google Chat space for one client and a Slack channel for another live side by side here, each tagged with its account."
+          },
+          "people": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Who is in this space or owns this document, as their names appear in it. Optional, but it is how somebody new to the account finds out who to ask, and it is what lets a run tell a client-reported defect from a QA-reported one when the tracker does not say."
+          },
+          "client_facing": {
+            "type": "boolean",
+            "default": false,
+            "description": "Is the client in here. A client-facing space is where agreed dates get set and where a client-found defect first appears; an internal one is not. Marking it wrong is how a date somebody agreed in a client call gets treated as an internal decision."
+          },
+          "note": {
+            "type": "string",
+            "description": "Anything else worth knowing: quirks, when it is quiet, what NOT to trust in it."
+          }
+        }
+      }
+    },
+    "tracker": {
+      "type": "object",
+      "x-workbook": {
+        "tab": "Tracker",
+        "title": "Your issue tracker"
+      },
+      "required": [
+        "adapter"
+      ],
+      "properties": {
+        "adapter": {
+          "type": "string",
+          "description": "Which adapter turns your tracker into KIF. Ships with: asana, jira, csv. 'csv' works with any tracker that can export - use it on day one and write a native adapter later if the manual export gets tiring.",
+          "examples": [
+            "asana",
+            "jira",
+            "csv"
+          ],
+          "x-workbook": {
+            "label": "Adapter",
+            "hint": "asana | jira | csv (csv = export from anything)"
+          }
+        },
+        "project_ref": {
+          "type": "string",
+          "x-workbook": {
+            "label": "Board / project reference",
+            "hint": "Asana: the number after /project/. Jira: the project key, e.g. SAV."
+          }
+        },
+        "url": {
+          "type": "string",
+          "x-workbook": {
+            "label": "Board URL"
+          }
+        },
+        "estimate_field": {
+          "type": "string",
+          "default": "Estimated Time",
+          "x-workbook": {
+            "label": "Field holding effort hours"
+          }
+        },
+        "story_point_field": {
+          "type": "string",
+          "x-workbook": {
+            "label": "Field holding story points",
+            "hint": "Leave blank if you measure in hours."
+          }
+        },
+        "key_field": {
+          "type": "string",
+          "x-workbook": {
+            "label": "Field holding the ticket key",
+            "hint": "Leave blank to use the tracker's own id."
+          }
+        },
+        "options": {
+          "type": "object",
+          "description": "Adapter-specific extras. See the adapter's own README."
+        }
+      }
+    },
+    "conventions": {
+      "type": "object",
+      "description": "How your team names and shapes things. These are regular expressions or literal lists - the setup interview proposes them by looking at your board, and you correct what it got wrong.",
+      "x-workbook": {
+        "tab": "Conventions",
+        "title": "How your team names things"
+      },
+      "properties": {
+        "key_pattern": {
+          "type": "string",
+          "x-workbook": {
+            "label": "Ticket key looks like",
+            "hint": "Regex, e.g. TKT-\\d+ or [A-Z]+-\\d+. Blank = use the tracker id."
+          }
+        },
+        "defect_pattern": {
+          "type": "string",
+          "x-workbook": {
+            "label": "A defect is recognised by",
+            "hint": "Regex on the title, e.g. ^(Bug|Observation|Improvement) ?\\d+ - or leave blank and use defect_by below."
+          }
+        },
+        "defect_by": {
+          "enum": [
+            "title-pattern",
+            "issue-type",
+            "label",
+            "separate-board",
+            "field"
+          ],
+          "default": "title-pattern",
+          "x-workbook": {
+            "label": "How defects are marked",
+            "hint": "title-pattern | issue-type | label | separate-board | field"
+          }
+        },
+        "defect_values": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-workbook": {
+            "label": "Values that mean 'defect'",
+            "hint": "e.g. Bug, Defect - used when marked by issue type, label or field."
+          }
+        },
+        "observation_values": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-workbook": {
+            "label": "Values that mean 'observation / improvement'",
+            "hint": "Reported, but not counted as defects by default."
+          }
+        },
+        "exclude_patterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Cards that are not deliverables: QA admin cards, milestone markers, grouping/umbrella cards, duplicates.",
+          "x-workbook": {
+            "label": "Not a deliverable when the title matches",
+            "hint": "One regex per line."
+          }
+        },
+        "cr_marker": {
+          "type": "string",
+          "x-workbook": {
+            "label": "A change request is recognised by",
+            "hint": "Regex, label or field value. Blank = CRs come from the estimates source instead."
+          }
+        },
+        "client_names": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-workbook": {
+            "label": "People on the client side",
+            "hint": "Exact names as they appear in the tracker. Used to tell a client-found defect from a QA-found one."
+          }
+        }
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "description": "What your team's states mean. This is the single most important section: it is what turns 'our board has a column called In Test' into a number management can compare across projects.",
+      "x-workbook": {
+        "tab": "Workflow",
+        "title": "What your states mean"
+      },
+      "properties": {
+        "delivered_when": {
+          "type": "object",
+          "description": "Your delivery event: when an item counts as delivered. Velocity counts items that reached it, and it is the default meaning of 'delivered on time' for a commitment. Most teams set this to the state that means development is finished and testing can start, but it is your choice - name the state, not a convention borrowed from somebody else's board.",
+          "properties": {
+            "signal": {
+              "enum": [
+                "status-entered",
+                "label-added",
+                "field-set",
+                "closed",
+                "manual"
+              ],
+              "default": "status-entered"
+            },
+            "values": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "e.g. ['Ready for QA', 'In Test', 'Dev Complete']. First entry into any of these."
+            },
+            "from_date": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Apply this rule only from a date onward, when the team changed its process mid-project. Before it, the fallback below applies."
+            },
+            "fallback_values": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "x-workbook": {
+            "label": "Delivered when the item reaches",
+            "hint": "List your column or status names. This is your delivery event, whatever it is."
+          }
+        },
+        "closed_when": {
+          "type": "object",
+          "properties": {
+            "values": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "e.g. ['Closed', 'Done']."
+            },
+            "completed_flag_means": {
+              "type": "string",
+              "description": "What the tracker's own 'complete' flag means on your board - on some boards it means merged, not accepted."
+            }
+          },
+          "x-workbook": {
+            "label": "Closed when the item reaches"
+          }
+        },
+        "reopened_when": {
+          "type": "object",
+          "description": "Rework Rate = items that were closed and then reopened. A QA fail while the item is still being tested for the first time is normal testing, not rework.",
+          "properties": {
+            "values": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "States that mean 'back in play after being closed'."
+            },
+            "ignore_first_qa_fail": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "x-workbook": {
+            "label": "Reopened when the item moves out of closed into"
+          }
+        },
+        "clarification_when": {
+          "type": "object",
+          "description": "Task Comprehension = the requirement was understood without going back to the client. This is how we detect 'we had to ask'.",
+          "properties": {
+            "values": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "e.g. ['Awaiting Feedback', 'Blocked - Client']."
+            },
+            "also_comments": {
+              "type": "boolean",
+              "default": true,
+              "description": "Also treat a comment asking the client to clarify expected behaviour as 'had to ask'."
+            },
+            "exclude_reasons": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [
+                "build",
+                "environment",
+                "access"
+              ],
+              "description": "Going to Awaiting Feedback for a build or environment dependency is not a comprehension problem."
+            }
+          },
+          "x-workbook": {
+            "label": "Had to ask the client when the item reaches"
+          }
+        },
+        "commitment": {
+          "type": "object",
+          "description": "What a team commitment is, and what counts as meeting one. Delivery Commitment measures the reliability of the team: of the things the team negotiated and promised, how many landed on time. Both halves of that need saying, because teams commit to different things and not every task carries a commitment.",
+          "properties": {
+            "scope": {
+              "enum": [
+                "committed-only",
+                "all-deliverables"
+              ],
+              "default": "committed-only",
+              "description": "committed-only = count just the items the team negotiated a date for, which is what PMS asks for. all-deliverables = treat every item as committed, for a team that commits to the whole scope as one. Items left out are named in the note either way."
+            },
+            "met_when": {
+              "type": "string",
+              "default": "delivery",
+              "description": "What delivering a commitment means for this team, written as a short phrase that goes into the note. 'delivery' uses your delivery event above; 'handover' means the period's build reached the client; 'completion' means the item was closed. Anything else is used as written, so 'the demo environment was updated' is fine if that is what was promised.",
+              "examples": [
+                "delivery",
+                "handover",
+                "completion",
+                "delivery to the client"
+              ]
+            }
+          },
+          "x-workbook": {
+            "label": "Team commitments",
+            "hint": "What the team promises, and what counts as keeping the promise."
+          }
+        }
+      }
+    },
+    "sources": {
+      "type": "object",
+      "description": "Where scope, hours and dates come from when the tracker is not the agreed truth. All optional - a team with none of these still gets KPIs, with the gaps stated plainly.",
+      "x-workbook": {
+        "tab": "Sources",
+        "title": "Where the plan and the numbers come from"
+      },
+      "properties": {
+        "plan": {
+          "type": "object",
+          "properties": {
+            "tool_id": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "pdf",
+                "sheet",
+                "wiki",
+                "tracker",
+                "none"
+              ]
+            },
+            "ref": {
+              "type": "string"
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "x-workbook": {
+            "label": "Agreed scope / project plan"
+          }
+        },
+        "estimates": {
+          "type": "object",
+          "properties": {
+            "tool_id": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "sheet",
+                "tracker",
+                "none"
+              ]
+            },
+            "ref": {
+              "type": "string"
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "x-workbook": {
+            "label": "Additional effort estimates (change requests)"
+          }
+        },
+        "timeline": {
+          "type": "object",
+          "properties": {
+            "tool_id": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "sheet",
+                "wiki",
+                "tracker",
+                "none"
+              ]
+            },
+            "ref": {
+              "type": "string"
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "x-workbook": {
+            "label": "Timeline / date change log"
+          }
+        },
+        "evidence_channels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "tool ids of the chat spaces, mailboxes or threads searched for dates, handovers and decisions.",
+          "x-workbook": {
+            "label": "Where to look for evidence",
+            "hint": "Tool ids from the Tools tab, one per line."
+          }
+        },
+        "hours_first": {
+          "enum": [
+            "plan",
+            "tracker"
+          ],
+          "default": "tracker",
+          "x-workbook": {
+            "label": "When the plan and the tracker disagree on hours, trust",
+            "hint": "plan | tracker"
+          }
+        },
+        "hours_basis": {
+          "enum": [
+            "dev",
+            "dev+qa"
+          ],
+          "default": "dev",
+          "x-workbook": {
+            "label": "Velocity counts",
+            "hint": "dev = development hours only. dev+qa = adds each item's QA hours once its QA is done."
+          }
+        }
+      }
+    },
+    "periods": {
+      "type": "object",
+      "description": "How this team slices a project for PMS.",
+      "x-workbook": {
+        "tab": "Periods",
+        "title": "How you slice a project"
+      },
+      "properties": {
+        "model": {
+          "enum": [
+            "Milestone",
+            "Delivery cycle",
+            "Sprint",
+            "Month",
+            "Quarter",
+            "Full project"
+          ],
+          "default": "Delivery cycle",
+          "x-workbook": {
+            "label": "Period model"
+          }
+        },
+        "naming": {
+          "type": "string",
+          "default": "Initial Scope, Additional Requests N, Milestone N, Full Project",
+          "x-workbook": {
+            "label": "Period naming",
+            "hint": "PMS allows 25 characters."
+          }
+        },
+        "client_check_default": {
+          "enum": [
+            "Handover",
+            "Delivery"
+          ],
+          "default": "Handover",
+          "x-workbook": {
+            "label": "Client date is met on",
+            "hint": "Handover = when the build reached the client. Delivery = when the item itself was delivered."
+          }
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "description": "Counting choices the company allows a team to make. Everything not listed here is fixed by the engine and cannot be varied - that is deliberate.",
+      "x-workbook": {
+        "tab": "Counting Rules",
+        "title": "Counting choices"
+      },
+      "properties": {
+        "count_observations": {
+          "type": "boolean",
+          "default": false,
+          "x-workbook": {
+            "label": "Count observations as defects"
+          }
+        },
+        "count_improvements": {
+          "type": "boolean",
+          "default": false,
+          "x-workbook": {
+            "label": "Count improvements as defects"
+          }
+        },
+        "count_pre_existing": {
+          "type": "boolean",
+          "default": false,
+          "x-workbook": {
+            "label": "Count defects that already existed in the product"
+          }
+        },
+        "count_post_release": {
+          "type": "boolean",
+          "default": true,
+          "x-workbook": {
+            "label": "Count defects found after handover in Defect Rate"
+          }
+        },
+        "count_rejected": {
+          "type": "boolean",
+          "default": false,
+          "x-workbook": {
+            "label": "Count rejected reports",
+            "hint": "Fixed at No. Rejected reports are not defects."
+          }
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "description": "What the run produces and how far it is allowed to go on its own. This is the setting most likely to differ between two leads, and it is deliberately easy to change.",
+      "x-workbook": {
+        "tab": "Output",
+        "title": "What happens with the results"
+      },
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "review-only",
+            "dry-run",
+            "assisted-push",
+            "auto-push"
+          ],
+          "default": "assisted-push",
+          "description": "review-only = build the workbook and a copy-paste block; never touch PMS. dry-run = also compute the PMS payload and show the diff, but never write. assisted-push = dry run, then push after an explicit yes in chat. auto-push = push without asking; only honoured when unattended is true, and every push is still logged.",
+          "x-workbook": {
+            "label": "How results reach PMS",
+            "hint": "review-only | dry-run | assisted-push | auto-push"
+          }
+        },
+        "unattended": {
+          "type": "boolean",
+          "default": false,
+          "x-workbook": {
+            "label": "Allow scheduled runs to push without a person",
+            "hint": "Only meaningful with auto-push. Leave No unless you have run this for a while."
+          }
+        },
+        "workbook": {
+          "enum": [
+            "google-sheets",
+            "xlsx",
+            "none"
+          ],
+          "default": "xlsx",
+          "x-workbook": {
+            "label": "Working file format"
+          }
+        },
+        "workbook_location": {
+          "type": "string",
+          "x-workbook": {
+            "label": "Where the working file goes",
+            "hint": "Drive folder id, SharePoint path or a local folder."
+          }
+        },
+        "workbook_template": {
+          "type": "string",
+          "x-workbook": {
+            "label": "Tracker template to copy",
+            "hint": "Sheet id or path. Blank = build a fresh one."
+          }
+        },
+        "run_folder": {
+          "type": "string",
+          "default": "runs",
+          "x-workbook": {
+            "label": "Where run output is kept"
+          }
+        },
+        "notify": {
+          "type": "string",
+          "x-workbook": {
+            "label": "Post a summary to",
+            "hint": "A tool id from the Tools tab, or blank for none."
+          }
+        }
+      }
+    },
+    "custom_instructions": {
+      "type": "object",
+      "description": "Your own instructions, which take precedence over the tool's defaults. Three tiers, and the difference matters: STYLE is free - say how you want things worded and it is followed. RULE OVERRIDES are allowed but recorded - they describe a fact about your project that the defaults get wrong, and each one is printed in the run summary and the workbook so a reader can see the number was produced under a local rule. PMS-OWNED settings are not set here: targets are configurable per project in PMS, so a project that needs a different bar gets one there and the next run reads it; keeping a target in this file instead would make the workbook and PMS disagree about the same number. The KPI ids and the definition of each ratio are fixed, because the counting is what makes two projects comparable. An attempt to set either here is reported, not silently dropped.",
+      "x-workbook": {
+        "tab": "Custom Instructions",
+        "title": "Your own instructions"
+      },
+      "properties": {
+        "notes_style": {
+          "type": "string",
+          "description": "How you want the 'why' text to read. Free text. Example: 'Keep it under two sentences. Name the ticket, not the person. British spelling.'",
+          "x-workbook": {
+            "label": "House style for notes",
+            "hint": "Free text. Applied when notes are written or rewritten."
+          }
+        },
+        "always": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Things to do on every run. Example: 'Always show the previous period next to the new one.' 'Always flag a KPI that moved more than 20 points.'",
+          "x-workbook": {
+            "label": "Always do this",
+            "hint": "One instruction per line."
+          }
+        },
+        "never": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Things never to do. Example: 'Never post to the team chat.' 'Never push on a Friday.'",
+          "x-workbook": {
+            "label": "Never do this",
+            "hint": "One instruction per line."
+          }
+        },
+        "glossary": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Words your team uses that an outsider would misread. Example: 'Handover means the client build, not the internal release.' 'MK = PartnerSync integration.'",
+          "x-workbook": {
+            "label": "What our words mean",
+            "hint": "One per line. Stops a note being technically right and still misleading."
+          }
+        },
+        "rule_overrides": {
+          "type": "array",
+          "description": "Project facts the defaults get wrong. Each is applied and then printed in the run summary, so nobody has to guess why a number differs from the standard reading.",
+          "x-workbook": {
+            "as_table": true,
+            "columns": [
+              "rule",
+              "value",
+              "why",
+              "approved_by",
+              "expires"
+            ]
+          },
+          "items": {
+            "type": "object",
+            "required": [
+              "rule",
+              "value",
+              "why"
+            ],
+            "properties": {
+              "rule": {
+                "type": "string",
+                "description": "Which behaviour to change. Supported: delivered_signal, client_date_source, commit_date_source, cr_denominator, exclude_key, include_key, defect_phase, hours_source, period_of_key, velocity_team_hours.",
+                "enum": [
+                  "delivered_signal",
+                  "client_date_source",
+                  "commit_date_source",
+                  "cr_denominator",
+                  "exclude_key",
+                  "include_key",
+                  "defect_phase",
+                  "hours_source",
+                  "period_of_key",
+                  "velocity_team_hours"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "description": "The new value, or 'KEY = value' when the rule is about one ticket."
+              },
+              "why": {
+                "type": "string",
+                "description": "Required. It appears in the run summary, so write it for somebody who was not in the room."
+              },
+              "approved_by": {
+                "type": "string",
+                "description": "Who agreed to it. Leave blank for a decision that is yours alone to make."
+              },
+              "expires": {
+                "type": "string",
+                "description": "Optional date after which the run warns that this override may be stale."
+              }
+            }
+          }
+        },
+        "escalation": {
+          "type": "string",
+          "description": "What to do when something needs a decision you cannot make. Example: 'Ask me in chat; if I do not answer in a day, hold the run and do not push.'",
+          "x-workbook": {
+            "label": "When a decision is needed",
+            "hint": "Free text."
+          }
+        }
+      }
+    },
+    "accounts": {
+      "type": "array",
+      "description": "Your client accounts. Most of what varies between two projects actually varies between two clients - Northwind on Asana and Google Chat, Acme on Jira and Slack - so say it once here and every project on that account inherits it. A lead with one account can leave this out entirely.",
+      "x-workbook": {
+        "tab": "Accounts",
+        "title": "Your client accounts",
+        "as_table": true,
+        "columns": [
+          "id",
+          "name",
+          "notes"
+        ]
+      },
+      "items": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Short handle, e.g. 'northwind'. Projects point at it."
+          },
+          "name": {
+            "type": "string",
+            "description": "What people call the client."
+          },
+          "notes": {
+            "type": "string",
+            "description": "Anything a newcomer to this account should know."
+          },
+          "overrides": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "tracker": {
+                "type": "object",
+                "description": "A different tracker or adapter."
+              },
+              "conventions": {
+                "type": "object",
+                "description": "Different ticket, defect or exclusion conventions."
+              },
+              "workflow": {
+                "type": "object",
+                "description": "Different state names. The most common override after tracker."
+              },
+              "sources": {
+                "type": "object",
+                "description": "A different plan, estimates sheet or evidence channels."
+              },
+              "periods": {
+                "type": "object",
+                "description": "A different period model or velocity unit."
+              },
+              "policy": {
+                "type": "object",
+                "description": "Different counting choices, where the company allows them."
+              },
+              "output": {
+                "type": "object",
+                "description": "A different output mode or working-file location."
+              },
+              "custom_instructions": {
+                "type": "object",
+                "description": "House style or rule overrides for this scope only."
+              }
+            },
+            "description": "What is true for every project on this account, but not for your others. Set the tracker, the chat spaces and the conventions here rather than repeating them on each project."
+          }
+        }
+      }
+    },
+    "projects": {
+      "type": "array",
+      "description": "The projects this profile covers - one row per PMS project. Everything above is the default for all of them; a project that differs says so in its 'overrides'. One profile can cover several accounts on several trackers.",
+      "x-workbook": {
+        "tab": "Projects",
+        "title": "Your projects",
+        "as_table": true,
+        "columns": [
+          "id",
+          "name",
+          "account",
+          "pms_project_id",
+          "tracker_ref",
+          "workbook_ref",
+          "plan_ref",
+          "estimates_ref",
+          "period_model",
+          "velocity_unit",
+          "notes"
+        ]
+      },
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Short handle, e.g. 'q3-release'. Names the config and run files."
+          },
+          "name": {
+            "type": "string"
+          },
+          "pms_project_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "tracker_ref": {
+            "type": "string",
+            "description": "Board id / project key for this project, when it differs from the tracker default."
+          },
+          "workbook_ref": {
+            "type": "string",
+            "description": "Sheet id or file path of this project's tracker workbook."
+          },
+          "plan_ref": {
+            "type": "string"
+          },
+          "estimates_ref": {
+            "type": "string"
+          },
+          "period_model": {
+            "type": "string"
+          },
+          "velocity_unit": {
+            "enum": [
+              "Estimated Hours",
+              "Story Points"
+            ]
+          },
+          "notes": {
+            "type": "string"
+          },
+          "overrides": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "tracker": {
+                "type": "object",
+                "description": "A different tracker or adapter."
+              },
+              "conventions": {
+                "type": "object",
+                "description": "Different ticket, defect or exclusion conventions."
+              },
+              "workflow": {
+                "type": "object",
+                "description": "Different state names. The most common override after tracker."
+              },
+              "sources": {
+                "type": "object",
+                "description": "A different plan, estimates sheet or evidence channels."
+              },
+              "periods": {
+                "type": "object",
+                "description": "A different period model or velocity unit."
+              },
+              "policy": {
+                "type": "object",
+                "description": "Different counting choices, where the company allows them."
+              },
+              "output": {
+                "type": "object",
+                "description": "A different output mode or working-file location."
+              },
+              "custom_instructions": {
+                "type": "object",
+                "description": "House style or rule overrides for this scope only."
+              }
+            },
+            "description": "What differs for this one project, on top of its account. Usually empty - if you find yourself repeating the same override on several projects, it belongs on the account instead."
+          },
+          "account": {
+            "type": "string",
+            "description": "The account this project belongs to, by id. It inherits that account's overrides."
+          }
+        }
+      }
+    },
+    "learned": {
+      "type": "array",
+      "description": "Settings captured from conversation, each with the sentence it came from. Written by scripts/remember.py, never by hand. It answers 'why is this set like this' six months later, which is the question a configuration file normally cannot answer.",
+      "x-workbook": {
+        "tab": "Learned",
+        "title": "Settings captured from conversation",
+        "as_table": true,
+        "columns": [
+          "at",
+          "setting",
+          "scope",
+          "before",
+          "after",
+          "why",
+          "by"
+        ]
+      },
+      "items": {
+        "type": "object",
+        "properties": {
+          "at": {
+            "type": "string",
+            "description": "When it was captured."
+          },
+          "setting": {
+            "type": "string",
+            "description": "The dotted path, or tools[<id>]."
+          },
+          "scope": {
+            "type": "string",
+            "description": "profile defaults, or the account or project it applies to."
+          },
+          "before": {
+            "description": "What it was."
+          },
+          "after": {
+            "description": "What it became."
+          },
+          "why": {
+            "type": "string",
+            "description": "The sentence it came from."
+          },
+          "by": {
+            "type": "string",
+            "description": "Who asked."
+          }
+        }
+      }
+    }
+  }
+}

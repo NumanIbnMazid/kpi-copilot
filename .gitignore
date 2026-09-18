@@ -1,0 +1,27 @@
+# Run output: extracts, results, payloads, push logs. Project data, never committed.
+runs/
+**/runs/
+
+# A person's own configuration and the files beside it.
+profile.yaml
+!plugin/kpi-copilot/examples/**/profile.yaml
+preflight.json
+!plugin/kpi-copilot/examples/**/preflight.json
+reasons.yaml
+!plugin/kpi-copilot/examples/**/reasons.yaml
+manual.yaml
+
+# Generated workbooks. Rebuild them with scripts/workbook.py.
+*.xlsx
+~$*
+
+# KPI definitions cached from PMS: environment-specific, and it can hold project targets.
+plugin/kpi-copilot/schemas/kpi_registry.json
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,82 @@
+{
+  "kif_version": "1.0",
+  "generated": {
+    "adapter": "asana",
+    "adapter_version": "1.0.0",
+    "at": "2026-09-18T09:00:00+06:00",
+    "source_url": "https://app.asana.com/0/1100000000000001",
+    "capabilities": ["status_history", "comments", "assignee", "estimates", "created_date", "closed_date", "reporter"],
+    "warnings": []
+  },
+  "project": {
+    "name": "Northwind Q3 Release Items",
+    "tracker": "Asana",
+    "pms_project_id": 101,
+    "period_type": "Delivery cycle",
+    "velocity_unit": "Estimated Hours",
+    "client_date": "2026-09-11",
+    "commit_date": "2026-09-11",
+    "client_check": "Delivery",
+    "dates_why": "Northwind Q3 feature freeze is 09/11: no new features after it, bug fixes allowed until 09/25.",
+    "sources_text": "[Project plan](https://drive.google.com/file/d/1qSIZ/view), [Additional Effort Estimates](https://docs.google.com/spreadsheets/d/1TZ18/edit)"
+  },
+  "periods": [
+    {
+      "name": "Initial Scope",
+      "pms_period_id": 723,
+      "old_name": "Cycle 1: Initial Scope",
+      "start": "2026-07-01", "end": "2026-08-12",
+      "client_date": "2026-09-11", "commit_date": "2026-09-11",
+      "client_check": "Delivery",
+      "handover_date": "2026-08-12",
+      "team_hours": 135,
+      "plan_client_date": "2026-07-29",
+      "notes": "Planned work plus the additional requests approved on 07/31 and 08/12.",
+      "plan_text": "Milestone 1 on 07/23, Milestone 2 and handover on 07/29."
+    },
+    {
+      "name": "Additional Requests 1",
+      "pms_period_id": 724,
+      "start": "2026-08-27", "end": "2026-09-30",
+      "client_date": "2026-09-11", "commit_date": "2026-09-11",
+      "client_check": "Delivery",
+      "handover_date": null,
+      "team_hours": 0,
+      "notes": "The 4 additional requests approved on 08/28.",
+      "plan_text": "Dev complete 09/09, QA complete 09/11, delivery 09/16."
+    }
+  ],
+  "tasks": [
+    {"period":"Initial Scope","key":"TKT-3175","title":"Access rule validation","type":"Task","planned":true,"hours_dev":26.5,"hours_qa":8,"hours_source":"Project plan","delivered":"2026-07-22","closed":"2026-08-05","status":"Done","understood":"No","understood_evidence":"https://app.asana.com/c/1","understood_why":"Northwind had to settle the bypass rule","met_client_date":"Yes","met_commitment":"Yes","reopened":"No","remarks":""},
+    {"period":"Initial Scope","key":"TKT-3269","title":"Kiosk question types","type":"Task","planned":true,"hours_dev":21.5,"hours_qa":6,"hours_source":"Project plan","delivered":"2026-07-21","closed":"2026-08-01","status":"Done","understood":"Yes","met_client_date":"Yes","met_commitment":"Yes","reopened":"Yes","rework_evidence":"https://app.asana.com/c/2","remarks":"Reopened after closing on 08/03"},
+    {"period":"Initial Scope","key":"TKT-3177","title":"Meridian integration","type":"Task","planned":true,"hours_dev":41,"hours_qa":10,"hours_source":"Project plan","delivered":"2026-07-23","closed":"2026-08-08","status":"Done","understood":"Yes","met_client_date":"Yes","met_commitment":"Yes","reopened":"No","rework_evidence":"Failed QA on 07/30 during the first test round","remarks":""},
+    {"period":"Initial Scope","key":"TKT-3179","title":"Mobile check-in flow","type":"Task","planned":true,"hours_dev":36.5,"hours_qa":9,"hours_source":"Project plan","delivered":"2026-07-28","closed":"2026-08-10","status":"Done","understood":"No","understood_evidence":"https://app.asana.com/c/3","met_client_date":"Yes","met_commitment":"Yes","reopened":"No"},
+    {"period":"Initial Scope","key":"PLAN: Dev Delivery Documentation","title":"Dev Delivery Documentation","type":"Task","planned":true,"hours_dev":20,"hours_source":"Project plan (no card)","delivered":"2026-08-12","closed":"2026-08-12","status":"Done","understood":"Yes","met_client_date":"Yes","met_commitment":"No","commitment_evidence":"https://app.asana.com/c/4","remarks":"Planned 07/29, went out with the 08/12 handover","reopened":"No"},
+    {"period":"Initial Scope","key":"TKT-3479","title":"Duplicate visitors on mobile check in","type":"CR","planned":false,"hours_dev":14,"hours_qa":10,"hours_source":"Estimates sheet","delivered":"2026-08-02","closed":"2026-08-09","status":"Done","understood":"Yes","met_client_date":"Yes","met_commitment":"Yes","reopened":"No"},
+    {"period":"Initial Scope","key":"TKT-3590","title":"Fixes for 8 existing bugs","type":"CR","planned":false,"hours_dev":15,"hours_qa":3,"hours_source":"Estimates sheet","delivered":"2026-08-03","closed":"2026-08-11","status":"Done","understood":"Yes","met_client_date":"Yes","met_commitment":"Yes","reopened":"No"},
+    {"period":"Initial Scope","key":"TKT-3162","title":"Q3 umbrella card","type":"Excluded","exclude_reason":"Umbrella project card (handover thread)"},
+    {"period":"Initial Scope","key":"TKT-3443","title":"QA bug reporting","type":"Excluded","exclude_reason":"QA bug-reporting card"},
+
+    {"period":"Additional Requests 1","key":"TKT-3644","title":"PartnerSync watchlist flags","type":"CR","planned":false,"hours_dev":9,"hours_qa":6,"hours_source":"Estimates sheet","delivered":"2026-09-08","closed":"2026-09-12","status":"Done","understood":"Yes","understood_why":"Field questions were asked during estimation","met_client_date":"Yes","met_commitment":"Yes","reopened":"No"},
+    {"period":"Additional Requests 1","key":"TKT-3643","title":"Access history page","type":"CR","planned":false,"hours_dev":31,"hours_qa":10,"hours_source":"Estimates sheet","delivered":"2026-09-08","closed":"2026-09-13","status":"Done","understood":"Yes","met_client_date":"Yes","met_commitment":"Yes","reopened":"No"},
+    {"period":"Additional Requests 1","key":"TKT-3706","title":"Screening emails","type":"CR","planned":false,"hours_dev":16,"hours_qa":4,"hours_source":"Estimates sheet","delivered":"2026-09-09","closed":null,"status":"In QA","understood":"Yes","met_client_date":"Yes","met_commitment":"Yes","reopened":null},
+    {"period":"Additional Requests 1","key":"TKT-3653","title":"Calendar sync","type":"CR","planned":false,"hours_dev":16,"hours_qa":5,"hours_source":"Estimates sheet","delivered":"2026-09-10","closed":null,"status":"In QA","understood":"Yes","met_client_date":"Yes","met_commitment":"No","commitment_evidence":"https://chat.google.com/room/x/1","remarks":"Estimate missed delete events","reopened":null},
+    {"period":"Additional Requests 1","key":"TKT-3801","title":"Access list export","type":"CR","planned":false,"hours_dev":12,"hours_qa":3,"hours_source":"Estimates sheet","delivered":null,"closed":null,"status":"In progress","understood":null,"met_client_date":"Pending","client_date":"2026-09-24","met_commitment":"Pending","commit_date":"2026-09-24","reopened":null}
+  ],
+  "defects": [
+    {"period":"Initial Scope","key":"Bug 3","title":"Access rule validation ignores bypass","kind":"Bug","reported_by":"QA","reported_on":"2026-07-18","phase":"QA","pre_existing":"No","rejected":"No","final_status":"Fixed"},
+    {"period":"Initial Scope","key":"Bug 7","title":"Kiosk checkbox not saved","kind":"Bug","reported_by":"QA","reported_on":"2026-07-18","phase":"QA","pre_existing":"No","rejected":"No","final_status":"Fixed"},
+    {"period":"Initial Scope","key":"Bug 10","title":"Duplicate visitors","kind":"Bug","reported_by":"QA","reported_on":"2026-07-19","phase":"QA","pre_existing":"Yes","rejected":"No","final_status":"Fixed"},
+    {"period":"Initial Scope","key":"Observation 2","title":"Label wording","kind":"Observation","reported_by":"QA","reported_on":"2026-07-20","phase":"QA","pre_existing":"No","rejected":"No","final_status":"Closed"},
+    {"period":"Initial Scope","key":"Bug 24","title":"ID field not collected","kind":"Bug","reported_by":"QA","reported_on":"2026-07-21","phase":"QA","pre_existing":"No","rejected":"Yes","rejection_reason":"by design","final_status":"Rejected"},
+    {"period":"Initial Scope","key":"Bug 41","title":"Watchlist edit fails for client","kind":"Bug","reported_by":"Stefan Barrow","reported_on":"2026-08-20","phase":"Post-release","pre_existing":"No","rejected":"No","final_status":"Fixed"},
+
+    {"period":"Additional Requests 1","key":"Bug 52","title":"History page paging","kind":"Bug","reported_by":"QA","reported_on":"2026-09-11","phase":"QA","pre_existing":"No","rejected":"No","final_status":"Fixed"},
+    {"period":"Additional Requests 1","key":"Bug 53","title":"Screening email template","kind":"Bug","reported_by":"QA","reported_on":"2026-09-11","phase":"QA","pre_existing":"No","rejected":"No","final_status":"Open"},
+    {"period":"Additional Requests 1","key":"Bug 58","title":"Calendar sync drops deletes","kind":"Bug","reported_by":"QA","reported_on":"2026-09-12","phase":"QA","pre_existing":"No","rejected":"No","final_status":"Open"},
+    {"period":"Additional Requests 1","key":"Improvement 4","title":"Faster history load","kind":"Improvement","reported_by":"QA","reported_on":"2026-09-12","phase":"QA","pre_existing":"No","rejected":"No","final_status":"Deferred"}
+  ],
+  "review": [
+    {"kind":"rework","subject":"TKT-3177","question":"TKT-3177 failed QA on 07/30. Was that a reopen after closing, or the first test round?","proposal":"Treat as first-round testing, not rework","link":"https://app.asana.com/c/9"}
+  ]
+}
