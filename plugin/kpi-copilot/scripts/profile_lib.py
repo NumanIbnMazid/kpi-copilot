@@ -67,7 +67,7 @@ from typing import Any
 # Sections a project may override. Deliberately not `owner`, `tools` or `organization` -
 # those describe the person and the company, not a project.
 OVERRIDABLE = (
-    "tracker", "conventions", "workflow", "sources", "periods", "policy",
+    "tracker", "conventions", "workflow", "sources", "scan", "periods", "policy",
     "output", "custom_instructions",
 )
 

@@ -108,10 +108,11 @@ What your team's states mean. This is the single most important section: it is w
 
 ## `sources`
 
-Where scope, hours and dates come from when the tracker is not the agreed truth. All optional - a team with none of these still gets KPIs, with the gaps stated plainly.
+Where scope, hours and dates come from, and which of them the run is allowed to believe. All optional - a team with none of these still gets KPIs, with the gaps stated plainly.
 
 | Field | Type | Default | Required | What it is |
 |---|---|---|---|---|
+| `mode` | one of: `tracker-only`, `tracker-first`, `multi-source` | `tracker-first` |  | Which sources may answer a question. tracker-only: the issue tracker is the single source of truth and nothing else is opened, so a run is fast, cheap and reproducible; anything the tracker cannot answer comes back 'Not measured' with the reason. tracker-first: the tracker answers, and the other sources are consulted only for facts it left blank. multi-source: other sources are read even when the tracker has an answer, and a disagreement is reported. |
 | `plan` | object |  |  |  |
 | &nbsp;&nbsp;`plan.tool_id` | string |  |  |  |
 | &nbsp;&nbsp;`plan.kind` | one of: `pdf`, `sheet`, `wiki`, `tracker`, `none` |  |  |  |
@@ -130,6 +131,27 @@ Where scope, hours and dates come from when the tracker is not the agreed truth.
 | `evidence_channels` | list of string |  |  | tool ids of the chat spaces, mailboxes or threads searched for dates, handovers and decisions. |
 | `hours_first` | one of: `plan`, `tracker` | `tracker` |  | plan \| tracker |
 | `hours_basis` | one of: `dev`, `dev+qa` | `dev` |  | dev = development hours only. dev+qa = adds each item's QA hours once its QA is done. |
+
+## `scan`
+
+How far a run is allowed to reach. Without limits every refresh re-reads every board, every channel and every thread from the beginning, which is slow, expensive and no more accurate. Every limit has a working default, and whatever a limit cut off is named in the run's Gaps rather than dropped quietly.
+
+| Field | Type | Default | Required | What it is |
+|---|---|---|---|---|
+| `window` | one of: `period`, `period+grace`, `days`, `all` | `period+grace` |  | The time range a run reads. 'period' is the period's own start and end. 'period+grace' adds grace_days either side, which is what catches a handover announced the morning after the period closed. 'days' uses the 'days' field. 'all' removes the limit. |
+| `grace_days` | integer | `14` |  | Used when the range is period+grace. |
+| `days` | integer | `90` |  | Used when the range is 'days'. |
+| `tracker_scope` | one of: `period`, `touched-since`, `all` | `all` |  | How much of the board to read. 'all' is right for most boards and is the default, because a board is usually small and its history is what proves a date. 'touched-since' reads only items modified inside the window, which is what makes a big long-running board affordable. 'period' reads only items assigned to the period. |
+| `comments` | one of: `always`, `on-demand`, `never` | `on-demand` |  | Ticket comments are the most expensive thing on a board and are usually needed for a handful of items. 'on-demand' reads them only for items whose judgement actually depends on one, such as a clarification or a disputed date. |
+| `chat` | object |  |  | Limits on chat spaces. Ignored entirely when the source of truth is tracker-only. |
+| &nbsp;&nbsp;`chat.lookback_days` | integer | `45` |  |  |
+| &nbsp;&nbsp;`chat.max_messages_per_channel` | integer | `300` |  |  |
+| &nbsp;&nbsp;`chat.only_when_missing` | boolean | `yes` |  | Search a chat space only for a fact no other source could answer. |
+| `mail` | object |  |  | Limits on mailboxes and threads. Ignored when the source of truth is tracker-only. |
+| &nbsp;&nbsp;`mail.lookback_days` | integer | `45` |  |  |
+| &nbsp;&nbsp;`mail.max_threads` | integer | `50` |  |  |
+| `stop_when_found` | boolean | `yes` |  | Stop looking for a fact once a source has answered it, instead of collecting every mention. |
+| `max_sources_per_fact` | integer | `2` |  | Raise it only where two sources routinely disagree and you want both quoted. |
 
 ## `periods`
 

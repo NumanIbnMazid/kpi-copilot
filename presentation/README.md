@@ -10,7 +10,7 @@ rehearsing away from a screen.
 
 ---
 
-## Running order (14 slides, about 20 minutes plus questions)
+## Running order (15 slides, about 22 minutes plus questions)
 
 | # | Slide | The one thing it has to land |
 |---|---|---|
@@ -21,21 +21,22 @@ rehearsing away from a screen.
 | 5 | One contract in the middle | The design decision. If one slide gets challenged, it is this one |
 | 6 | Two teams, one engine | Both run today. The Jira/CSV one is deliberately the harder case |
 | 7 | It refuses to guess | The trust slide. A wrong number is worse than a missing one |
-| 8 | Custom instructions, with a line | Leads get real control; targets belong in PMS, counting does not move |
-| 9 | Configuration a person can read | Continuity — a profile only one person can open dies when they go on leave |
-| 10 | Readiness check | The two slow items are access and seats. Start them day one |
-| 11 | What it costs | Do not oversell the hour |
-| 12 | Three phases | "A named owner who is not me" |
-| 13 | What will go wrong | Naming the risks first is what makes the rest credible |
-| 14 | The ask | Close on the two access requests, not the technology |
+| 8 | Each lead decides what counts as the truth | Board-only is a legitimate choice, and a run is bounded by default. This is the "will it read our whole Slack" answer |
+| 9 | Custom instructions, with a line | Leads get real control; targets belong in PMS, counting does not move |
+| 10 | Configuration a person can read | Continuity — a profile only one person can open dies when they go on leave |
+| 11 | Readiness check | The two slow items are access and seats. Start them day one |
+| 12 | What it costs | Do not oversell the hour |
+| 13 | Three phases | "A named owner who is not me" |
+| 14 | What will go wrong | Naming the risks first is what makes the rest credible |
+| 15 | The ask | Close on the two access requests, not the technology |
 
-## The four questions to expect
+## The five questions to expect
 
 **"What if our project genuinely cannot hit a threshold?"**
 Then set a different target on that project in PMS — targets are configurable per project, and
 a legacy integration should not be held to a greenfield bar. The run reads it and marks it as
 this project's own target so nobody mistakes it for the company default. The only thing
-refused is keeping a second copy of the target in a config file. Slide 8.
+refused is keeping a second copy of the target in a config file. Slide 9.
 
 **"Why not just standardise on one tracker?"**
 Because that is a year of migration to solve a reporting problem, and it would not fix
@@ -45,13 +46,19 @@ comparability anyway — two teams on the same tracker still count differently. 
 Every value carries its numerator and denominator, every judgement carries an evidence link,
 every run is kept, and the tool refuses to report what it cannot observe. Slides 3 and 7.
 
+**"Will it read our entire chat history every month?"**
+No. Each lead sets which sources may answer at all — the board alone, the board first, or
+several — and how far back a run looks. The defaults read the period being measured plus a
+fortnight either side, cap what they take from each place, and stop at the first source that
+answers. Anything a limit cut off is named in the report. Slide 8.
+
 **"Is this measuring people?"**
 No. It measures delivery against agreed dates. Notes describe tasks, not individuals, and
 nothing produces a per-person figure.
 
 ## If you only have five minutes
 
-Slides 3, 5, 7 and 14. What it produces, why it generalises, why it is trustworthy, what you
+Slides 3, 5, 7 and 15. What it produces, why it generalises, why it is trustworthy, what you
 are asking for.
 
 ## Backing material

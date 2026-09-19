@@ -527,12 +527,25 @@
     },
     "sources": {
       "type": "object",
-      "description": "Where scope, hours and dates come from when the tracker is not the agreed truth. All optional - a team with none of these still gets KPIs, with the gaps stated plainly.",
+      "description": "Where scope, hours and dates come from, and which of them the run is allowed to believe. All optional - a team with none of these still gets KPIs, with the gaps stated plainly.",
       "x-workbook": {
         "tab": "Sources",
         "title": "Where the plan and the numbers come from"
       },
       "properties": {
+        "mode": {
+          "enum": [
+            "tracker-only",
+            "tracker-first",
+            "multi-source"
+          ],
+          "default": "tracker-first",
+          "description": "Which sources may answer a question. tracker-only: the issue tracker is the single source of truth and nothing else is opened, so a run is fast, cheap and reproducible; anything the tracker cannot answer comes back 'Not measured' with the reason. tracker-first: the tracker answers, and the other sources are consulted only for facts it left blank. multi-source: other sources are read even when the tracker has an answer, and a disagreement is reported.",
+          "x-workbook": {
+            "label": "Source of truth",
+            "hint": "tracker-only | tracker-first | multi-source. tracker-only never opens chat, mail or documents."
+          }
+        },
         "plan": {
           "type": "object",
           "properties": {
@@ -639,6 +652,142 @@
           "x-workbook": {
             "label": "Velocity counts",
             "hint": "dev = development hours only. dev+qa = adds each item's QA hours once its QA is done."
+          }
+        }
+      }
+    },
+    "scan": {
+      "type": "object",
+      "description": "How far a run is allowed to reach. Without limits every refresh re-reads every board, every channel and every thread from the beginning, which is slow, expensive and no more accurate. Every limit has a working default, and whatever a limit cut off is named in the run's Gaps rather than dropped quietly.",
+      "x-workbook": {
+        "tab": "Scan",
+        "title": "How far a run looks"
+      },
+      "properties": {
+        "window": {
+          "enum": [
+            "period",
+            "period+grace",
+            "days",
+            "all"
+          ],
+          "default": "period+grace",
+          "description": "The time range a run reads. 'period' is the period's own start and end. 'period+grace' adds grace_days either side, which is what catches a handover announced the morning after the period closed. 'days' uses the 'days' field. 'all' removes the limit.",
+          "x-workbook": {
+            "label": "Time range to read",
+            "hint": "period | period+grace | days | all"
+          }
+        },
+        "grace_days": {
+          "type": "integer",
+          "default": 14,
+          "x-workbook": {
+            "label": "Days either side of the period",
+            "hint": "Used when the range is period+grace."
+          }
+        },
+        "days": {
+          "type": "integer",
+          "default": 90,
+          "x-workbook": {
+            "label": "Days back",
+            "hint": "Used when the range is 'days'."
+          }
+        },
+        "tracker_scope": {
+          "enum": [
+            "period",
+            "touched-since",
+            "all"
+          ],
+          "default": "all",
+          "description": "How much of the board to read. 'all' is right for most boards and is the default, because a board is usually small and its history is what proves a date. 'touched-since' reads only items modified inside the window, which is what makes a big long-running board affordable. 'period' reads only items assigned to the period.",
+          "x-workbook": {
+            "label": "How much of the board to read",
+            "hint": "all | touched-since | period"
+          }
+        },
+        "comments": {
+          "enum": [
+            "always",
+            "on-demand",
+            "never"
+          ],
+          "default": "on-demand",
+          "description": "Ticket comments are the most expensive thing on a board and are usually needed for a handful of items. 'on-demand' reads them only for items whose judgement actually depends on one, such as a clarification or a disputed date.",
+          "x-workbook": {
+            "label": "Read ticket comments",
+            "hint": "always | on-demand | never"
+          }
+        },
+        "chat": {
+          "type": "object",
+          "description": "Limits on chat spaces. Ignored entirely when the source of truth is tracker-only.",
+          "properties": {
+            "lookback_days": {
+              "type": "integer",
+              "default": 45,
+              "x-workbook": {
+                "label": "Chat: days back"
+              }
+            },
+            "max_messages_per_channel": {
+              "type": "integer",
+              "default": 300,
+              "x-workbook": {
+                "label": "Chat: messages per space"
+              }
+            },
+            "only_when_missing": {
+              "type": "boolean",
+              "default": true,
+              "description": "Search a chat space only for a fact no other source could answer.",
+              "x-workbook": {
+                "label": "Chat: only for facts still missing"
+              }
+            }
+          },
+          "x-workbook": {
+            "label": "Chat limits"
+          }
+        },
+        "mail": {
+          "type": "object",
+          "description": "Limits on mailboxes and threads. Ignored when the source of truth is tracker-only.",
+          "properties": {
+            "lookback_days": {
+              "type": "integer",
+              "default": 45,
+              "x-workbook": {
+                "label": "Mail: days back"
+              }
+            },
+            "max_threads": {
+              "type": "integer",
+              "default": 50,
+              "x-workbook": {
+                "label": "Mail: threads"
+              }
+            }
+          },
+          "x-workbook": {
+            "label": "Mail limits"
+          }
+        },
+        "stop_when_found": {
+          "type": "boolean",
+          "default": true,
+          "description": "Stop looking for a fact once a source has answered it, instead of collecting every mention.",
+          "x-workbook": {
+            "label": "Stop at the first answer"
+          }
+        },
+        "max_sources_per_fact": {
+          "type": "integer",
+          "default": 2,
+          "x-workbook": {
+            "label": "Most sources to consult for one fact",
+            "hint": "Raise it only where two sources routinely disagree and you want both quoted."
           }
         }
       }

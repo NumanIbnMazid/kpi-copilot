@@ -333,6 +333,11 @@ def build_checks(profile: dict | None, profile_path: Path | None,
 
     # ---- 4. Data sources ------------------------------------------------------------
     srcs = p.get("sources") or {}
+    mode = srcs.get("mode") or "tracker-first"
+    # On a tracker-only profile the tracker is the agreed single source of truth. The other
+    # sources are not gaps then, they are a deliberate choice, and reporting them as warnings
+    # trains people to ignore this checklist.
+    tracker_only = mode == "tracker-only"
     for label, key, why in (
         ("Agreed scope / project plan", "plan", "Scope and planned dates come from here when the tracker is not the agreed truth."),
         ("Additional effort estimates", "estimates", "Change requests and their hours come from here."),
@@ -344,8 +349,10 @@ def build_checks(profile: dict | None, profile_path: Path | None,
         add(Check(
             f"source-{key}", "Data sources", label, why,
             "Add it on the Sources tab of the profile workbook, or accept that the KPIs it feeds will say 'Not measured' and why.",
-            DEGRADED, PASS if present else WARN,
-            block.get("ref", "") if present else "not configured - the run will state the gap rather than guess",
+            DEGRADED, PASS if (present or tracker_only) else WARN,
+            block.get("ref", "") if present
+            else "not needed - this profile treats the tracker as the single source of truth" if tracker_only
+            else "not configured - the run will state the gap rather than guess",
             _now(),
         ))
 
@@ -354,8 +361,25 @@ def build_checks(profile: dict | None, profile_path: Path | None,
         "evidence-channels", "Data sources", "At least one evidence channel",
         "Dates, handovers and decisions are proved with links. With no channel, those cells come back empty and need filling in by hand.",
         "List your chat spaces or mail threads on the Tools tab and reference them from Sources.",
-        DEGRADED, PASS if channels else WARN,
-        f"{len(channels)} configured" if channels else "none configured",
+        DEGRADED, PASS if (channels or tracker_only) else WARN,
+        f"{len(channels)} configured" if channels
+        else "not needed - source of truth is tracker-only" if tracker_only
+        else "none configured",
+        _now(),
+    ))
+
+    scan = p.get("scan") or {}
+    window = scan.get("window") or "period+grace"
+    add(Check(
+        "scan-bounds", "Data sources", "A run has a bounded reach",
+        "Without a time range and per-source caps every refresh re-reads the whole history of every "
+        "board and channel. That is slower and costs more without being more accurate.",
+        "Set scan.window (period+grace suits most teams) and, on a long-running board, "
+        "scan.tracker_scope: touched-since.",
+        DEGRADED, WARN if window == "all" else PASS,
+        f"source of truth {mode}; window {window}"
+        + (f", board {scan.get('tracker_scope')}" if scan.get("tracker_scope") else "")
+        + ("; unbounded - every run reads all history" if window == "all" else ""),
         _now(),
     ))
 

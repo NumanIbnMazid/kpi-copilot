@@ -1,0 +1,129 @@
+profile_version: "1.0"
+
+# Example D - the board is the only source of truth, and a run is bounded.
+#
+# This is the profile for a team whose tracker is genuinely the record: statuses are moved
+# properly and on time, so opening a chat space to second-guess the board would be slower
+# without being more accurate. Nothing outside the tracker is ever read.
+#
+# It is also the cheapest profile in the repository to run, and deliberately so. Compare the
+# 'scan' block with the defaults: a monthly refresh here is one bounded board query.
+#
+# Try it:
+#   python3 scripts/profile_tool.py validate --profile examples/tracker-only/profile.yaml
+#   python3 scripts/preflight.py --profile examples/tracker-only/profile.yaml --project atlas
+#
+# Note what preflight says about the plan, the estimates sheet and the chat spaces: "not
+# needed", not "missing". On this profile they are a choice, not a gap.
+
+owner:
+  name: J. Okonkwo
+  email: lead@example.com
+  role: Delivery Lead
+  timezone: Europe/Lisbon
+
+organization:
+  pms_base_url: https://pms.example.com
+  kpi_registry: kpi_registry.json
+  note_format: "what is measured || the numbers || what was left out || why"
+  evidence_required: true
+
+tools:
+  - id: tracker
+    kind: issue-tracker
+    name: Jira
+    url_or_id: https://example.atlassian.net
+    description: "The delivery board. Status history is the agreed record of what happened and when."
+    used_for: [scope, dates, defects, evidence]
+    access: Atlassian SSO
+
+  - id: pms
+    kind: pms
+    name: PMS
+    url_or_id: https://pms.example.com
+    description: "Where the KPIs are recorded."
+    used_for: [output]
+    access: Company SSO
+
+tracker:
+  adapter: csv
+  url: https://example.atlassian.net
+  estimate_field: Story Points
+  options:
+    tracker_name: Jira
+    file: ../acme-jira/board_export.csv
+    columns: {period: Sprint}
+
+conventions:
+  key_pattern: '[A-Z]+-\d+'
+  defect_by: issue-type
+  defect_values: [Bug]
+  observation_values: [Observation]
+  cr_marker: 'change-request'
+  exclude_patterns:
+    - '^Sprint Goal'
+    - '^QA Checklist'
+
+workflow:
+  delivered_when: {signal: status-entered, values: [In Review, Done]}
+  closed_when: {values: [Done, Closed]}
+  reopened_when: {values: [In Progress, Reopened], ignore_first_qa_fail: true}
+  commitment:
+    scope: all-deliverables
+    met_when: accepted
+    # The whole sprint scope is committed at planning, so every item carries the commitment.
+
+# ---------------------------------------------------------------------------------
+# The board, and nothing else.
+# ---------------------------------------------------------------------------------
+sources:
+  mode: tracker-only
+  # No plan, no estimates sheet, no evidence channels - on purpose. A KPI that needs
+  # something outside the board comes back "Not measured" and says so, which is honest
+  # and takes no time at all.
+  hours_first: tracker
+  hours_basis: dev
+
+# ---------------------------------------------------------------------------------
+# How far a run reaches. Without this block every refresh re-reads the whole board.
+# ---------------------------------------------------------------------------------
+scan:
+  window: period+grace
+  grace_days: 7           # short sprints, so a week either side is plenty
+  tracker_scope: touched-since   # the board has years of history; read only what moved
+  comments: on-demand     # comments only where a judgement actually depends on one
+  stop_when_found: true
+  max_sources_per_fact: 1 # there is only one source anyway
+
+periods:
+  model: Sprint
+  naming: "Sprint N"
+  client_check_default: Delivery
+
+policy:
+  count_observations: false
+  count_improvements: false
+  count_pre_existing: false
+  count_post_release: true
+
+output:
+  mode: review-only
+  unattended: false
+  workbook: xlsx
+  workbook_location: ./runs
+  run_folder: runs
+
+custom_instructions:
+  notes_style: "One or two sentences. Name the ticket, never the person."
+  never:
+    - "Never open chat or email for this account. The board is the record."
+  glossary:
+    - "Accepted means the product owner moved it to Done, not that the PR merged."
+
+projects:
+  - id: atlas
+    name: Atlas Platform
+    pms_project_id: 301
+    tracker_ref: ACME
+    velocity_unit: Story Points
+    notes: "Two-week sprints, Monday to Friday."

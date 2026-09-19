@@ -56,6 +56,7 @@ python3 scripts/where.py --profile profile.yaml
 | [06-periods-and-counting.md](06-periods-and-counting.md) | How you slice a project, and the counting choices you may make | Moving from milestones to sprints |
 | [07-output-and-files.md](07-output-and-files.md) | Modes, where the sheet goes, where every file lives | Changing how results reach PMS |
 | [08-custom-instructions.md](08-custom-instructions.md) | House style, always/never, glossary, rule overrides | The wording is not how you would put it |
+| [09-scan-and-source-of-truth.md](09-scan-and-source-of-truth.md) | Which places may answer a question, and how far back a run looks | A run is slower than it should be, or you want the board to be the only truth |
 | [all-fields.md](all-fields.md) | Every field, generated from the schema | Looking something up |
 
 ## Sections at a glance
@@ -69,6 +70,7 @@ python3 scripts/where.py --profile profile.yaml
 | `conventions` | How your team names things | yes |
 | `workflow` | What your states mean | yes |
 | `sources` | Plan, estimates, timeline, evidence | yes |
+| `scan` | How far a run looks, and how much it reads | yes |
 | `periods` | How a project is sliced | yes |
 | `policy` | Counting choices | yes |
 | `output` | What happens with results | yes |

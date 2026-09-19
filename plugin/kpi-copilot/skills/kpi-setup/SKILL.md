@@ -72,9 +72,20 @@ Ask only what you genuinely cannot see. Use one `AskUserQuestion` round, not six
 3. How they slice a project for PMS: milestones, delivery cycles, sprints, monthly, or one
    "Full Project".
 4. Whether they measure in hours or story points.
-5. What should happen at the end: a sheet they read and type into PMS themselves, a dry run
+5. **What counts as the source of truth.** Some teams run entirely off the issue tracker: the
+   board's own timeline - dev complete, QA ready, closed - is the agreed record, and opening
+   chat would be slower without being more accurate. Others genuinely need several sources,
+   because the date that matters was agreed in a call and only appears in chat. Ask which,
+   because it is the single biggest lever on how long a run takes. Default to `tracker-first`
+   when they are unsure; it reaches for another source only where the board is blank.
+6. What should happen at the end: a sheet they read and type into PMS themselves, a dry run
    they approve, or an automatic push. Ask whether that differs by client - it often does.
    (Default to approve-then-push; it suits almost everybody and takes a minute to change.)
+
+Write the answer to 5 into `sources.mode`, and set `scan` at the same time. A profile with no
+bounds makes every monthly refresh re-read years of history. `scan.window: period+grace` suits
+almost everyone; on a board with thousands of items add `scan.tracker_scope: touched-since`.
+See [reference/09-scan-and-source-of-truth.md](../../../../docs/reference/09-scan-and-source-of-truth.md).
 
 **One profile covers all of it.** Do not write them a profile per project. Three levels:
 their defaults at the top, an **account** per client carrying the tracker, chat spaces,

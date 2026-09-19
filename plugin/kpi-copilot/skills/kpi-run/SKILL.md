@@ -54,6 +54,39 @@ silently. Every measure carries `threshold_source` saying which bar it was score
 
 ## 2. Extract
 
+### Decide how far to look before you look
+
+A run that re-reads every board, every chat space and every mail thread from the beginning is
+slow and expensive, and it is **not** more accurate - the extra material is nearly all from
+periods that were settled months ago. The profile says how far to reach. Read it first and
+obey it.
+
+| Setting | What it means for this run |
+|---|---|
+| `sources.mode: tracker-only` | The tracker is the single source of truth. **Do not open chat, mail or documents at all.** Anything the board cannot answer is "Not measured" with that reason. This is the fastest and most reproducible mode and it is a legitimate choice, not a degraded one |
+| `sources.mode: tracker-first` | The board answers first. Open another source **only** for a fact the board left blank |
+| `sources.mode: multi-source` | Other sources are read even where the board has an answer. Use it when two sources routinely disagree and you want both quoted |
+| `scan.window` | The time range. `period+grace` (the default) is the period plus `grace_days` either side, which catches a handover announced the morning after the period closed |
+| `scan.tracker_scope` | `all` reads the whole board and suits most. `touched-since` reads only items modified inside the window, which is what makes a long-running board affordable |
+| `scan.comments` | `on-demand` (the default) reads a ticket's comments only when that item's judgement depends on one. Comments are the most expensive thing on a board and are needed for a handful of items |
+| `scan.chat.only_when_missing` | Search a space only for a fact nothing else answered |
+| `scan.stop_when_found` | Stop at the first source that answers, instead of collecting every mention |
+| `scan.max_sources_per_fact` | How many sources one fact is worth |
+
+Two rules make this safe:
+
+- **Say what you skipped.** Anything a limit cut off is named in Gaps, never dropped quietly.
+  "Chat searched back to 08/01 only" is a fine thing for a note to say; silently missing a
+  date is not.
+- **Widen deliberately, once.** If a fact the run genuinely needs falls outside the window,
+  widen for that one fact, say so, and offer to change the profile - do not quietly re-read
+  everything.
+
+Order the work cheapest-first: the board, then the plan and estimates sheets, then chat, then
+mail. Most runs never reach the last two, which is the point.
+
+### Running the adapter
+
 Each adapter turns one tracker into one KIF document. The contract is
 `adapters/_contract.md`; the format is `schemas/kif.schema.json`.
 
