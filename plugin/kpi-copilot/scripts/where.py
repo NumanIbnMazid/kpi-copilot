@@ -99,6 +99,12 @@ def main(argv: list[str] | None = None) -> int:
                   f" adapter {str((m.get('tracker') or {}).get('adapter') or '-'):<8}"
                   f" PMS {p.get('pms_project_id') or '-'}")
 
+    print("\nTo run it")
+    proj = f" --project {a.project}" if getattr(a, "project", None) else ""
+    print(f"  the whole thing       python3 scripts/run.py --profile \"{profile_path}\"{proj}")
+    print(f"  fold the sheet back   python3 scripts/run.py review --profile \"{profile_path}\"{proj}")
+    print(f"  send it to PMS        python3 scripts/run.py push --profile \"{profile_path}\"{proj} --apply")
+
     print("\nTo change something")
     print(f"  the spreadsheet way   python3 scripts/workbook.py read --xlsx \"{home / 'KPI Profile Workbook.xlsx'}\" \\")
     print(f"                          --out \"{profile_path}\"")

@@ -200,7 +200,7 @@ that could not be measured.
 python3 scripts/selftest.py
 ```
 
-90 assertions across three complete example stacks. Most of them check honesty rather than
+159 assertions across four complete example stacks. Most of them check honesty rather than
 arithmetic: that unmeasurable things come back unmeasured, that a local target is refused and
 points at PMS, that `review-only` will not push, that one client's run cannot see another
 client's chat space, and that no generated note says "1 observations".

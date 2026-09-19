@@ -182,16 +182,20 @@ def main() -> int:
           fwb.sheetnames == ["Read Me", "Dashboard", "Config", "Periods", "Task Register",
                              "Defect Register", "KPI Summary", "PMS Push Log", "Gaps"],
           str(fwb.sheetnames))
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from workbook import HDR as WB_HDR  # noqa: E402
     tr = fwb["Task Register"]
-    hdrs = {c.value for c in tr[3] if c.value}
+    hdrs = {c.value for c in tr[WB_HDR] if c.value}
     check("the register carries the gate columns the KPIs depend on",
           {"Client-Expected?", "Team Committed?", "Met Commitment?"} <= hdrs,
           str(sorted(hdrs))[:200])
     check("...and the evidence beside each judgement",
-          {"Comprehension Evidence", "Comprehension Link", "Rework Evidence"} <= hdrs)
+          {"Comprehension Note", "Comprehension Evidence", "Client Date Evidence",
+           "Commitment Evidence", "Rework Evidence"} <= hdrs, str(sorted(hdrs))[:220])
     check("columns are sized, not left at default",
           (tr.column_dimensions["E"].width or 0) > 20, str(tr.column_dimensions["E"].width))
-    check("headers freeze so a wide register stays readable", tr.freeze_panes == "E4", str(tr.freeze_panes))
+    check("headers freeze so a wide register stays readable",
+          tr.freeze_panes == f"E{WB_HDR + 1}", str(tr.freeze_panes))
     check("Config explains each KPI with the PMS formula",
           any("Formula (PMS definition)" == c.value
               for row in fwb["Config"].iter_rows() for c in row), "not found")
@@ -414,6 +418,11 @@ def main() -> int:
 
     print("\nEditing in the sheet, and what reaches PMS")
     from openpyxl import load_workbook as _lw  # noqa: E402
+
+    # Ask the builder where its rows are rather than hard-coding them here, so a change of
+    # layout shows up as a failing assertion rather than a KeyError in the test itself.
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from workbook import FIRST as WB_FIRST, KEYROW as WB_KEYROW  # noqa: E402
     r = run(["scripts/workbook.py", "tracker", "--results", str(tmp / "sav.results.json"),
              "--kif", str(EX / "northwind-q3" / "run.kif.json"),
              "--reasons", str(EX / "northwind-q3" / "reasons.yaml"), "--out", str(tmp / "t.xlsx")])
@@ -421,24 +430,26 @@ def main() -> int:
 
     wbk = _lw(tmp / "t.xlsx")
     ws = wbk["KPI Summary"]
-    keys = {c.value: c.column for c in ws[3] if c.value}
+    keys = {c.value: c.column for c in ws[WB_KEYROW] if c.value}
     check("the sheet offers a place to set a value by hand",
           {"why", "set_value_by_hand", "why_set_by_hand"} <= set(keys), str(sorted(keys)))
     check("the Why column is pre-filled from reasons.yaml",
-          any(r_[keys["why"] - 1].value for r_ in ws.iter_rows(min_row=5)))
+          any(r_[keys["why"] - 1].value for r_ in ws.iter_rows(min_row=WB_FIRST)))
 
     # Edit: a judgement, an hour figure, a defect, a Why, and a value set by hand.
-    tr = wbk["Task Register"]; tk = {c.value: c.column for c in tr[2] if c.value}
-    for row in tr.iter_rows(min_row=4):
+    tr = wbk["Task Register"]
+    tk = {c.value: c.column for c in tr[WB_KEYROW] if c.value}
+    for row in tr.iter_rows(min_row=WB_FIRST):
         if row[tk["key"] - 1].value == "TKT-3175":
             row[tk["understood"] - 1].value = "Yes"
             row[tk["hours_dev"] - 1].value = 30
-    dr = wbk["Defect Register"]; dk = {c.value: c.column for c in dr[2] if c.value}
-    for row in dr.iter_rows(min_row=4):
+    dr = wbk["Defect Register"]
+    dk = {c.value: c.column for c in dr[WB_KEYROW] if c.value}
+    for row in dr.iter_rows(min_row=WB_FIRST):
         if row[dk["key"] - 1].value == "Bug 7":
             row[dk["rejected"] - 1].value = "Yes"
             row[dk["rejection_reason"] - 1].value = "by design"
-    for row in ws.iter_rows(min_row=5):
+    for row in ws.iter_rows(min_row=WB_FIRST):
         if row[keys["period"] - 1].value == "Initial Scope":
             if row[keys["kpi"] - 1].value == "CR Rate":
                 row[keys["set_value_by_hand"] - 1].value = 33
@@ -574,6 +585,96 @@ def main() -> int:
     check("an account override reaches scan", merged["scan"]["comments"] == "never")
     check("...without losing the rest of the block", merged["scan"]["window"] == "period+grace")
     check("an account can change the source of truth", merged["sources"]["mode"] == "multi-source")
+
+
+    # ----------------------------------------------------------------------------------
+    print("\nOne command, and the sheet it produces")
+    # A run used to be fourteen commands. The arithmetic was never the slow part - the round
+    # trips were - so the whole deterministic chain has to work in one call, and has to end
+    # by naming what is missing rather than sending somebody off to search for everything.
+    one = tmp / "onepass"
+    r = run(["scripts/run.py", "--profile", str(EX / "acme-jira" / "profile.yaml"),
+             "--project", "acme-identity", "--out-dir", str(one), "--skip-preflight",
+             "--reasons", str(tmp / "one.reasons.yaml"), "--manual", str(tmp / "one.manual.yaml")])
+    check("one command runs the whole pipeline", r.returncode == 0, r.stderr[-400:])
+    for artefact in ("run.kif.json", "results.json", "report.md", "payloads.json", "tracker.xlsx"):
+        check(f"...and leaves {artefact}", (one / artefact).exists())
+    out = r.stdout
+    check("it says what the tracker could not answer", "could not answer" in out, out[-300:])
+    check("...naming the items, not just the KPI", "ACME-101" in out, out[-600:])
+    check("...and what would answer it", "Usually in" in out, out[-300:])
+
+    # An item nobody committed to is not a missing fact - Delivery Commitment measures
+    # promises kept, so there is nothing to look up. Saying otherwise sends somebody
+    # searching chat for an hour to find a blank that was already correct.
+    check("an item with no commitment is not reported as a gap",
+          "no 'met_commitment'" not in out, out[-600:])
+    for bad in ("1 reports", "1 tasks", "1 periods", "1 report have", "1 task have"):
+        check(f"no '{bad}' in the shopping list", bad not in out)
+    check("it reports its own timings", "= " in out and "s\n" in out)
+
+    sys.path.insert(0, str(HERE))
+    from workbook import FIRST as F, HDR as H, KEYROW as K  # noqa: E402
+    from openpyxl import load_workbook as _lw3  # noqa: E402
+    twb = _lw3(one / "tracker.xlsx")
+    tr2 = twb["Task Register"]
+    keys2 = {c.value: c.column for c in tr2[K] if c.value}
+    import datetime as _d
+    dates = [tr2.cell(row=rr, column=keys2["created"]).value
+             for rr in range(F, F + 6)]
+    check("dates are written as dates, so the column sorts as one",
+          any(isinstance(v, (_d.date, _d.datetime)) for v in dates), str(dates[:3]))
+    check("...with a date format on the cell",
+          tr2.cell(row=F, column=keys2["created"]).number_format == "yyyy-mm-dd",
+          tr2.cell(row=F, column=keys2["created"]).number_format)
+    check("rows are a normal height, not three lines deep",
+          (tr2.row_dimensions[F].height or 99) <= 20, str(tr2.row_dimensions[F].height))
+    check("the base font is set, so nothing falls back to Calibri",
+          tr2.cell(row=F, column=keys2["title"]).font.name == "Arial")
+
+    # Colour has to mean something, and it has to mean the same thing the tool will accept.
+    from workbook import COLS_TASKS, EDITABLE as WB_EDIT, IN as WB_IN  # noqa: E402
+    yellow = {k for k, _h, _w, role, _dt in COLS_TASKS if role == WB_IN}
+    views = {"client_expected", "team_committed"}
+    check("every yellow column is one review will actually read back",
+          yellow - views <= WB_EDIT["Task Register"],
+          str(sorted(yellow - views - WB_EDIT["Task Register"])))
+    fills = {k: tr2.cell(row=F, column=keys2[k]).fill.fgColor.rgb
+             for k in ("title", "understood", "hours_total")}
+    check("yellow means yours, white means read, grey means computed",
+          fills["understood"].endswith("FFF2CC") and fills["title"].endswith("FFFFFF")
+          and fills["hours_total"].endswith("F2F2F2"), str(fills))
+    check("formatting carries on past the last row",
+          tr2.cell(row=tr2.max_row, column=keys2["title"]).border.left.style == "thin")
+    check("the columns with a fixed set of answers get a dropdown",
+          len(tr2.data_validations.dataValidation) >= 5,
+          str(len(tr2.data_validations.dataValidation)))
+
+    # The dropdowns come off the KIF schema, so the sheet cannot offer a value the contract
+    # would reject - or miss one the contract has just gained.
+    from workbook import _choices  # noqa: E402
+    ch = _choices("tasks")
+    kif_schema = json.loads((ROOT / "schemas" / "kif.schema.json").read_text())
+    enum = [v for v in kif_schema["properties"]["tasks"]["items"]["properties"]
+            ["met_commitment"]["enum"] if v]
+    check("dropdown values come from the schema, not a copy of it",
+          ch["met_commitment"] == ",".join(enum), ch.get("met_commitment", ""))
+
+    # The round trip is the whole promise of an editable sheet.
+    tr2.cell(row=F, column=keys2["understood"]).value = "Yes"
+    tr2.cell(row=F, column=keys2["reopened"]).value = "No"
+    edited_key = tr2.cell(row=F, column=keys2["key"]).value
+    twb.save(one / "tracker.xlsx")
+    r = run(["scripts/run.py", "review", "--profile", str(EX / "acme-jira" / "profile.yaml"),
+             "--project", "acme-identity", "--out-dir", str(one), "--by", "Tester",
+             "--reasons", str(tmp / "one.reasons.yaml"), "--manual", str(tmp / "one.manual.yaml")])
+    check("one command folds the sheet back in and recomputes", r.returncode == 0, r.stderr[-400:])
+    check("...and says what it read back", "understood" in r.stdout, r.stdout[-300:])
+    patched2 = json.loads((one / "run.kif.json").read_text())
+    tsk = next(x for x in patched2["tasks"] if x["key"] == edited_key)
+    check("...and the edit really landed in the extract", tsk["understood"] == "Yes")
+    check("a link cell round trips as its target, not as the word on it",
+          all("Open" not in str(x.get("link") or "") for x in patched2["tasks"]))
 
     print(f"\n{passed} passed, {failed} failed\n")
     return 1 if failed else 0

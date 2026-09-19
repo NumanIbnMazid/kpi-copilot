@@ -30,101 +30,116 @@ counting happens in one place so two people on two trackers get the same number 
 situation. Do not reimplement any of the middle, and do not "adjust" a value to look better
 - change the input or the mapping and rerun.
 
-## 1. Check you can actually run
+In practice it is three commands:
 
 ```bash
-python3 scripts/preflight.py --profile <profile> --project <id> --strict
+python3 scripts/run.py --profile <p> --project <id>            # everything, to a sheet
+python3 scripts/run.py review --profile <p> --project <id>     # fold the sheet's edits back
+python3 scripts/run.py push   --profile <p> --project <id> --apply
 ```
 
-A non-zero exit means something blocking is unresolved. Say what it is and what unblocks it
-rather than pushing on. The exception: if the only blocks are push-related and the person
-wants a review sheet, continue in `review-only` and say so.
+The individual scripts still exist and still work; reach for them when one step needs
+different arguments, or when you are debugging which step went wrong.
 
-Refresh the KPI definitions if they are stale. PMS is the authority for ids, wording and
-targets - including any target this project sets for itself, which is a normal thing for a
-project to have:
+## 1. One command
+
+```bash
+python3 scripts/run.py --profile <profile> --project <id>
+```
+
+That is preflight, the adapter, validation, the engine, the workbook and the payloads, in one
+process. It takes under a second on a normal board, and it ends with the only two things that
+need a person:
+
+- the nine values per period, with Met / Not met / Not measured,
+- **a list of the facts the tracker could not answer, naming the tickets they belong to.**
+
+Everything lands in `runs/<date>/`: `run.kif.json`, `results.json`, `report.md`,
+`payloads.json`, `tracker.xlsx`.
+
+Useful flags: `--adapter csv --file export.csv` for a board with no adapter,
+`--from-extract <file>` for a browser extract, `--skip-preflight` when you already know
+readiness is fine, `--verbose` to see each step's own output, `--out-dir` to put the run
+somewhere else.
+
+If preflight blocks the run, say what is missing and what unblocks it rather than pushing on.
+The exception: if the only blocks are push-related and they want a review sheet, continue in
+`review-only` and say so.
+
+Refresh the KPI definitions first if they are stale. PMS is the authority for ids, wording
+and targets - including any target this project sets for itself, which is a normal thing for
+a project to have:
 
 ```bash
 python3 scripts/kpi_registry.py --refresh --profile <profile>
 ```
 
 If PMS cannot be reached, carry on with the bundled fallback and **tell them the numbers were
-scored against September 2026 default targets, not this project's own**. Never let that pass
-silently. Every measure carries `threshold_source` saying which bar it was scored against.
+scored against default targets, not this project's own**. Never let that pass silently. Every
+measure carries `threshold_source` saying which bar it was scored against.
 
-## 2. Extract
+## 2. Now go looking - but only for what the run named
 
-### Decide how far to look before you look
+This is the step that decides whether a run takes three minutes or thirty.
 
-A run that re-reads every board, every chat space and every mail thread from the beginning is
-slow and expensive, and it is **not** more accurate - the extra material is nearly all from
-periods that were settled months ago. The profile says how far to reach. Read it first and
-obey it.
+**Compute first, search second.** Reading chat, mail and plan documents before computing means
+hunting for evidence the board may already hold, across a search space with no edges. Running
+the pipeline first turns that into a list with ticket numbers on it:
+
+```
+7 tasks have no 'understood' - decides Requirement Comprehension.
+  Usually in the ticket's own comments: ACME-101, ACME-102, ACME-103, ...
+Sprint 14 has no handover date - decides Escaped Defect Rate and the client-date check.
+  Usually in the release announcement.
+```
+
+Work that list and nothing else. It is already filtered: a blank `met_commitment` on an item
+nobody committed to is **not** on it, because Delivery Commitment measures promises kept and
+an item with no promise is not evidence either way.
+
+How far to reach is the profile's call, not yours. Read `sources.mode` and `scan` first and
+obey them:
 
 | Setting | What it means for this run |
 |---|---|
-| `sources.mode: tracker-only` | The tracker is the single source of truth. **Do not open chat, mail or documents at all.** Anything the board cannot answer is "Not measured" with that reason. This is the fastest and most reproducible mode and it is a legitimate choice, not a degraded one |
-| `sources.mode: tracker-first` | The board answers first. Open another source **only** for a fact the board left blank |
+| `sources.mode: tracker-only` | The tracker is the single source of truth. **Do not open chat, mail or documents at all.** Anything the board cannot answer is "Not measured" with that reason. This is the fastest and most reproducible mode, and a legitimate choice rather than a degraded one |
+| `sources.mode: tracker-first` | The board answers first. Open another source **only** for a fact on the list |
 | `sources.mode: multi-source` | Other sources are read even where the board has an answer. Use it when two sources routinely disagree and you want both quoted |
 | `scan.window` | The time range. `period+grace` (the default) is the period plus `grace_days` either side, which catches a handover announced the morning after the period closed |
 | `scan.tracker_scope` | `all` reads the whole board and suits most. `touched-since` reads only items modified inside the window, which is what makes a long-running board affordable |
-| `scan.comments` | `on-demand` (the default) reads a ticket's comments only when that item's judgement depends on one. Comments are the most expensive thing on a board and are needed for a handful of items |
+| `scan.comments` | `on-demand` (the default) reads a ticket's comments only when that item's judgement depends on one. Comments are the most expensive thing on a board and matter for a handful of items |
 | `scan.chat.only_when_missing` | Search a space only for a fact nothing else answered |
 | `scan.stop_when_found` | Stop at the first source that answers, instead of collecting every mention |
 | `scan.max_sources_per_fact` | How many sources one fact is worth |
 
-Two rules make this safe:
+Two rules make the bounds safe:
 
 - **Say what you skipped.** Anything a limit cut off is named in Gaps, never dropped quietly.
-  "Chat searched back to 08/01 only" is a fine thing for a note to say; silently missing a
+  "Chat searched back to 08/01 only" is a fine thing for a note to say; a silently missing
   date is not.
 - **Widen deliberately, once.** If a fact the run genuinely needs falls outside the window,
   widen for that one fact, say so, and offer to change the profile - do not quietly re-read
   everything.
 
-Order the work cheapest-first: the board, then the plan and estimates sheets, then chat, then
-mail. Most runs never reach the last two, which is the point.
+Order what is left cheapest-first: ticket comments, then the plan and estimates sheets, then
+chat, then mail. Most runs never reach the last two, which is the point.
 
-### Running the adapter
+Put what you find in the workbook's yellow cells, or hand the list to the person who knows.
+Either way the next step is the same.
 
-Each adapter turns one tracker into one KIF document. The contract is
-`adapters/_contract.md`; the format is `schemas/kif.schema.json`.
+### What makes a run slow
 
-```bash
-python3 adapters/<name>/extract.py --profile <profile> --project <id> --out runs/<date>/run.kif.json
-```
+Not the arithmetic - the whole chain is a fraction of a second. Runs get slow four ways, and
+all four are avoidable:
 
-- **asana** and **jira** read the tracker directly.
-- **csv** turns an export from any tracker into KIF, and is the honest answer for a team on
-  something we have no adapter for. It works on day one; a native adapter is an optimisation,
-  not a requirement.
-- Browser-based extraction (for a tracker with no usable API) is in
-  `references/browser-extraction.md`.
+1. **Searching before computing.** Covered above. This is the big one.
+2. **Running the steps separately.** `run.py` exists so the pipeline is one call, not seven.
+3. **An unbounded profile.** No `scan` block means every board, space and thread from the
+   beginning. Preflight warns about this; offer to fix it rather than living with it.
+4. **Reviewing in several rounds.** One `AskUserQuestion` round, up to four questions. Six
+   small questions spread over an hour costs more of their day than the run does.
 
-Validate before trusting it:
-
-```bash
-python3 scripts/validate_kif.py --kif runs/<date>/run.kif.json
-```
-
-The adapter reports what it could not observe in `generated.capabilities`. A missing
-capability makes the KPIs that depend on it "Not measured" with the reason attached. This is
-the single most important honesty mechanism in the whole tool - do not work around it by
-filling values in by hand without saying so.
-
-## 3. Compute
-
-```bash
-python3 scripts/kpi_engine.py --kif runs/<date>/run.kif.json --profile <profile> --project <id> \
-  --reasons <project>/reasons.yaml --out runs/<date>/results.json \
-  --markdown runs/<date>/results.md --payloads runs/<date>/payloads.json
-```
-
-Read `references/kpi-rules.md` when you need to explain or defend a number. It holds the
-counting rules and the reasoning behind the awkward ones - what counts as delivered, why a
-first-round QA failure is not rework, what happens to a cycle made only of change requests.
-
-## 4. Review - one round, not six
+## 3. Review - one round, not six
 
 This is where the person's time should go. Put in front of them:
 
@@ -154,43 +169,39 @@ makes a note sound machine-written:
   is still pending, with dates.
 - **No links in PMS notes.** Links live in the workbook, on the words they support.
 
-## 5. Workbook
+## 4. The workbook, and folding it back in
 
-```bash
-python3 scripts/workbook.py tracker --results runs/<date>/results.json \
-  --kif runs/<date>/run.kif.json --reasons <project>/reasons.yaml --out runs/<date>/tracker.xlsx
-```
+`runs/<date>/tracker.xlsx` is a working surface, not a read-only report. Colour is the whole
+grammar, and it is honest: **yellow is exactly what `review` will read back**.
 
-### The sheet is a working surface, not a read-only report
-
-Yellow cells are editable and **come back**. Grey cells are computed and are regenerated on
-the next run. Offer this whenever somebody would rather review in a spreadsheet than in chat -
-which is most people, most of the time.
+| Colour | Meaning |
+|---|---|
+| Yellow | Yours. Change it and it comes back into the numbers |
+| White | Read from the tracker or the profile. True, but not yours to change here |
+| Grey | Computed. Editing it achieves nothing; the next run rebuilds it |
 
 | Tab | What they can change |
 |---|---|
-| Task Register | type, planned, hours, the Yes/No judgements and their evidence, dates, exclude reason, remarks |
+| Task Register | type, planned, status, hours, story points, the Yes/No judgements and the evidence beside each, dates, exclude reason, remarks |
 | Defect Register | kind, phase, pre-existing, rejected and its reason, final status, remarks |
 | Periods | client and commitment dates, client check, handover date, team hours, notes, plan text |
 | KPI Summary | **Why** (the fourth part of every note), and **Set value / note by hand** with a reason |
 
-Read the edits back, then recompute from them:
+Dropdowns on the judgement columns come from the KIF schema, so the sheet cannot offer a value
+the contract would reject. Dates are real dates. Formatting continues past the last row, so a
+line added by hand still fits.
+
+Read the edits back and recompute from them - one command, which also rebuilds the sheet and
+the payloads so nothing can drift:
 
 ```bash
-python3 scripts/workbook.py review --tracker runs/<date>/tracker.xlsx \
-  --kif runs/<date>/run.kif.json --results runs/<date>/results.json \
-  --reasons <project>/reasons.yaml --out-kif runs/<date>/run.kif.json \
-  --out-reasons <project>/reasons.yaml --out-manual <project>/manual.yaml --by "<name>"
-
-python3 scripts/kpi_engine.py --kif runs/<date>/run.kif.json --profile <profile> --project <id> \
-  --reasons <project>/reasons.yaml --manual <project>/manual.yaml \
-  --out runs/<date>/results.json --payloads runs/<date>/payloads.json
+python3 scripts/run.py review --profile <profile> --project <id> --by "<name>"
 ```
 
-`review` prints every edit it found and every one it did not apply, with the reason. Read
-both back to them - a silently dropped edit is worse than a refused one.
+It prints every edit it found and every one it did not apply, with the reason. Read both back
+to them - a silently dropped edit is worse than a refused one.
 
-**Anything can be changed, including a computed figure.** Editing the grey Value or Note
+**Anything can be changed, including a computed figure.** Typing over the grey Value or Note
 column does not work, and `review` says so; the place for it is **Set value by hand** with a
 reason in **Why set by hand**. That is applied, and then: the computed figure is kept beside
 it, the reason is printed above the numbers, the note gains a sentence saying a person
@@ -205,6 +216,12 @@ into a live sheet, including the parts of Google Sheets that fight back.
 The workbook is the audit trail: every Yes/No carries the link behind it, so a number
 questioned in three months can be traced to the comment that justified it.
 
+## 5. Explaining a number
+
+Read `references/kpi-rules.md` when you need to explain or defend one. It holds the counting
+rules and the reasoning behind the awkward ones - what counts as delivered, why a first-round
+QA failure is not rework, what happens to a cycle made only of change requests.
+
 ## 6. Deliver, according to the profile's mode
 
 | Mode | What you do |
@@ -218,9 +235,11 @@ The dry run and the real push read the same payload file, so they can never disa
 what was going to happen.
 
 ```bash
-python3 scripts/pms_push.py --payloads runs/<date>/payloads.json --profile <profile> --project <id> --dry-run
-python3 scripts/pms_push.py --payloads runs/<date>/payloads.json --profile <profile> --project <id> --apply
+python3 scripts/run.py push --profile <profile> --project <id>            # dry run
+python3 scripts/run.py push --profile <profile> --project <id> --apply
 ```
+
+Or `scripts/pms_push.py` directly when the payload lives somewhere unusual.
 
 `--apply` refuses to run unless the mode allows it. After a push it reads every value back
 and compares; a mismatch is reported, not smoothed over.
@@ -231,8 +250,12 @@ not carry to the next.
 
 ## 7. Log and finish
 
-Every run leaves `runs/<date>/` with the extract, the results, the payload and the push log,
-so any number can be traced back months later.
+Every run leaves `runs/<date>/` with the extract, the results, the payload, the workbook and
+the push log, so any number can be traced back months later.
+
+`run.py` prints its own timings on every pass. If a run felt slow, that line says whether the
+pipeline was slow (it will not have been) or the searching around it was - which is the
+question worth answering.
 
 Report: values and statuses per period, what changed since last time, what is still
 "Not measured" and why, the PMS period ids touched, and what to rerun when the next

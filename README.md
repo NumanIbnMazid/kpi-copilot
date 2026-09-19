@@ -13,7 +13,7 @@ several clients on several trackers.
 ```bash
 git clone https://github.com/NumanIbnMazid/kpi-copilot.git
 cd kpi-copilot && pip3 install pyyaml openpyxl jsonschema
-python3 plugin/kpi-copilot/scripts/selftest.py        # 117 assertions, no setup needed
+python3 plugin/kpi-copilot/scripts/selftest.py        # 159 assertions, no setup needed
 ```
 
 ---
@@ -116,16 +116,17 @@ One lead, two clients, two trackers, one profile:
 python3 scripts/profile_lib.py --profile examples/multi-account/profile.yaml --list
 ```
 
-Then the same engine on a completely different stack — Jira via CSV, sprints, story points,
-review-only:
+Then a whole run — the same engine on a completely different stack (Jira via CSV, sprints,
+story points, review-only) — in one command:
 
 ```bash
-python3 adapters/csv/extract.py --profile examples/acme-jira/profile.yaml \
-  --project acme-identity --out /tmp/acme.kif.json
-python3 scripts/kpi_engine.py --kif /tmp/acme.kif.json --profile examples/acme-jira/profile.yaml
+python3 scripts/run.py --profile examples/acme-jira/profile.yaml \
+  --project acme-identity --skip-preflight --out-dir /tmp/acme-run
 ```
 
-Note what the second one refuses to measure, and that it says why.
+Extract, validate, compute, workbook and payloads, in about a quarter of a second. Note what
+it refuses to measure and that it says why, and note how it ends: not "go and look in chat",
+but a list of the facts that are actually missing, with the tickets they belong to.
 
 ## Check the tool
 
@@ -133,4 +134,4 @@ Note what the second one refuses to measure, and that it says why.
 python3 plugin/kpi-copilot/scripts/selftest.py
 ```
 
-47 assertions, mostly about honesty rather than arithmetic.
+159 assertions, mostly about honesty rather than arithmetic.
