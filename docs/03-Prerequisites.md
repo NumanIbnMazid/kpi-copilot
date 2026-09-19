@@ -22,7 +22,7 @@ cannot see.
 | PyYAML | The profile is YAML so a person can read it | `pip3 install pyyaml` |
 | openpyxl | Builds the workbooks | `pip3 install openpyxl` |
 | Claude Code, with an active subscription | The skills, browser control and approval steps run in it | Install the desktop app and sign in. If the company pays, ask IT for a seat |
-| The plugin is loaded | Without it the `/kpi-copilot:*` skills do not exist | `claude plugin marketplace add "/path/to/KPI Copilot"` then `claude plugin install kpi-copilot@enosis`, or start with `--plugin-dir` |
+| The plugin is loaded | Without it the `/kpi-copilot:*` skills do not exist | `claude plugin marketplace add "/path/to/KPI Copilot"` then `claude plugin install kpi-copilot@pm-tools`, or start with `--plugin-dir` |
 
 ### Configuration
 

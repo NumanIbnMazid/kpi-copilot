@@ -82,7 +82,7 @@ No public marketplace needed — this folder *is* a private marketplace:
 
 ```bash
 claude plugin marketplace add "/path/to/KPI Copilot"
-claude plugin install kpi-copilot@enosis
+claude plugin install kpi-copilot@pm-tools
 ```
 
 Then `/reload-plugins`. Or skip installing entirely with

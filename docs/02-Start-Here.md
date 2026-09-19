@@ -14,7 +14,7 @@ marketplace.
 
 ```bash
 claude plugin marketplace add "/path/to/KPI Copilot"
-claude plugin install kpi-copilot@enosis
+claude plugin install kpi-copilot@pm-tools
 ```
 
 Then `/reload-plugins`, or restart Claude.
@@ -197,8 +197,8 @@ An installed plugin is a **copy**, so changes to the shared folder reach you onl
 version is bumped. When someone says there is a new version:
 
 ```bash
-claude plugin marketplace update enosis
-claude plugin update kpi-copilot@enosis
+claude plugin marketplace update pm-tools
+claude plugin update kpi-copilot@pm-tools
 ```
 
 Then `/reload-plugins`.

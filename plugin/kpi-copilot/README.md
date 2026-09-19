@@ -1,6 +1,6 @@
 # KPI Copilot
 
-Prepare Enosis PMS project KPIs from whatever issue tracker a team already uses, with a link
+Prepare PMS project KPIs from whatever issue tracker a team already uses, with a link
 behind every judgement and notes a person can read, then push to PMS after approval.
 
 Full documentation is one level up, in `KPI Copilot/docs/`. Start with `01-Overview.md`.
@@ -12,7 +12,7 @@ marketplace manifest:
 
 ```bash
 claude plugin marketplace add "/path/to/KPI Copilot"
-claude plugin install kpi-copilot@enosis
+claude plugin install kpi-copilot@pm-tools
 ```
 
 Or without installing: `claude --plugin-dir ./plugin/kpi-copilot`.

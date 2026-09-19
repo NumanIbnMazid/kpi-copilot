@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://enosis.internal/kpi-copilot/kif.schema.json",
+  "$id": "https://github.com/NumanIbnMazid/kpi-copilot/schemas/kif.schema.json",
   "title": "KPI Interchange Format (KIF) v1.0",
   "description": "The one contract between a tracker adapter and the KPI engine. An adapter's only job is to emit a valid KIF document. Everything downstream - KPI values, notes, the workbook, the PMS payload - is computed from this and never talks to the tracker. Unknown facts are null, never guessed: the engine reports 'Not measured' with a reason instead of inventing a number.",
   "type": "object",

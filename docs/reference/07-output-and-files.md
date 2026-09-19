@@ -86,7 +86,7 @@ something. The layout:
         └── push_log.json           what was written, and whether read-back agreed
 ```
 
-The plugin itself lives separately — `~/.claude/plugins/cache/enosis/kpi-copilot/<version>/`
+The plugin itself lives separately — `~/.claude/plugins/cache/pm-tools/kpi-copilot/<version>/`
 when installed, or wherever you cloned it when running with `--plugin-dir`. **Your
 configuration is never inside the plugin**, so updating the plugin never touches it.
 

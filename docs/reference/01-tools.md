@@ -61,7 +61,7 @@ tools:
 | `spreadsheet` | An estimates sheet, a timeline sheet, a tracker workbook |
 | `document` | A plan PDF, a signed scope document |
 | `wiki` | Confluence, Notion |
-| `pms` | Enosis PMS |
+| `pms` | PMS |
 | `time-tracking` | A timesheet system |
 | `ci` | A build system, when it is where handovers are announced |
 | `other` | Anything else. Say what it is in `description` |
@@ -145,7 +145,7 @@ company wiki. Everything else is tagged.
 
 ```yaml
 tools:
-  - {id: pms, kind: pms, name: Enosis PMS, url_or_id: "https://pms.example.com", used_for: [output]}
+  - {id: pms, kind: pms, name: PMS, url_or_id: "https://pms.example.com", used_for: [output]}
 
   - {id: asana, kind: issue-tracker, name: Asana, accounts: [northwind], used_for: [scope, defects]}
   - {id: jira,  kind: issue-tracker, name: Jira,  accounts: [acme],    used_for: [scope, defects]}

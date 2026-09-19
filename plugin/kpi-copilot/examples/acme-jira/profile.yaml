@@ -41,11 +41,11 @@ tools:
     access: Atlassian SSO
   - id: pms
     kind: pms
-    name: Enosis PMS
+    name: PMS
     url_or_id: https://pms.example.com/all-projects/201/kpis
     description: "Where the KPIs are recorded. This team types them in by hand after reviewing the sheet."
     used_for: [output]
-    access: Enosis SSO
+    access: Company SSO
 
 tracker:
   adapter: csv

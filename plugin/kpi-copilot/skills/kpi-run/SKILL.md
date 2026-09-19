@@ -1,6 +1,6 @@
 ---
 name: kpi-run
-description: "Prepare, review and deliver Enosis PMS project KPIs for a project or period, from any issue tracker. Reads the board through the configured adapter, computes the nine PMS KPIs with evidence links, writes the tracker workbook and notes that read like a person wrote them, then either hands over a review sheet or pushes to PMS after an explicit yes. Use whenever someone asks to prepare, calculate, refresh, recompute, review or push KPIs, do the KPI run for a project or milestone or sprint or cycle, update PMS KPIs, or explain why a KPI value came out the way it did."
+description: "Prepare, review and deliver PMS project KPIs for a project or period, from any issue tracker. Reads the board through the configured adapter, computes the nine PMS KPIs with evidence links, writes the tracker workbook and notes that read like a person wrote them, then either hands over a review sheet or pushes to PMS after an explicit yes. Use whenever someone asks to prepare, calculate, refresh, recompute, review or push KPIs, do the KPI run for a project or milestone or sprint or cycle, update PMS KPIs, or explain why a KPI value came out the way it did."
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, AskUserQuestion
 ---
 
