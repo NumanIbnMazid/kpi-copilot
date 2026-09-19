@@ -43,7 +43,7 @@ be straight about which three KPIs will say "Not measured".
 > - **Closed** = *Done*.
 > - **Reopened** = out of *Done* back into *In Progress*.
 > - **Defects** = issue type *Bug*. *Improvement* is reported, not counted.
-> - **Keys** look like `SAV-1234`.
+> - **Keys** look like `NW-1234`.
 > - **Not deliverables**: 4 cards titled "Sprint Goal" or "QA Checklist".
 
 ## What is genuinely worth asking

@@ -20,38 +20,48 @@ A team running monthly who are content with six of nine KPIs should use `csv` an
 
 ### If you do need one
 
-```bash
-cp -r adapters/csv adapters/<name>
+**Write a reader, not a judge.** A reader gets the tracker onto disk as a *board snapshot* -
+cards, fields, status moves, comments - and decides nothing. `adapters/github/api.py` is the
+shortest worked example (one GraphQL query per fifty issues); `adapters/asana/api.py` and
+`adapters/jira/api.py` are the other two. Everything after it is already written and the same
+for every tracker: the tolerant judging rules, the ledger, the assistant's one-batch queue,
+the nine KPIs, the live sheet, the read-back.
+
+```
+adapters/<name>/api.py
+    def read(project, profile, cache, progress=None) -> dict      # the board snapshot
+    def from_raw(raw, profile, project) -> dict                   # optional: a file from a signed-in tab
 ```
 
-Start from `csv`, not `jira` — it is the simplest complete example and already handles the
-classification, the review list and the profile plumbing. A native adapter mostly replaces
-"read a file" with "call an API".
+`kpi.py run` finds it by the adapter's name; nothing else needs editing. Read
+`adapters/_contract.md`. The rules that matter:
 
-Read `adapters/_contract.md`. The rules that matter:
-
-- Emit valid KIF and nothing else. No KPI maths, no note wording, no spreadsheets.
-- Declare `generated.capabilities` **honestly**. Claim `status_history` because you read it,
-  not because the API has an endpoint for it.
-- Unknown is `null`. Never a default, never a guess.
-- Judgement calls go in `review[]`, each **with a proposal**.
-- Excluded rows stay, with a reason.
-- Read conventions and workflow states from the profile. A hardcoded column name is a bug.
-- Read-only. Never write to the tracker.
+- **API to disk.** A board must never travel through an assistant's context.
+- **Cache by modification time.** Take the previous snapshot; re-read only what changed. The
+  second run should be a fraction of the first.
+- **No judgement and no team-specific names.** A regex for "[Existing]" in a reader is a rule
+  nobody else's project gets - and it will miss "[Exisiting]".
+- Declare `capabilities` **honestly**. Claim `status_history` because you read it, not because
+  the API has an endpoint for it.
+- Read-only, follow paging to the end, errors a person can act on.
+- **Signing in goes through `scripts/connect.py`**: add your service's routes there (a token,
+  a browser sign-in, an existing CLI login, a signed-in tab) and `kpi.py auth`, `doctor` and
+  the readiness check explain them by themselves. Never read a secret from a chat.
 
 Then:
 
 ```bash
-python3 adapters/<name>/extract.py --profile <p> --project <id> --out /tmp/t.kif.json
-python3 scripts/validate_kif.py --kif /tmp/t.kif.json
-python3 scripts/kpi_engine.py --kif /tmp/t.kif.json --profile <p>
+python3 scripts/kpi.py run --profile <p> --project <id> --verbose
 ```
 
 And the test that actually matters: run it against a period whose answer somebody already
 knows, and sit with them while they read the nine numbers.
 
-Add a case to `scripts/selftest.py`, write the README — especially the section on what the
-adapter *cannot* see — and you are done.
+Add a conversion case to `scripts/selftest.py` from a small raw fixture (see the Jira and
+GitHub ones), write the README - especially what the reader *cannot* see - and you are done.
+
+The older shape, a *converter* that emits finished KIF itself (`adapters/csv/extract.py`), is
+still supported and is the right one for a source with no history to judge from.
 
 `/kpi-copilot:kpi-adapter` walks all of this interactively.
 

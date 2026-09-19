@@ -1,6 +1,6 @@
 ---
 name: kpi-setup
-description: "Set up or change a person's KPI Copilot profile: check that every prerequisite is in place, look at their actual issue tracker and working files, propose how their workflow maps onto the nine PMS KPIs, and write the profile and the KPI Profile Workbook. Use this whenever someone is starting with KPI Copilot for the first time, onboarding onto a new project or account, switching issue tracker, changing how results reach PMS, seeing 'Not measured' on KPIs they expected numbers for, or asking what they need before they can run KPIs. Also use it when someone asks to check prerequisites, run the readiness check, or fix a blocked check."
+description: "Set up or change a person's KPI Copilot profile: check that every prerequisite is in place, look at their actual issue tracker and working files, propose how their workflow maps onto the nine PMS KPIs, and write the profile and the KPI Profile Workbook. Use this whenever someone is starting with KPI Copilot for the first time, onboarding onto a new project or account, switching issue tracker, changing how results reach PMS, changing where the KPI sheet lives (a local file, a Google Drive folder or a specific Google Sheet), naming which sources a run may read, connecting Asana or Google, seeing 'Not measured' on KPIs they expected numbers for, or asking what they need before they can run KPIs. Also use it when someone asks to check prerequisites, run the readiness check, or fix a blocked check."
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, WebFetch, AskUserQuestion
 ---
 
@@ -43,18 +43,21 @@ Then walk the manual items. These are the ones a script cannot see:
 
 | Check | How you actually confirm it |
 |---|---|
-| `browser-signed-in` | Ask them to sign in, then open the tracker in the browser pane and read the page title back to them as proof |
+| `tracker-api-token` | Checked by itself for Asana, Jira and GitHub. If it is not connected, run `python3 scripts/kpi.py auth --profile <p> --project <id>` and **put the choice to them**: it lists every way to sign in, best first for their machine - an existing login (`gh`), a browser sign-in (they click Allow; you may start it with `--route browser`, in the background, `--no-open` to use your browser pane), a token (they type it in a terminal; the fastest, and the one for a schedule), or a tab they are already signed in to (`browser_snapshot.js`, no credential at all) |
+| `browser-signed-in` | Only if they will push to PMS: ask them to sign in to PMS themselves |
 | `pms-account` | Open `<pms>/all-projects/<id>/kpis` and confirm the KPI table renders |
 | `pms-write` | Ask whether they can edit a KPI note by hand in PMS. Do not test this by writing |
 | `pms-periods` | List the periods you can see in PMS and ask if those are the ones they will push to |
-| `drive-connector` | Try one read of a file they name; if the connector is off, say which setting to turn on |
-| `tracker-api-token` | Ask them to confirm a token exists in the environment. **Never ask them to paste it, and never read it back** |
+| `google-connected` | Not blocking. If the plan or estimates live in Drive, or they want the sheet in Google Sheets: they run `python3 scripts/kpi.py auth google` once, themselves (it needs the company's OAuth client file - `docs/03-Prerequisites.md`). Until then sources come from `<project>/inbox/` and the sheet is local |
+
+**Never ask for a token, never have one pasted into the chat, never read one back.**
+`python3 scripts/kpi.py doctor --profile <p> --project <id>` shows what is connected.
 
 Record each answer so nobody repeats it next month:
 
 ```bash
 python3 scripts/preflight.py --profile <p> --confirm pms-account --by "<name>"
-python3 scripts/preflight.py --profile <p> --fail drive-connector --why "connector not enabled on the work account"
+python3 scripts/preflight.py --profile <p> --fail pms-write --why "no edit rights on project 361 yet; asked the PMS admin"
 ```
 
 If a blocking item cannot be resolved today, **carry on anyway**. Build the profile, mark
@@ -68,7 +71,9 @@ Ask only what you genuinely cannot see. Use one `AskUserQuestion` round, not six
 1. **How many clients and projects they run, and whether the tracker is the same for all of
    them.** Ask this first - it shapes everything after it. Most leads have several projects on
    one or two clients.
-2. Which tracker (or trackers), and a link to one live board per client.
+2. Which tracker (or trackers), and a link to one live board per client. Asana, Jira (Cloud, Server,
+   Data Center) and GitHub (Issues, with or without a Projects board) are read directly; anything else
+   starts today from a CSV export, and a reader for it is one small file (`kpi-adapter`).
 3. How they slice a project for PMS: milestones, delivery cycles, sprints, monthly, or one
    "Full Project".
 4. Whether they measure in hours or story points.
@@ -81,6 +86,11 @@ Ask only what you genuinely cannot see. Use one `AskUserQuestion` round, not six
 6. What should happen at the end: a sheet they read and type into PMS themselves, a dry run
    they approve, or an automatic push. Ask whether that differs by client - it often does.
    (Default to approve-then-push; it suits almost everybody and takes a minute to change.)
+7. **Where the KPI sheet should live.** The default is a local .xlsx beside the profile, and
+   that needs nothing. If they want it in Google Sheets, ask for either a Drive folder (the
+   first run creates the sheet there) or the link of a specific Google Sheet to keep
+   updating, and write `output.workbook: google-sheets` with `workbook_location` or
+   `workbook_file`. Every run then updates that same sheet in place.
 
 Write the answer to 5 into `sources.mode`, and set `scan` at the same time. A profile with no
 bounds makes every monthly refresh re-read years of history. `scan.window: period+grace` suits
@@ -120,7 +130,7 @@ them as statements to correct, like this:
 > - **Reopened** = moving out of *Done* back into *In Progress*. A Testing Failed while QA
 >   is still on the first round is normal testing, not rework.
 > - **Defects** are issues of type *Bug*; *Improvement* is reported but not counted.
-> - **Ticket keys** look like `SAV-1234`.
+> - **Ticket keys** look like `NW-1234`.
 > - **Not deliverables**: anything titled "Sprint Goal" or "QA Checklist" (4 cards).
 > - **Had to ask the client** = the item entered *Blocked - Client*, or a comment asked the
 >   client what the expected behaviour was.
@@ -139,6 +149,37 @@ ones worth asking:
   rule: **a plan the team revised on its own is not an agreed date.** Score against the
   original plan and explain the revision in the notes. Only a date the client set or
   re-agreed moves the KPI date.
+
+## Step 2b - The sources, and the project's facts
+
+A run reads the tracker and the sources named in the profile - **and nothing else**. So ask
+which documents are actually the record, and write exactly those under `sources:`. Typical:
+the project plan, the additional-estimates sheet, a timeline or project tracker sheet. Do not
+add chat spaces as sources because they exist; a run never searches them. If the lead wants
+deep runs to be able to, list them under `sources.evidence_channels`.
+
+For each source, decide once how it is read (`docs/reference/05-sources.md`):
+
+- **A table** (estimates sheet, timeline, a plan kept as a sheet): open it once, find the
+  header row, and write the column mapping under `sources.<role>.map`. From then on every
+  run reads it in milliseconds, with nobody re-reading it.
+- **A document** (a PDF plan): it is digested once into `<project>/facts/plan.yaml`. The
+  first run fetches the file and says where it is; read it, write the items, hours and
+  milestones in the shape in `skills/kpi-run/references/facts.md`.
+
+Then write `<project>/facts/periods.yaml` with the lead: the periods, their dates, PMS ids,
+the client and commitment dates and why those are the agreed ones. This is the part only
+they know. Everything in it also shows on the sheet's Periods and Config tabs, and whatever
+they type there later is read back into the file.
+
+If the plan breaks a board card into modules and the *modules* are what was agreed with the
+client, ask whether deliverables should be counted as plan items (`grain: plan-items` in
+`facts/plan.yaml`). It changes every denominator and is printed on the Config tab. It is
+their call; never choose it to improve a number.
+
+If the team tags titles with words of its own (`[Legacy]`, `[Prod issue]`), put them under
+`conventions.tags`. Matching is tolerant of typing - `[Exisiting]` is read as *Existing*,
+and the row says so.
 
 ## Step 3 - Write the profile
 
@@ -168,8 +209,15 @@ A profile only one person can open is a profile that dies when they go on leave.
 Do not finish setup with a configuration file. Finish it with a number they recognise.
 
 Pick their most recently completed period - one where they already know roughly what the
-answer should be - and run it end to end in `review-only` mode, whatever their final mode
-will be. Then show them the nine values and ask the only question that matters:
+answer should be - and run it in `review-only` mode, whatever their final mode will be:
+
+```bash
+python3 scripts/kpi.py run --profile <dir>/profile.yaml --project <id>
+```
+
+Follow its NEXT: judge what it queued (`judge/queue.json` -> `answers.json` ->
+`kpi.py judge`), put its questions to the lead. Then show them the nine values and the
+sheet, and ask the only question that matters:
 
 > Does anything here disagree with what you know to be true?
 
@@ -230,7 +278,8 @@ reading back at the end of a setup.
 
 Write a short summary into the profile folder and tell them, in this order:
 
-1. How to run it from now on: `/kpi-copilot:kpi-run <project>`.
+1. How to run it from now on: ask for "the KPI run for <project>" - in Claude also
+   `/kpi-copilot:kpi-run <project>`. It is one command, and the sheet updates in place.
 2. What is limited and why, naming each "Not measured" KPI and what would fix it.
 3. What to do when the board changes - a renamed column means a one-line profile edit, not
    a rebuild.

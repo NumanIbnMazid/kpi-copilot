@@ -1,4 +1,33 @@
-# When a number looks wrong
+# When a number looks wrong, or a run is slow
+
+## Start with the row
+
+Every register row has a **Check** column. It is empty when the row was obvious, and says how
+the row was decided when it was not: a tag read tolerantly ("read [Exisiting] as Existing"),
+a loose match to the plan, a call not yet confirmed. `ledger.json` beside the profile holds
+every judgement with who made it (rule, assistant, person) and why. Most "why is this
+counted?" questions end there.
+
+To change a verdict: edit the yellow cell and run again, or write a one-line
+`judge/answers.json` and run `kpi.py judge --human`. A person's answer outranks an
+assistant's, and an assistant's outranks a rule.
+
+## If the run was slow
+
+The last line of every run is its timings. The tool's own part is seconds: `board` is the
+API (a first read of 150 cards is ~15 s; a rerun reads only changed cards), `sheet` includes
+the Google update. If the run *felt* slow and those numbers are small, the time went on
+something the assistant did around it - reading the board in a browser, carrying a sheet
+through the conversation, searching chat for a fact, writing a helper script. None of that
+is ever needed; see "What you must not do" in the run skill.
+
+| Timing | Usual cause |
+|---|---|
+| `board` is minutes | First read of a very large board, or Asana rate-limiting. Set `scan.tracker_scope: touched-since` |
+| `sources` is slow | A large Drive file re-downloaded every run: check its meta file in `cache/sources/` is being written (disk permissions) |
+| `sheet` is slow | Google throttling. It retries by itself; run again later |
+
+## When a number looks wrong
 
 Almost every wrong number has one of six causes. Work down the list; it is roughly ordered by
 how often each one turns out to be it.
@@ -22,8 +51,8 @@ field in the KIF.
 **Cause:** a regex in `conventions.exclude_patterns` is broader than intended. `^Bug` will
 happily remove "Bug tracking dashboard" and also "Bugfix: client login".
 
-**Check:** the Gaps and Task Register tabs of the tracker workbook list every excluded row
-with its reason. Read them.
+**Check:** the Task Register lists every excluded row, greyed, with its reason in Remarks.
+Read them.
 
 ## 3. The date level
 
@@ -60,7 +89,7 @@ item is still being tested for the first time is normal testing.
 comments, so the engine refuses to guess.
 
 **Fix:** either accept it - and tell management which KPIs are limited and why - or move from
-the `csv` adapter to a native one. The Gaps tab lists each one with its reason.
+the `csv` adapter to a native one. The note on KPI Summary says which and why.
 
 ---
 
@@ -78,9 +107,24 @@ it means a small denominator - a cycle with two delivered items and five bugs.
 **The push says a period id is missing.** Create the period in PMS first; the push updates
 periods, it does not create them.
 
-**Numbers changed since last run and nobody knows why.** Each run keeps its extract, results
-and payload under `runs/<date>/`. Diff the two KIF files - the change is in the input, not in
-the engine.
+**Numbers changed since last run and nobody knows why.** The run prints "Moved since the last
+run", and the Dashboard repeats it. Each run also keeps its extract, results and payload under
+`<project>/runs/<date>/`; diff the two KIF files - the change is in the input, not in the
+engine.
+
+**A bug tagged as existing was counted anyway.** Look at its Check cell. A tag more than a
+couple of letters off the vocabulary is not matched; add the team's word to
+`conventions.tags.pre_existing`, or answer it once in the sheet. It will not be asked again.
+
+**A card is in the wrong register, or the wrong period.** Change Item Type, Kind or Period in
+the sheet. That is recorded as your decision and survives every rerun, until you change it.
+
+**The same question keeps coming back.** An assistant's answer stands only while the card is
+unchanged (title, column, fields, comments). A person's answer always stands. If a card
+changes often, answer it in the sheet.
+
+**"facts/plan.yaml is empty" every run.** Nobody has digested the plan yet. See
+`references/facts.md`; it is done once.
 
 **Delivery Commitment counts more or fewer items than you expect.** Its denominator is the
 items the team *committed to*, not every deliverable - that is what PMS asks for, because the

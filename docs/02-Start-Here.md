@@ -42,6 +42,44 @@ Python 3.9+ and three libraries:
 pip3 install pyyaml openpyxl jsonschema
 ```
 
+**Not on Claude?** Nothing here depends on it. Cursor, Codex and anything else that can run
+a command read [`AGENTS.md`](../AGENTS.md) at the top of the repository, which tells the
+assistant exactly how to drive a run. Clone the repository, open it in your tool, and say
+what you want in words - *"set up KPI Copilot for my project"*, *"do the KPI run for the Q3
+release"*.
+
+### Connect your accounts (once, a few minutes)
+
+The tool reads your board and writes your sheet through their APIs, so nothing bulky ever
+travels through a chat window. That needs you to be signed in - and **how** is your choice.
+Ask your assistant *"what do I need to connect?"*, or run:
+
+```bash
+cd "/path/to/KPI Copilot/plugin/kpi-copilot"
+python3 scripts/kpi.py auth --profile profile.yaml --project <id>
+```
+
+It looks at your profile and this machine, says what is already connected, and lists the
+ways to connect the rest - best first - with what each costs:
+
+| Way in | What you do | Good to know |
+|---|---|---|
+| **A login you already have** (GitHub's `gh`) | nothing, if `gh` is signed in; otherwise `gh auth login --web` opens your browser | nothing is copied or pasted |
+| **Sign in in your browser** | `kpi.py auth <service> --route browser`, click **Allow**. Your own browser, or your assistant's built-in one (`--no-open` prints the link) | needs a small app registration your company does once ([03-Prerequisites](03-Prerequisites.md)). Asana, Jira Cloud, Google |
+| **A token** | create one in the service, then `kpi.py auth <service> --route token` in a terminal and paste it (it is not shown) | a minute to set up, the fastest at run time, and the only one for an unattended schedule |
+| **A tab where you are already signed in** | run the tracker's `browser_snapshot.js` there; it downloads the board as a file | no credential at all. Slower, and you have to be there. Asana and Jira |
+
+Whatever you choose, **a token or password never goes through the assistant.** Secrets are
+stored in `~/.config/kpi-copilot/`, readable only by you, never in the profile.
+
+Google is only needed if your plan or estimates live in Drive, or you want the KPI sheet kept
+as a Google Sheet. Without it everything still works: the sheet is a local file, and sources
+are picked up from a folder you drop exports into.
+
+**Trackers read directly:** Asana, Jira (Cloud, Server, Data Center), GitHub (Issues, with or
+without a Projects board). Anything else starts today from a CSV export, and a reader for it
+is one small file ([07-Extending](07-Extending.md)).
+
 ## Step 2 — Check you are ready (10 minutes)
 
 ```
@@ -165,15 +203,25 @@ what the answer should be.
 /kpi-copilot:kpi-run <your project>
 ```
 
-or, without the assistant in the loop:
+which runs:
 
 ```bash
-python3 scripts/run.py --profile profile.yaml --project <id>
+python3 scripts/kpi.py run --profile profile.yaml --project <id>
 ```
 
-Either way you get, in under a second: the nine KPIs, the notes, a workbook, and a short list
-of the facts the tracker could not answer — with the ticket numbers beside each. Then the only
-question that matters:
+The first run on a board takes well under a minute. You get the nine KPIs, the notes and the
+sheet, and then at most two short things:
+
+- **a batch of calls for the assistant** - the cards the rules were unsure of. It judges
+  them once, from one file, and the answers are kept;
+- **a few questions for you** - what nobody can see from outside, like the date a build
+  reached the client. Answer once.
+
+If the run says `facts/plan.yaml is empty`, that is the one-time reading of your project
+plan: the assistant reads the PDF once and writes down the items and hours. It is not asked
+again until the plan changes.
+
+Then the only question that matters:
 
 **Does anything here disagree with what you know to be true?**
 
@@ -192,16 +240,18 @@ One command per cycle:
 /kpi-copilot:kpi-run <project>
 ```
 
-Three commands if you would rather drive it yourself:
+What the assistant runs for you, if you ever want to drive it yourself:
 
 ```bash
-python3 scripts/run.py        --profile profile.yaml --project <id>
-python3 scripts/run.py review --profile profile.yaml --project <id> --by "Your Name"
-python3 scripts/run.py push   --profile profile.yaml --project <id> --apply
+python3 scripts/kpi.py run    --profile profile.yaml --project <id>     # everything, to an updated sheet
+python3 scripts/kpi.py judge  --profile profile.yaml --project <id>     # fold the assistant's answers in
+python3 scripts/kpi.py push   --profile profile.yaml --project <id> --apply
+python3 scripts/kpi.py status --profile profile.yaml --project <id>     # what is on file, what is waiting
+python3 scripts/kpi.py doctor --profile profile.yaml --project <id>     # is everything connected?
 ```
 
-Review in chat, or in the sheet — yellow cells come back, grey ones are computed, white ones
-were read from your tracker.
+Review in chat, or in the sheet - yellow cells are yours and are read back on the next run,
+grey ones are live formulas, white ones were read from your tracker.
 
 → [04-Daily-Use.md](04-Daily-Use.md)
 

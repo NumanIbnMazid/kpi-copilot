@@ -1,25 +1,15 @@
 #!/usr/bin/env python3
 """
-Asana adapter.
+Asana, the legacy converter.
 
-Asana is read in the browser, not through a token. That is deliberate: the extractor runs
-inside a signed-in app.asana.com tab, so nobody has to create, store or paste a personal
-access token, and it sees exactly what the person can see. This adapter converts an in-browser extractor's output into KIF. The extractor itself is
-not part of this repository; write one against adapters/_contract.md, or export the board
-to CSV and use the csv adapter, which needs no extractor at all.
+Converts the output of an in-browser extractor (the `window.__kpi` shape) into KIF. It is
+kept for anybody who still has such a file. It is not how Asana is read any more.
 
-Two ways in:
-
-  1. Browser route (normal).
-     In a signed-in Asana tab, run your extractor. It leaves the result in
-     `window.__kpi`. Save that JSON to a file, then:
-         python3 extract.py --profile profile.yaml --from-extract kpi.json --out run.kif.json
-
-  2. Direct API, for a machine that does hold a token:
-         export ASANA_TOKEN=...
-         python3 extract.py --profile profile.yaml --project <id> --out run.kif.json --api
-     Not implemented yet, and it says so rather than pretending. The browser route is the
-     supported one.
+That route had no reader of its own, so in practice an assistant scraped the board, judged
+every card by hand and carried the result back through a chat window - on every run. It was
+slow, and two runs of the same board could disagree. `api.py` beside this file reads the
+board through the API in seconds and makes no judgements; `scripts/classify.py` then judges
+every tracker's cards the same way. `scripts/kpi.py run` uses those.
 
 Usage:
     python3 extract.py --profile profile.yaml --from-extract kpi.json --out run.kif.json
@@ -182,26 +172,20 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--profile", required=True, type=Path)
     ap.add_argument("--project", help="Project id from the profile's projects list.")
     ap.add_argument("--from-extract", type=Path, help="JSON saved from window.__kpi.")
-    ap.add_argument("--api", action="store_true", help="Read Asana directly (not implemented).")
+    ap.add_argument("--api", action="store_true", help="Moved: use scripts/kpi.py run, or adapters/asana/api.py.")
     ap.add_argument("--out", required=True, type=Path)
     a = ap.parse_args(argv)
 
     if a.api:
-        print(
-            "The direct-API route is not implemented. The browser route is the supported one and needs no token:\n"
-            f"  1. Open a signed-in app.asana.com tab.\n"
-            f"  2. Run your extractor in it.\n"
-            f"  3. Save window.__kpi to a file.\n"
-            f"  4. Re-run this with --from-extract <that file>.\n"
-            "The kpi-run skill does all four steps for you.",
-            file=sys.stderr,
-        )
+        print("Reading Asana directly is `python3 scripts/kpi.py run --profile ... --project ...` "
+              "(or adapters/asana/api.py on its own). This file only converts a legacy extract.",
+              file=sys.stderr)
         return 2
 
     if not a.from_extract or not a.from_extract.exists():
         print(
-            "Need --from-extract pointing at the JSON from window.__kpi.\n"
-            f"Run your extractor in a signed-in Asana tab first, or let the kpi-run skill do it.",
+            "Need --from-extract pointing at a legacy window.__kpi JSON file.\n"
+            "To read Asana itself, use: python3 scripts/kpi.py run --profile ... --project ...",
             file=sys.stderr,
         )
         return 2

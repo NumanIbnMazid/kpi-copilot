@@ -54,12 +54,82 @@ Only if you deliberately set `mode: auto-push` **and** `unattended: true`, which
 scheduled runs. The shipped default shows you a diff and asks. Approval is per run — a yes for
 one period never carries to the next.
 
+### Why did a run take half an hour? It should be seconds.
+
+It should, and now it is. The arithmetic was always a fraction of a second. The time went on
+an assistant doing by hand what no script did: reading the board card by card in a browser,
+carrying the plan and two spreadsheets through the conversation, judging every card from
+scratch, then building a sheet. The tool now does all of that itself - the board through its
+API straight to disk (only changed cards on a rerun), sources fetched only when they change,
+one batch of calls for the assistant, the sheet written directly.
+
+The last line of every run shows where the time went. If those numbers are small and the run
+still felt slow, the assistant went wandering: tell it to "just run the command and read
+NEXT". `AGENTS.md` says the same thing to it.
+
+### It counted a bug as ours because somebody typed "[Exisiting]". Seriously?
+
+Not any more. Tags are read the way a person would read them: a word one or two letters off
+your team's vocabulary is read as that word, and the row's Check column says *"read
+[Exisiting] as Existing"* so you can disagree. Anything the rules are not sure of goes to the
+assistant, which judges it once by a written definition; its answer is kept with the reason.
+And you can always overrule either in the sheet - your answer stands until you change it.
+
+### Does it go digging through my chat and mail?
+
+No. A run reads your tracker and the sources you named in the profile - the plan, the
+estimates, the timeline - and nothing else. What those cannot answer becomes a question for
+you on the Open Questions tab, asked once. If you *want* it to look further - "also check the
+client chat for the handover date" - say so, for that run; or list places under
+`sources.evidence_channels` and ask for a deep run. Even then it looks up only the open
+questions, only there.
+
+### Where does the KPI sheet live? Can it be a Google Sheet?
+
+By default it is an .xlsx beside your profile, rewritten every run. Tell it once to keep it in
+Google Sheets - a Drive folder, or one specific sheet's link - and every run updates that
+same Google Sheet in place, so the link never changes. Both look the same, because they are
+written from one description modelled on a hand-built tracker: navy headers, yellow for what
+is yours, grey live formulas, a dashboard with bars. Connecting Google is a one-time sign-in
+you do yourself ([03-Prerequisites](03-Prerequisites.md)); without it you still get the local
+file, and File > Import > Replace spreadsheet puts it over the same Google Sheet.
+
+### Which trackers does it read?
+
+Asana, Jira (Cloud, Server and Data Center) and GitHub (Issues, with or without a Projects
+board) are read directly through their APIs, straight to disk, with only changed items
+re-read on the next run. Everything downstream - the judging, the nine KPIs, the sheet - is
+identical whichever it is. Any other tracker starts today from a CSV export, and a reader for
+it is one small file that fetches and judges nothing (`adapters/_contract.md`).
+
+### Do I have to paste a token into a terminal?
+
+No - that is one way in, not the only one. `python3 scripts/kpi.py auth` (or asking your
+assistant "what do I need to connect?") lists the ways for your machine, best first:
+
+- **a login you already have** - if GitHub's `gh` is signed in, there is nothing to do;
+- **sign in in your browser** and click Allow - your own browser or your assistant's built-in
+  one. Asana, Jira Cloud and Google; it needs a small app registration your company does once;
+- **a token** you type in a terminal - a minute to set up, the fastest at run time, and the
+  only one that suits an unattended schedule;
+- **a tab where you are already signed in** - a snippet downloads the board as a file. No
+  credential at all; slower, and you have to be there.
+
+Whichever you pick, a token or password never passes through the assistant.
+
+### Does it only work with Claude?
+
+No. Everything is a Python command plus files. `AGENTS.md` at the top of the repository tells
+any assistant that can run commands - Claude, Cursor, Codex - how to drive a run. The
+`/kpi-copilot:*` skills are a convenience on Claude.
+
 ### Half my KPIs say "Not measured". Is it broken?
 
 No, it is being honest. It means the adapter could not observe something that KPI needs, and
 it would rather say so than produce a number that looks fine and is wrong.
 
-Each one comes with a reason and, in the Gaps tab, what would fix it. Six honest KPIs are
+Each one comes with a reason in its note, and what a person could answer is on the Open
+Questions tab. Six honest KPIs are
 worth more than nine confident ones, because a wrong number gets defended in a meeting and
 built on.
 
@@ -122,10 +192,13 @@ you meant. `^Bug` will happily remove "Bugfix: client login".
 
 Yes. Yellow cells are yours and come back; grey cells are computed and regenerated.
 
-Change a Yes/No judgement, hours, a date, a defect's rejection, a handover date or the **Why**
-text, then run `workbook.py review` and rerun the engine. The values and notes follow from
-your edits, and the push sends what the engine produced — so the sheet and PMS cannot end up
-saying different things.
+Change a Yes/No judgement, an item type, a period, hours, a date, a defect's rejection, a
+handover date or the **Why** text. The grey cells are live formulas, so the numbers, the
+dashboard and the PMS note move at once. The next run reads your edits back **before** it
+rebuilds the sheet, files each as your decision - which outranks the assistant's and the
+rules' - and tells you what it read. The push sends what the run computed from those inputs,
+so the sheet and PMS cannot end up saying different things. If KPI Summary's "Since the last
+run" column says anything, run again before pushing.
 
 ### What if the computed number itself is wrong?
 
@@ -185,14 +258,14 @@ writes on its own, and it still logs every change and reads back every value.
 
 ### How do I know what it did three months ago?
 
-`runs/<date>/` keeps the extract, the results, the payload and the push log for every run.
+`<project>/runs/<date>/` keeps the extract, the results, the payload and the push log for every run.
 When two runs disagree, diff the two extracts — the change is in the input, not in the engine.
 
 ### Someone questions a number in a review. What do I show them?
 
 The tracker workbook. KPI Summary has the value, target, numerator and denominator; the Task
-and Defect Registers have the evidence link behind every judgement; the Gaps tab has anything
-that could not be measured.
+and Defect Registers have the evidence link behind every judgement, and a Check column saying
+how any row that was not obvious was decided; `ledger.json` has who made each call and why.
 
 ### How do I know the tool itself is right?
 

@@ -33,8 +33,8 @@ If these vary between people, the exercise is theatre.
   differ; what must not differ is the counting behind the number.
 - **How each KPI is counted** — what counts as delivered, as a defect, as rework, as a change
   request. Same situation, same number, whoever runs it.
-- **The note format** — `what is measured || the numbers || what was left out || why` — and
-  the requirement that notes read as though a person wrote them.
+- **The note format** — `what the numbers say, in sentences || what was left out || why` —
+  and the requirement that notes read as though a person wrote them.
 - **Evidence or it does not go in.** Every judgement and every date traces to a link.
 - **Nothing reaches PMS without a human saying yes**, unless that person has deliberately
   enabled unattended mode for a scheduled run.
@@ -75,6 +75,32 @@ Everything else, and not only the examples below.
 - **Easy by default, deep when wanted.** Sensible behaviour with almost no configuration, and
   a route to change anything that genuinely varies, without editing code.
 
+## 4b. How it must feel to use
+
+Added after the first real runs took over half an hour and produced a sheet nobody wanted to
+open. These are requirements, not polish.
+
+- **It is driven by an assistant, not from a terminal** - Claude, Cursor, Codex, whatever the
+  lead has. So it must not depend on any one of them, and the assistant's instructions must
+  be short enough to be followed.
+- **A run is minutes, and a rerun is seconds.** Nothing bulky - a board, a spreadsheet, a PDF
+  - may travel through the assistant's context. Data goes API to disk to API.
+- **A run reads what it was configured to read, and nothing else**: the issue tracker, and
+  the plan, estimates and project-tracker documents named in the profile. What they cannot
+  answer becomes a question, asked once. Looking further - a chat space, five chat spaces -
+  happens only because a person configured it or said so in the request.
+- **Use the brain where a brain is needed, and only there.** Identifying what a card is,
+  reading a mistyped tag (`[Exisiting]`), writing the reason behind a missed KPI: judgement,
+  by written definitions, made once and kept. Fetching, reshaping, formatting: never.
+- **The sheet is the product.** It follows the look of a good hand-built tracker - its tabs,
+  columns, colours, live formulas and dashboard - and adds what this tool knows: how each
+  unobvious row was decided, the open questions, what was and was not read, what moved since
+  last time.
+- **Two homes for the sheet.** Locally by default. Or, when the lead names a Google Drive
+  folder or a specific Google Sheet - at setup or any time after - that same Google Sheet is
+  updated on every run, in place. The local one looks the same.
+- **What a person types in the sheet is kept**, and outranks everything else.
+
 ## 5. What has to exist
 
 1. **The solution itself**, in whatever form is genuinely easiest to install, use and hand to
@@ -113,5 +139,8 @@ can:
 3. get a KPI set for one of their real projects, with evidence links and readable notes,
 4. choose whether the numbers go to PMS automatically or whether they enter them by hand,
 5. correct anything that is wrong, in a spreadsheet, and have the corrections flow through,
+6. ask for the run again next month, in one sentence, from whichever assistant they use, and
+   have an updated sheet at the same link within a couple of minutes - without the assistant
+   ever opening the board, re-reading the plan, or asking again what it was told last time,
 
 and the numbers they produce are counted by exactly the same rules as everybody else's.

@@ -21,8 +21,8 @@ cannot see.
 | Python 3.9+ | The engine, workbook and adapters are Python | `brew install python3` |
 | PyYAML | The profile is YAML so a person can read it | `pip3 install pyyaml` |
 | openpyxl | Builds the workbooks | `pip3 install openpyxl` |
-| Claude Code, with an active subscription | The skills, browser control and approval steps run in it | Install the desktop app and sign in. If the company pays, ask IT for a seat |
-| The plugin is loaded | Without it the `/kpi-copilot:*` skills do not exist | `claude plugin marketplace add "/path/to/KPI Copilot"` then `claude plugin install kpi-copilot@pm-tools`, or start with `--plugin-dir` |
+| An assistant that can run commands | Claude Code, Cursor, Codex - anything that reads `AGENTS.md`, runs a command and reads a file. The `/kpi-copilot:*` skills are a convenience on Claude, not a requirement | Whatever your company provides |
+| The plugin is loaded (Claude only) | Without it the `/kpi-copilot:*` skills do not exist; everything else still works through `AGENTS.md` | `claude plugin marketplace add "/path/to/KPI Copilot"` then `claude plugin install kpi-copilot@pm-tools`, or start with `--plugin-dir` |
 
 ### Configuration
 
@@ -41,9 +41,9 @@ cannot see.
 | **Your account can open the project's KPI page** | PMS admin. Reading PMS is not the same as being allowed to see this project |
 | **Your account may edit KPIs there** | PMS admin. Only needed if you will push |
 | **The periods you will push to exist in PMS** | You. The push updates periods, it does not create them |
-| A browser session signed in to the tracker, PMS and your document store | You. Claude reads these pages as you and never types credentials |
-| Jira API token, if you use the Jira adapter | You. Keep it in the environment, never in the profile |
-| Google Drive / Sheets connector, if you work in Sheets | You, in Claude's connector settings, on the work account |
+| **Your tracker is connected** (Asana, Jira, GitHub) | You, and you choose how: a login the machine already has (GitHub's `gh`), a browser sign-in (click Allow), a token you type in a terminal, or - with no credential at all - a tab you are already signed in to. `python3 scripts/kpi.py auth` lists them for your machine, best first. A token never goes through a chat |
+| A browser session signed in to PMS | You, and only if you will push. The assistant never types credentials |
+| Google connected, if sources live in Drive or you want the sheet in Google Sheets | You, once: `python3 scripts/kpi.py auth google`. It needs an OAuth client file - see below. **Not blocking**: without it the sheet is written locally and sources are taken from `<project>/inbox/` |
 
 ### Data sources — all optional
 
@@ -102,6 +102,49 @@ python3 scripts/preflight.py --profile profile.yaml --strict
 
 Non-zero means something blocking is unresolved. `/kpi-copilot:kpi-run` does this
 automatically and stops rather than producing numbers from an environment that is not ready.
+
+## Browser sign-in for Asana and Jira - what the company sets up once
+
+A token works today with no setup beyond the person's own minute. If your leads would rather
+click **Allow** in a browser, register one small app per service, once for everybody:
+
+| Service | Where | What to set | Save as |
+|---|---|---|---|
+| Asana | app.asana.com/0/my-apps > Create new app | Redirect URL `http://localhost:8765/callback` | `~/.config/kpi-copilot/asana_client.json` - `{"client_id": "…", "client_secret": "…"}` |
+| Jira Cloud | developer.atlassian.com > Console > Create > OAuth 2.0 integration | Jira API with `read:jira-work` and `read:jira-user`; callback URL `http://localhost:8765/callback` | `~/.config/kpi-copilot/atlassian_client.json` - same shape |
+
+Hand the file to each lead. They run `python3 scripts/kpi.py auth asana --route browser` (or
+`jira`), click Allow, and the sign-in is remembered and refreshed by itself. Both apps are
+read-only as used here. GitHub needs none of this: its own `gh` login is already a browser
+sign-in.
+
+## Connecting Google - what the company sets up once
+
+Sources in Drive are fetched straight to disk, and the KPI sheet is updated in place, through
+Google's own API. An assistant's Drive connector cannot do this: it can only pass file
+contents through the conversation, which is slow, and it cannot update an existing file at
+all.
+
+Somebody with access to Google Cloud does this **once for the whole company** (ten minutes):
+
+1. Create a project in Google Cloud console; enable the **Google Sheets API** and the
+   **Google Drive API**.
+2. OAuth consent screen: user type **Internal**. (Internal apps need no Google review.)
+3. Credentials > Create credentials > OAuth client ID > **Desktop app**. Download the JSON.
+4. Hand that file to each lead. They save it as `~/.config/kpi-copilot/google_client.json`
+   and run `python3 scripts/kpi.py auth google` once. A desktop client's "secret" is not a
+   secret in the usual sense; what matters is the refresh token, which never leaves the
+   lead's machine.
+
+Each lead then reads and writes **as themselves**, with exactly their own Drive permissions.
+
+For a scheduled, unattended run, use a **service account** instead: create one in the same
+project, save its key as `~/.config/kpi-copilot/google_service_account.json` on that machine,
+and share the Drive folder with the account's address.
+
+Until any of that exists, nothing is blocked: drop an export of each source into
+`<project>/inbox/` (`plan.pdf`, `estimates.xlsx`, `timeline.xlsx`) and import the local
+workbook over the Google Sheet by hand (File > Import > Replace spreadsheet).
 
 ## What to sort out before a wider rollout
 

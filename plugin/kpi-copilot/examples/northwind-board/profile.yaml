@@ -1,0 +1,127 @@
+profile_version: "1.0"
+
+# Example - the whole pipeline, offline.
+#
+# board.json is a board snapshot, which is what a tracker reader produces (the Asana reader
+# makes one in a few seconds from the API). Everything after that is the same for every
+# tracker: rules propose, an assistant judges what the rules were unsure of, a person answers
+# what nobody can see from outside, and the sheet is rebuilt.
+#
+#   python3 scripts/kpi.py run --profile examples/northwind-board/profile.yaml \
+#       --project northwind-q3 --board examples/northwind-board/board.json --today 2026-09-18
+#
+# Copy the folder somewhere first if you want to keep the example clean: a run writes its
+# ledger, cache and workbook into <this folder>/northwind-q3/.
+
+owner:
+  name: Project Lead
+  email: lead@example.com
+  role: Software Project Lead
+  account: Northwind
+  timezone: Asia/Dhaka
+
+organization:
+  pms_base_url: https://pms.example.com
+  kpi_registry: kpi_registry.json
+  note_format: "what is measured || the numbers || what was left out || why"
+  evidence_required: true
+
+tools:
+  - id: tracker
+    kind: issue-tracker
+    name: Asana
+    url_or_id: https://app.asana.com/0/1100000000000001
+    description: "The Northwind board. Features, change requests and QA reports are all cards here."
+    used_for: [scope, dates, defects, evidence]
+  - id: pms
+    kind: pms
+    name: PMS
+    url_or_id: https://pms.example.com/all-projects/101/kpis
+    description: "Where the KPIs are recorded."
+    used_for: [output]
+
+tracker:
+  adapter: asana
+  url: https://app.asana.com
+  estimate_field: Estimated Time
+  story_point_field: Story Points
+  key_field: NW
+
+conventions:
+  key_pattern: 'NW-\d+'
+  defect_by: title-pattern
+  defect_pattern: '\b(Bug|Observation|Improvement)\s?\d+'
+  defect_values: [Bug]
+  observation_values: [Observation, Improvement]
+  exclude_patterns:
+    - '^\[QA\]'
+    - '^Milestone ?\d*$'
+    - '^Regression Testing'
+  cr_marker: '\[CR\]'
+  client_names: [Dana Whitfield, Marisa Cole]
+  # The words this team tags titles with. Matching is tolerant: "[Exisiting]" is read as
+  # Existing, and the row says so.
+  tags:
+    pre_existing: [Existing, Pre-existing]
+    cr: [CR, Change Request]
+
+workflow:
+  delivered_when:
+    signal: status-entered
+    values: [Ready for QA, Testing Failed, Closed]
+  closed_when:
+    values: [Closed]
+  reopened_when:
+    values: [In Progress, Testing Failed, Ready for QA]
+    ignore_first_qa_fail: true
+  clarification_when:
+    values: [Awaiting Feedback]
+    also_comments: true
+    exclude_reasons: [build, environment, access]
+  commitment:
+    scope: committed-only
+    met_when: delivery
+
+# The sources this run may read. These, and nothing else: no chat, no mail.
+sources:
+  mode: tracker-first
+  hours_first: plan
+  hours_basis: dev+qa
+  estimates:
+    kind: sheet
+    ref: sources/estimates.csv
+    map:
+      columns: {board_key: Ticket, title: Item, dev_hours: "Dev (h)", qa_hours: "QA (h)", approved_on: Approved, period: Period}
+  timeline:
+    kind: sheet
+    ref: sources/timeline.csv
+    map:
+      events:
+        columns: {event: Event, period: Period, type: Type, baseline: Baseline, actual: Actual, state: State}
+        handover_types: [Handover]
+
+scan:
+  window: period+grace
+  grace_days: 14
+  tracker_scope: all
+  comments: on-demand
+  stop_when_found: true
+
+periods:
+  model: Delivery cycle
+  client_check_default: Delivery
+
+policy:
+  count_observations: false
+  count_pre_existing: false
+
+output:
+  mode: review-only
+  workbook: xlsx
+
+projects:
+  - id: northwind-q3
+    name: Northwind Q3 Release Items
+    pms_project_id: 101
+    tracker_ref: "1100000000000001"
+    velocity_unit: Estimated Hours

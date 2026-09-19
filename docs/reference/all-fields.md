@@ -32,8 +32,9 @@ Type: `1.0`.
 |---|---|---|---|---|
 | `pms_base_url` | string | `https://pms.example.com` | yes |  |
 | `kpi_registry` | string | `kpi_registry.json` |  | Local cache of the KPI definitions read from PMS: ids, names, the official descriptions, the default targets, and the targets each project sets for itself. Refreshed by scripts/kpi_registry.py --refresh. Never hand-edited - a target changed in PMS is picked up by the next refresh, and a target changed here would make the workbook and PMS disagree. |
-| `note_format` | string | `what is measured || the numbers || what was left out || why` |  | Fixed company-wide so management reads every project the same way. |
+| `note_format` | string | `what the numbers say, in sentences || what was left out || why` |  | Fixed company-wide so management reads every project the same way. |
 | `evidence_required` | boolean | `yes` |  | Yes = a Yes/No with no link is flagged in review. |
+| `note_style` | one of: `sentences`, `fragments` | `sentences` |  | How the generated part of a KPI note is worded. sentences (default): whole sentences, the way a person would write them. fragments: the older 'heading \|\| numbers \|\| what was left out'. It changes the wording only, never a figure. |
 
 ## `tools`
 
@@ -58,13 +59,13 @@ The tool registry: every place your projects' truth lives, with a plain-language
 
 | Field | Type | Default | Required | What it is |
 |---|---|---|---|---|
-| `adapter` | string |  | yes | Which adapter turns your tracker into KIF. Ships with: asana, jira, csv. 'csv' works with any tracker that can export - use it on day one and write a native adapter later if the manual export gets tiring. |
+| `adapter` | string |  | yes | Which reader turns your tracker into a board. Ships with: asana, jira (Cloud, Server, Data Center), github (Issues, and a Projects board's status), and csv - which works with an export from any tracker at all. A reader for another tracker is one small file; see adapters/_contract.md. |
 | `project_ref` | string |  |  | Asana: the number after /project/. Jira: the project key, e.g. SAV. |
 | `url` | string |  |  |  |
 | `estimate_field` | string | `Estimated Time` |  |  |
 | `story_point_field` | string |  |  | Leave blank if you measure in hours. |
 | `key_field` | string |  |  | Leave blank to use the tracker's own id. |
-| `options` | object |  |  | Adapter-specific extras. See the adapter's own README. |
+| `options` | object |  |  | Reader-specific extras. asana: include_subtasks, token_env. jira: jql (read this query instead of the whole project). github: project (a Projects board such as orgs/acme/projects/7, whose Status field becomes the status), status_field, graphql_url (GitHub Enterprise Server), max_items. Also defect_field / defect_board when conventions.defect_by needs them. |
 
 ## `conventions`
 
@@ -80,6 +81,11 @@ How your team names and shapes things. These are regular expressions or literal 
 | `exclude_patterns` | list of string |  |  | Cards that are not deliverables: QA admin cards, milestone markers, grouping/umbrella cards, duplicates. |
 | `cr_marker` | string |  |  | Regex, label or field value. Blank = CRs come from the estimates source instead. |
 | `client_names` | list of string |  |  | Exact names as they appear in the tracker. Used to tell a client-found defect from a QA-found one. |
+| `tags` | object |  |  | The words your team tags titles with, in square or round brackets. Matching is tolerant: a tag one or two letters off a word here ('[Exisiting]') is read as that word, and the row says so in its Check column so a person can disagree. Defaults cover the usual English words; list your own if they differ. |
+| &nbsp;&nbsp;`tags.pre_existing` | list of string |  |  | Tags that mean a defect was already in the product before this work, e.g. Existing, Pre-existing, Legacy. |
+| &nbsp;&nbsp;`tags.cr` | list of string |  |  | Tags that mean an approved addition, e.g. CR, Change Request. |
+| &nbsp;&nbsp;`tags.rejected` | list of string |  |  | Tags or column names that mean a report was rejected, e.g. Invalid, By Design, Duplicate. |
+| &nbsp;&nbsp;`tags.deferred` | list of string |  |  | Column names that mean a report was moved out of scope, e.g. Deferred, Out of Scope. |
 
 ## `workflow`
 
@@ -116,19 +122,22 @@ Where scope, hours and dates come from, and which of them the run is allowed to 
 | `plan` | object |  |  |  |
 | &nbsp;&nbsp;`plan.tool_id` | string |  |  |  |
 | &nbsp;&nbsp;`plan.kind` | one of: `pdf`, `sheet`, `wiki`, `tracker`, `none` |  |  |  |
-| &nbsp;&nbsp;`plan.ref` | string |  |  |  |
+| &nbsp;&nbsp;`plan.ref` | string |  |  | A Drive link or id, a web link, or a path relative to the profile. Fetched straight to disk, and only when it has changed since the copy already there. |
 | &nbsp;&nbsp;`plan.note` | string |  |  |  |
+| &nbsp;&nbsp;`plan.map` | object |  |  | How to read the plan when it is a table, written once at setup so nobody re-reads the document on every run. For plan and estimates: {tab, columns: {title, board_key, dev_hours, qa_hours, period, approved_on, milestone}} where each value is the column's header text in the sheet. A source with no mapping (a PDF) is digested once by the assistant into facts/*.yaml instead. |
 | `estimates` | object |  |  |  |
 | &nbsp;&nbsp;`estimates.tool_id` | string |  |  |  |
 | &nbsp;&nbsp;`estimates.kind` | one of: `sheet`, `tracker`, `none` |  |  |  |
-| &nbsp;&nbsp;`estimates.ref` | string |  |  |  |
+| &nbsp;&nbsp;`estimates.ref` | string |  |  | A Drive link or id, a web link, or a path relative to the profile. Fetched straight to disk, and only when it has changed since the copy already there. |
 | &nbsp;&nbsp;`estimates.note` | string |  |  |  |
+| &nbsp;&nbsp;`estimates.map` | object |  |  | How to read the estimates sheet when it is a table, written once at setup so nobody re-reads the document on every run. For plan and estimates: {tab, columns: {title, board_key, dev_hours, qa_hours, period, approved_on, milestone}} where each value is the column's header text in the sheet. A source with no mapping (a PDF) is digested once by the assistant into facts/*.yaml instead. |
 | `timeline` | object |  |  |  |
 | &nbsp;&nbsp;`timeline.tool_id` | string |  |  |  |
 | &nbsp;&nbsp;`timeline.kind` | one of: `sheet`, `wiki`, `tracker`, `none` |  |  |  |
-| &nbsp;&nbsp;`timeline.ref` | string |  |  |  |
+| &nbsp;&nbsp;`timeline.ref` | string |  |  | A Drive link or id, a web link, or a path relative to the profile. Fetched straight to disk, and only when it has changed since the copy already there. |
 | &nbsp;&nbsp;`timeline.note` | string |  |  |  |
-| `evidence_channels` | list of string |  |  | tool ids of the chat spaces, mailboxes or threads searched for dates, handovers and decisions. |
+| &nbsp;&nbsp;`timeline.map` | object |  |  | How to read the timeline or project tracker when it is a table, written once at setup so nobody re-reads the document on every run. For a timeline: {events: {tab, columns: {event, period, type, baseline, actual, state}, handover_types: [...]}, log: {tab, columns: {date, type, period, what, why, kpi}}}. The latest done handover event of a period becomes its handover date; log rows ticked for KPI become context for the notes. A source with no mapping (a PDF) is digested once by the assistant into facts/*.yaml instead. |
+| `evidence_channels` | list of string |  |  | tool ids of chat spaces or mail labels a DEEP run may consult. A normal run never searches them: what the declared sources cannot answer becomes a question on the Open Questions tab. `kpi.py run --deep` may look those questions up here, and only here. |
 | `hours_first` | one of: `plan`, `tracker` | `tracker` |  | plan \| tracker |
 | `hours_basis` | one of: `dev`, `dev+qa` | `dev` |  | dev = development hours only. dev+qa = adds each item's QA hours once its QA is done. |
 
@@ -162,6 +171,9 @@ How this team slices a project for PMS.
 | `model` | one of: `Milestone`, `Delivery cycle`, `Sprint`, `Month`, `Quarter`, `Full project` | `Delivery cycle` |  |  |
 | `naming` | string | `Initial Scope, Additional Requests N, Milestone N, Full Project` |  | PMS allows 25 characters. |
 | `client_check_default` | one of: `Handover`, `Delivery` | `Handover` |  | Handover = when the build reached the client. Delivery = when the item itself was delivered. |
+| `by_section` | list of objects |  |  | Optional. Board columns that decide the period on their own: [{section: '^Sprint 14', period: 'Sprint 14'}]. 'section' is a regular expression on the column name. |
+| &nbsp;&nbsp;`by_section[].section` | string |  |  |  |
+| &nbsp;&nbsp;`by_section[].period` | string |  |  |  |
 
 ## `policy`
 
@@ -183,11 +195,13 @@ What the run produces and how far it is allowed to go on its own. This is the se
 |---|---|---|---|---|
 | `mode` | one of: `review-only`, `dry-run`, `assisted-push`, `auto-push` | `assisted-push` | yes | review-only = build the workbook and a copy-paste block; never touch PMS. dry-run = also compute the PMS payload and show the diff, but never write. assisted-push = dry run, then push after an explicit yes in chat. auto-push = push without asking; only honoured when unattended is true, and every push is still logged. |
 | `unattended` | boolean | `no` |  | Only meaningful with auto-push. Leave No unless you have run this for a while. |
-| `workbook` | one of: `google-sheets`, `xlsx`, `none` | `xlsx` |  |  |
-| `workbook_location` | string |  |  | Drive folder id, SharePoint path or a local folder. |
+| `workbook` | one of: `google-sheets`, `xlsx`, `none` | `xlsx` |  | Where the KPI tracker lives. xlsx (the default) writes it locally, in the project's folder. google-sheets also keeps one live Google Sheet that every run updates in place - same link every time. The local copy is always written, whichever is chosen. |
+| `workbook_location` | string |  |  | A Drive folder (link or id). The first run creates the Google Sheet there; later runs find it by name and update it. |
 | `workbook_template` | string |  |  | Sheet id or path. Blank = build a fresh one. |
 | `run_folder` | string | `runs` |  |  |
 | `notify` | string |  |  | A tool id from the Tools tab, or blank for none. |
+| `workbook_file` | string |  |  | A specific Google Sheet (link or id) to update in place, instead of creating one in workbook_location. Tabs the tool owns are rebuilt; tabs a person added are left alone. |
+| `workbook_name` | string |  |  | Name for a Google Sheet the tool creates. {project} is replaced. Default: '[KPI Tracker] {project}'. |
 
 ## `custom_instructions`
 
@@ -235,7 +249,7 @@ The projects this profile covers - one row per PMS project. Everything above is 
 | `id` | string |  | yes | Short handle, e.g. 'q3-release'. Names the config and run files. |
 | `name` | string |  | yes |  |
 | `pms_project_id` | integer |  |  |  |
-| `tracker_ref` | string |  |  | Board id / project key for this project, when it differs from the tracker default. |
+| `tracker_ref` | string |  |  | The board this project lives on: the long number in an Asana board's URL, a Jira project key, or owner/repository on GitHub (several, comma-separated, are fine). |
 | `workbook_ref` | string |  |  | Sheet id or file path of this project's tracker workbook. |
 | `plan_ref` | string |  |  |  |
 | `estimates_ref` | string |  |  |  |
@@ -252,6 +266,7 @@ The projects this profile covers - one row per PMS project. Everything above is 
 | &nbsp;&nbsp;`overrides.output` | object |  |  | A different output mode or working-file location. |
 | &nbsp;&nbsp;`overrides.custom_instructions` | object |  |  | House style or rule overrides for this scope only. |
 | `account` | string |  |  | The account this project belongs to, by id. It inherits that account's overrides. |
+| `deliverable_grain` | one of: `board-cards`, `plan-items` |  |  | What one deliverable is. board-cards (default): one card, one deliverable. plan-items: a card the plan breaks into modules counts once per module, so denominators follow the plan's own breakdown. It is printed on the Config tab, because it changes every ratio. |
 
 ## `learned`
 

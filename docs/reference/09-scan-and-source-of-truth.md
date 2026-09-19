@@ -1,12 +1,17 @@
 # Source of truth, and how far a run looks
 
-The two settings that decide whether a run takes two minutes or forty.
+The settings that decide what a run may read.
 
 A run has to answer a fixed set of questions: what was delivered, when, against which
 promised date, how many defects, how many escaped. **Where it is allowed to look for those
-answers, and how far back, is entirely yours to set.** Left unset, a run reaches for
-everything, every time, which is slow, expensive, and no more accurate — nearly all of the
-extra material belongs to periods that were settled months ago.
+answers is entirely yours to set, and it never looks anywhere else.**
+
+The rule, whatever the settings: a run reads the **tracker**, plus the **sources named in the
+profile** (plan, estimates, timeline). It does not search chat, mail or Drive. What those
+cannot answer becomes a question for a person on the Open Questions tab - asked once,
+remembered. Looking further is something a person asks for, run by run (`--deep`, or "also
+check the client chat"), and even then only the open questions are looked up, only in the
+places named.
 
 ---
 
@@ -20,7 +25,7 @@ sources:
 | Mode | What happens | Who it is for |
 |---|---|---|
 | `tracker-only` | The issue tracker is the single source of truth. Chat, mail and documents are **never opened**. Anything the board cannot answer comes back "Not measured", with that as the stated reason | Teams whose board is genuinely the record: status moves to Dev Complete, QA Ready and Closed are made properly and on time |
-| `tracker-first` *(default)* | The board answers first. Another source is opened **only** for a fact the board left blank | Most teams. Cheap in the common case, accurate in the awkward one |
+| `tracker-first` *(default)* | The board answers first; the plan, estimates and timeline named in the profile supply scope, hours and dates. Nothing else is opened | Most teams |
 | `multi-source` | Other sources are read even where the board has an answer, and a disagreement is reported rather than resolved silently | Teams where the board and reality routinely differ, and you want both quoted |
 
 **`tracker-only` is not a degraded mode.** It is a legitimate, and often the correct, choice.
@@ -100,25 +105,23 @@ Set `never` and a run will be fast and will lose the evidence links behind sever
 
 ---
 
-## Ordering, and what it saves
+## What it costs
 
-A run works cheapest-first: **board → plan and estimates sheets → chat → mail.** With
-`stop_when_found` on, most facts are settled at the first step and the later ones are never
-opened. That is where the saving comes from — not from reading less carefully, but from not
-reading the same thing four times.
+| Step | First run | Every run after |
+|---|---|---|
+| The board (150 cards, with history) | ~15 s | 2-3 s - only cards whose `modified_at` moved are re-read |
+| Each source | 1-2 s | nothing, unless the file changed |
+| Judging | a few dozen cards put to the assistant, once | only cards that are new or changed |
+| The sheet | under a second locally; a few seconds for Google | the same |
 
-| Profile | What a monthly refresh opens |
-|---|---|
-| `tracker-only`, `tracker_scope: touched-since` | One board query, bounded by date |
-| `tracker-first`, `window: period+grace` *(default)* | The board, plus the two or three sheets, plus a bounded search of one or two chat spaces for whatever is still blank |
-| `multi-source`, `window: all` | Everything, every time |
-
----
+`scan.chat` and `scan.mail` bound a **deep** run only. A normal run never opens either.
 
 ## Saying what was skipped
 
-Both settings are honest by construction. **Anything a limit cut off is named in the run's
-Gaps** — never dropped quietly:
+Both settings are honest by construction. **The sheet's Run Log tab lists every source the
+run read, with its date, and says what it deliberately did not read** - "chat, mail, other
+documents: not read" is there on every normal run. On a deep run, a limit that cut something
+off is named the same way:
 
 > Chat searched back to 08/01 only (`scan.chat.lookback_days: 45`). If a date was agreed
 > before then, it is not in these numbers.

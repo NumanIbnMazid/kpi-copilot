@@ -1,57 +1,75 @@
-# asana adapter
+# Asana
 
-> **Note for the public repository**
->
-> `browser_extract.js` is internal tooling belonging to the organisation this was built for,
-> and is **not included here**. The adapter's converter is, and it is the part worth having:
-> point `--from-extract` at any JSON in the shape documented below and it produces valid KIF.
->
-> To use Asana in this repository you have two options: write your own in-browser extractor
-> against `adapters/_contract.md` (`/kpi-copilot:kpi-adapter` walks it), or export the board
-> to CSV and use the `csv` adapter, which needs nothing at all.
-
-Reads Asana through a signed-in browser tab rather than a token, and converts the result into
-KIF.
-
-## Why the browser, not the API
-
-Nobody has to create, store or paste a personal access token, and the extractor sees exactly
-what the person can see. This adapter is the converter: hand it the extractor's output and
-it produces valid KIF. Keeping the two apart means the judgement about what counts as
-delivered, which QA failure is rework and which cards are grouping cards lives in the engine
-and the profile, where it is shared, rather than inside one tracker's extractor.
-
-## How to run it
-
-1. Open a signed-in `app.asana.com` tab.
-2. Run your extractor in it, leaving the result on `window.__kpi`.
-3. Save `window.__kpi` to a file.
-4. Convert:
+Reads the board through Asana's REST API, straight to disk, and keeps what it read.
 
 ```bash
-python3 extract.py --profile profile.yaml --project q3-release \
-  --from-extract kpi.json --out run.kif.json
+python3 scripts/kpi.py run --profile profile.yaml --project <id>      # uses this reader
+python3 adapters/asana/api.py --project <asana project id> --out board.json   # on its own
 ```
 
-`/kpi-copilot:kpi-run` does all four steps.
+| | |
+|---|---|
+| First read, 150 cards | about 15 seconds: one paged list, then each card's history, eight at a time |
+| Every read after | 2-3 seconds: a card whose `modified_at` has not moved keeps the history already read |
+| What it produces | a **board snapshot** (`scripts/board.py`): cards, fields, column moves, completions, comments. No judgement |
+| What it can see | status history, comments, assignee, estimates, story points, tags, created and closed dates, reporter |
 
-## What it can see
+It only ever issues GET. Everything that needs a rule or a brain - what is a defect, what
+is rework, which period - happens afterwards in `scripts/classify.py`, the same way for
+every tracker.
 
-The full set: status history, comments, assignee, estimates, story points, created and closed
-dates, reporter.
+## Signing in
 
-## Mapping notes
+`python3 scripts/kpi.py auth` shows what is connected and the best way in for this machine.
 
-- The legacy extract calls the handover `releaseDate`; KIF calls it `handover_date`. Blank
-  means not handed over, which the engine turns into an honest "nothing to measure" rather
-  than a green zero.
-- `Pre-release` becomes `QA`; `Post-release` stays.
-- `dev` (the hours the pipeline settled on) wins over `est` (the raw estimate), and
-  `hours_source` records which.
-- Three-way fields (`Yes` / `No` / `Pending`) carry through; blank becomes null and is left
-  out of the denominator.
+1. **A personal access token** - Asana > Settings > Apps > Developer apps > Personal access
+   tokens, then `python3 scripts/kpi.py auth asana --route token`, typed by you in a terminal
+   (stored in `~/.config/kpi-copilot`, readable only by you), or `export ASANA_TOKEN=…`. A
+   minute to set up, the fastest at run time, and the one for an unattended schedule. A
+   different variable name can be set as `tracker.options.token_env`.
+2. **Sign in in your browser** - `python3 scripts/kpi.py auth asana --route browser`; click
+   Allow. Works in your own browser or your assistant's built-in one (`--no-open` prints the
+   link). Needs an Asana app your company registers once (`docs/03-Prerequisites.md`).
+3. **No credential at all** - see the last section: a signed-in tab downloads the board.
 
-## Direct API
+A token never goes through a chat, whichever route is used.
 
-Not implemented. The adapter says so rather than pretending. The browser route is supported
-and needs no token; if a token-based route is ever wanted, the contract is the same.
+## Profile
+
+```yaml
+tracker:
+  adapter: asana
+  estimate_field: Estimated Time       # custom field holding hours
+  story_point_field: Story Points
+  options:
+    include_subtasks: false            # yes = subtasks are rows of their own
+projects:
+  - id: q3-release
+    tracker_ref: "1200000000000001"    # the long number in the board's URL
+scan:
+  comments: on-demand                  # never = do not keep comment text at all
+  tracker_scope: all                   # touched-since = only re-read cards modified since the first period began
+```
+
+Status is the card's **column in this project**. A card that lives in several projects moves
+in all of them; only this board's columns count. Boards that keep status in a custom field
+instead are read the same way - a change of an enum field is a status move.
+
+## No token, and no way to get one
+
+`browser_snapshot.js` collects the same raw responses from a signed-in tab and **downloads**
+them as a file, so nothing travels through an assistant's context:
+
+```text
+kpiSnapshot('1200000000000001')        ->  ~/Downloads/asana-raw-1200000000000001.json
+python3 scripts/kpi.py run … --from-raw ~/Downloads/asana-raw-1200000000000001.json
+```
+
+Both routes go through the same conversion (`api.py: from_raw`), so they cannot disagree.
+
+## The older converter
+
+`extract.py --from-extract` still converts the legacy `window.__kpi` shape into KIF, for
+anybody who has such a file. New work should not use it: that route needed an assistant to
+scrape the board and judge every card by hand, which is what made runs slow and made two
+runs of the same board disagree.

@@ -92,7 +92,7 @@
         },
         "note_format": {
           "type": "string",
-          "default": "what is measured || the numbers || what was left out || why",
+          "default": "what the numbers say, in sentences || what was left out || why",
           "x-workbook": {
             "label": "Note format",
             "hint": "Fixed company-wide so management reads every project the same way."
@@ -104,6 +104,17 @@
           "x-workbook": {
             "label": "Require evidence on every judgement",
             "hint": "Yes = a Yes/No with no link is flagged in review."
+          }
+        },
+        "note_style": {
+          "enum": [
+            "sentences",
+            "fragments"
+          ],
+          "default": "sentences",
+          "description": "How the generated part of a KPI note is worded. sentences (default): whole sentences, the way a person would write them. fragments: the older 'heading || numbers || what was left out'. It changes the wording only, never a figure.",
+          "x-workbook": {
+            "label": "Note wording"
           }
         }
       }
@@ -237,7 +248,7 @@
       "properties": {
         "adapter": {
           "type": "string",
-          "description": "Which adapter turns your tracker into KIF. Ships with: asana, jira, csv. 'csv' works with any tracker that can export - use it on day one and write a native adapter later if the manual export gets tiring.",
+          "description": "Which reader turns your tracker into a board. Ships with: asana, jira (Cloud, Server, Data Center), github (Issues, and a Projects board's status), and csv - which works with an export from any tracker at all. A reader for another tracker is one small file; see adapters/_contract.md.",
           "examples": [
             "asana",
             "jira",
@@ -284,7 +295,7 @@
         },
         "options": {
           "type": "object",
-          "description": "Adapter-specific extras. See the adapter's own README."
+          "description": "Reader-specific extras. asana: include_subtasks, token_env. jira: jql (read this query instead of the whole project). github: project (a Projects board such as orgs/acme/projects/7, whose Status field becomes the status), status_field, graphql_url (GitHub Enterprise Server), max_items. Also defect_field / defect_board when conventions.defect_by needs them."
         }
       }
     },
@@ -370,6 +381,43 @@
           "x-workbook": {
             "label": "People on the client side",
             "hint": "Exact names as they appear in the tracker. Used to tell a client-found defect from a QA-found one."
+          }
+        },
+        "tags": {
+          "type": "object",
+          "description": "The words your team tags titles with, in square or round brackets. Matching is tolerant: a tag one or two letters off a word here ('[Exisiting]') is read as that word, and the row says so in its Check column so a person can disagree. Defaults cover the usual English words; list your own if they differ.",
+          "x-workbook": {
+            "label": "Title tags"
+          },
+          "properties": {
+            "pre_existing": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Tags that mean a defect was already in the product before this work, e.g. Existing, Pre-existing, Legacy."
+            },
+            "cr": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Tags that mean an approved addition, e.g. CR, Change Request."
+            },
+            "rejected": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Tags or column names that mean a report was rejected, e.g. Invalid, By Design, Duplicate."
+            },
+            "deferred": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Column names that mean a report was moved out of scope, e.g. Deferred, Out of Scope."
+            }
           }
         }
       }
@@ -562,10 +610,15 @@
               ]
             },
             "ref": {
-              "type": "string"
+              "type": "string",
+              "description": "A Drive link or id, a web link, or a path relative to the profile. Fetched straight to disk, and only when it has changed since the copy already there."
             },
             "note": {
               "type": "string"
+            },
+            "map": {
+              "type": "object",
+              "description": "How to read the plan when it is a table, written once at setup so nobody re-reads the document on every run. For plan and estimates: {tab, columns: {title, board_key, dev_hours, qa_hours, period, approved_on, milestone}} where each value is the column's header text in the sheet. A source with no mapping (a PDF) is digested once by the assistant into facts/*.yaml instead."
             }
           },
           "x-workbook": {
@@ -586,10 +639,15 @@
               ]
             },
             "ref": {
-              "type": "string"
+              "type": "string",
+              "description": "A Drive link or id, a web link, or a path relative to the profile. Fetched straight to disk, and only when it has changed since the copy already there."
             },
             "note": {
               "type": "string"
+            },
+            "map": {
+              "type": "object",
+              "description": "How to read the estimates sheet when it is a table, written once at setup so nobody re-reads the document on every run. For plan and estimates: {tab, columns: {title, board_key, dev_hours, qa_hours, period, approved_on, milestone}} where each value is the column's header text in the sheet. A source with no mapping (a PDF) is digested once by the assistant into facts/*.yaml instead."
             }
           },
           "x-workbook": {
@@ -611,10 +669,15 @@
               ]
             },
             "ref": {
-              "type": "string"
+              "type": "string",
+              "description": "A Drive link or id, a web link, or a path relative to the profile. Fetched straight to disk, and only when it has changed since the copy already there."
             },
             "note": {
               "type": "string"
+            },
+            "map": {
+              "type": "object",
+              "description": "How to read the timeline or project tracker when it is a table, written once at setup so nobody re-reads the document on every run. For a timeline: {events: {tab, columns: {event, period, type, baseline, actual, state}, handover_types: [...]}, log: {tab, columns: {date, type, period, what, why, kpi}}}. The latest done handover event of a period becomes its handover date; log rows ticked for KPI become context for the notes. A source with no mapping (a PDF) is digested once by the assistant into facts/*.yaml instead."
             }
           },
           "x-workbook": {
@@ -626,7 +689,7 @@
           "items": {
             "type": "string"
           },
-          "description": "tool ids of the chat spaces, mailboxes or threads searched for dates, handovers and decisions.",
+          "description": "tool ids of chat spaces or mail labels a DEEP run may consult. A normal run never searches them: what the declared sources cannot answer becomes a question on the Open Questions tab. `kpi.py run --deep` may look those questions up here, and only here.",
           "x-workbook": {
             "label": "Where to look for evidence",
             "hint": "Tool ids from the Tools tab, one per line."
@@ -832,6 +895,21 @@
             "label": "Client date is met on",
             "hint": "Handover = when the build reached the client. Delivery = when the item itself was delivered."
           }
+        },
+        "by_section": {
+          "type": "array",
+          "description": "Optional. Board columns that decide the period on their own: [{section: '^Sprint 14', period: 'Sprint 14'}]. 'section' is a regular expression on the column name.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "section": {
+                "type": "string"
+              },
+              "period": {
+                "type": "string"
+              }
+            }
+          }
         }
       }
     },
@@ -923,14 +1001,16 @@
           "default": "xlsx",
           "x-workbook": {
             "label": "Working file format"
-          }
+          },
+          "description": "Where the KPI tracker lives. xlsx (the default) writes it locally, in the project's folder. google-sheets also keeps one live Google Sheet that every run updates in place - same link every time. The local copy is always written, whichever is chosen."
         },
         "workbook_location": {
           "type": "string",
           "x-workbook": {
             "label": "Where the working file goes",
             "hint": "Drive folder id, SharePoint path or a local folder."
-          }
+          },
+          "description": "A Drive folder (link or id). The first run creates the Google Sheet there; later runs find it by name and update it."
         },
         "workbook_template": {
           "type": "string",
@@ -951,6 +1031,20 @@
           "x-workbook": {
             "label": "Post a summary to",
             "hint": "A tool id from the Tools tab, or blank for none."
+          }
+        },
+        "workbook_file": {
+          "type": "string",
+          "description": "A specific Google Sheet (link or id) to update in place, instead of creating one in workbook_location. Tabs the tool owns are rebuilt; tabs a person added are left alone.",
+          "x-workbook": {
+            "label": "Google Sheet to update"
+          }
+        },
+        "workbook_name": {
+          "type": "string",
+          "description": "Name for a Google Sheet the tool creates. {project} is replaced. Default: '[KPI Tracker] {project}'.",
+          "x-workbook": {
+            "label": "Sheet name"
           }
         }
       }
@@ -1186,7 +1280,7 @@
           },
           "tracker_ref": {
             "type": "string",
-            "description": "Board id / project key for this project, when it differs from the tracker default."
+            "description": "The board this project lives on: the long number in an Asana board's URL, a Jira project key, or owner/repository on GitHub (several, comma-separated, are fine)."
           },
           "workbook_ref": {
             "type": "string",
@@ -1252,6 +1346,13 @@
           "account": {
             "type": "string",
             "description": "The account this project belongs to, by id. It inherits that account's overrides."
+          },
+          "deliverable_grain": {
+            "enum": [
+              "board-cards",
+              "plan-items"
+            ],
+            "description": "What one deliverable is. board-cards (default): one card, one deliverable. plan-items: a card the plan breaks into modules counts once per module, so denominators follow the plan's own breakdown. It is printed on the Config tab, because it changes every ratio."
           }
         }
       }

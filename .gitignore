@@ -11,6 +11,16 @@ reasons.yaml
 !plugin/kpi-copilot/examples/**/reasons.yaml
 manual.yaml
 
+# A project's memory and run state: judgements, cached boards and sources, the judge queue.
+# Project data, never committed - including when an example is run in place.
+ledger.json
+next.json
+sheet_state.json
+**/cache/
+**/judge/
+**/inbox/
+extra_rows.yaml
+
 # Generated workbooks. Rebuild them with scripts/workbook.py.
 *.xlsx
 ~$*
