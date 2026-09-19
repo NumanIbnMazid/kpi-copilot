@@ -98,6 +98,28 @@ def _load_any(path: Path) -> Any:
     return json.loads(text)
 
 
+def _saved_credential(name: str) -> str:
+    path = Path(os.environ.get("KPI_COPILOT_HOME") or Path.home() / ".config" / "kpi-copilot") / "credentials.json"
+    try:
+        return (json.loads(path.read_text(encoding="utf-8")).get(name) or "") if path.exists() else ""
+    except (OSError, json.JSONDecodeError):
+        return ""
+
+
+def _google_signed_in() -> str:
+    home = Path(os.environ.get("KPI_COPILOT_HOME") or Path.home() / ".config" / "kpi-copilot")
+    sa = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    if (sa and Path(sa).exists()) or (home / "google_service_account.json").exists():
+        return "service account"
+    return "you" if (home / "google_token.json").exists() else ""
+
+
+def _is_drive_ref(ref) -> bool:
+    ref = str(ref or "")
+    return "docs.google.com" in ref or "drive.google.com" in ref or (
+        len(ref) >= 25 and "/" not in ref and "." not in ref and " " not in ref)
+
+
 def _host_reachable(url: str, timeout: float = 6.0) -> tuple[bool, str]:
     """Can this machine reach the host at all. Deliberately not a sign-in test: a 401 or a
     redirect to a login page still proves the network path and DNS work, which is the thing
@@ -308,27 +330,45 @@ def build_checks(profile: dict | None, profile_path: Path | None,
             BLOCKING, PASS if ok else FAIL, detail, _now(),
         ))
 
-    add(Check(
-        "browser-signed-in", "Access", "A browser session signed in to the tracker, PMS and your document store",
-        "Claude reads these pages as you. It never types credentials, so the session has to be there already.",
-        "Sign in yourself in Claude's browser pane, or connect the Claude in Chrome extension on the work profile. Then re-run this check.",
-        BLOCKING, MANUAL, "sign in once; the session is remembered", None,
-    ))
-
-    if adapter in ("jira",):
+    if adapter in ("asana", "jira", "github"):
+        # The board is read through the tracker's API, straight to disk. Reading it through a
+        # browser and an assistant's context is what used to make a run take half an hour.
+        import connect
+        st = connect.status(adapter)
+        first = connect.recommend(adapter)[0]
         add(Check(
-            "tracker-api-token", "Access", "Jira API token or an authenticated session",
-            "The Jira adapter reads through the REST API.",
-            "Create an Atlassian API token and put it in the environment as JIRA_TOKEN. Never paste it into a chat or the profile.",
-            BLOCKING, MANUAL, "confirm the token works with one request", None, owner="tracker admin",
+            "tracker-api-token", "Access", f"{adapter.title()} is connected",
+            "The board is read through the tracker's API in seconds and cached, so a rerun only fetches what "
+            "changed. There are several ways to sign in - a browser sign-in, a login the machine already has, a "
+            "token, or a tab where you are already signed in - and `python3 scripts/kpi.py auth` lists them for "
+            "this machine, best first.",
+            f"Suggested here: {first['label']} - {first['how']} A token is typed by you, never pasted into a chat.",
+            BLOCKING, PASS if st["connected"] else FAIL,
+            f"connected ({st['via']})" if st["connected"] else "not connected", _now(),
         ))
 
-    if wants_sheets:
+    if writes_to_pms:
         add(Check(
-            "drive-connector", "Access", "Google Drive / Sheets connector enabled",
-            "Needed to copy the tracker template and write the working file.",
-            "Enable the Google Drive connector for your account in Claude's connector settings, on the work account.",
-            BLOCKING, MANUAL, "confirm the connector is on", None,
+            "browser-signed-in", "Access", "A browser session signed in to PMS",
+            "The push acts as you. It never types credentials, so the session has to be there already.",
+            "Sign in to PMS yourself in the assistant's browser, then re-run this check.",
+            BLOCKING, MANUAL, "sign in once; the session is remembered", None,
+        ))
+
+    drive_sources = [k for k in ("plan", "estimates", "timeline")
+                     if _is_drive_ref(((p.get("sources") or {}).get(k) or {}).get("ref"))]
+    if wants_sheets or drive_sources:
+        how = _google_signed_in()
+        add(Check(
+            "google-connected", "Access", "Google connected for Drive and Sheets",
+            "Sources that live in Drive are fetched straight to disk, and the KPI sheet is updated in place, "
+            "through Google's API. Without it nothing breaks: sources are taken from <project>/inbox/ and the "
+            "workbook is written locally, ready to import.",
+            "Run `python3 scripts/kpi.py auth google` once (needs an OAuth client of type 'Desktop app' saved as "
+            "~/.config/kpi-copilot/google_client.json - one per company is enough), or put a service-account key "
+            "at ~/.config/kpi-copilot/google_service_account.json and share the Drive folder with its address.",
+            DEGRADED, PASS if how else WARN,
+            f"signed in ({how})" if how else "not connected - the run will use local files and say so", _now(),
         ))
 
     # ---- 4. Data sources ------------------------------------------------------------
@@ -356,15 +396,17 @@ def build_checks(profile: dict | None, profile_path: Path | None,
             _now(),
         ))
 
+    # A run reads the tracker and the sources named above, and nothing else. Chat and mail are
+    # only ever consulted on a deep run, and only for the questions the run could not answer -
+    # so having none listed is a complete configuration, not a gap.
     channels = srcs.get("evidence_channels") or []
     add(Check(
-        "evidence-channels", "Data sources", "At least one evidence channel",
-        "Dates, handovers and decisions are proved with links. With no channel, those cells come back empty and need filling in by hand.",
-        "List your chat spaces or mail threads on the Tools tab and reference them from Sources.",
-        DEGRADED, PASS if (channels or tracker_only) else WARN,
-        f"{len(channels)} configured" if channels
-        else "not needed - source of truth is tracker-only" if tracker_only
-        else "none configured",
+        "evidence-channels", "Data sources", "Where a deep run may look",
+        "A normal run never searches chat or mail: what the sources cannot answer becomes a question on the "
+        "Open Questions tab. A deep run (`kpi.py run --deep`) may look those questions up here, and only here.",
+        "Optional. List chat spaces or mail labels under sources.evidence_channels if you want deep runs to use them.",
+        OPTIONAL, PASS,
+        f"{len(channels)} listed for deep runs" if channels else "none - open questions go to a person",
         _now(),
     ))
 
@@ -404,12 +446,13 @@ def build_checks(profile: dict | None, profile_path: Path | None,
         str(run_folder) if writable else write_detail, _now(),
     ))
 
-    if wants_sheets and out_cfg.get("workbook_location"):
+    if wants_sheets and (out_cfg.get("workbook_location") or out_cfg.get("workbook_file")):
         add(Check(
-            "drive-folder", "Output targets", "You can write to the Drive folder for working files",
-            "The run copies a template and edits it there.",
-            "Open the folder and confirm you have Editor rights. Ask its owner if not.",
-            BLOCKING, MANUAL, out_cfg.get("workbook_location", ""), None,
+            "drive-folder", "Output targets", "You can edit the Google Sheet, or the Drive folder it goes in",
+            "Every run updates the same Google Sheet in place: the file named in output.workbook_file, or one "
+            "created the first time in the folder named in output.workbook_location.",
+            "Open it and confirm you have Editor rights. With a service account, share it with the account's address.",
+            DEGRADED, MANUAL, out_cfg.get("workbook_file") or out_cfg.get("workbook_location", ""), None,
         ))
 
     if mode == "auto-push" and not out_cfg.get("unattended"):

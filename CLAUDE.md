@@ -8,3 +8,9 @@ a default instruction elsewhere says.
 
 Commit messages say what changed and why, in the repository's own voice. The author is
 whoever ran the work.
+
+## Driving the tool
+
+How an assistant runs KPI Copilot - one command, one batch of judgements, never carrying data
+through the conversation - is in [`AGENTS.md`](AGENTS.md). It applies to Claude exactly as it
+does to any other assistant. `docs/00-Philosophy.md` is binding when changing the tool itself.

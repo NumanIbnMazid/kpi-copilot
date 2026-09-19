@@ -16,12 +16,17 @@ practice.
 
 Four things make a setup message work. Everything else is optional.
 
-1. **Where the work lives** — the tracker, the document store, the chat spaces.
+1. **Where the work lives** — the tracker, and the documents that are actually the record:
+   the plan, the estimates sheet, a timeline or project tracker. **A run reads those and
+   nothing else.** Chat spaces are worth naming too, but only as places a *deep* run may look
+   when you ask it to; a normal run never searches them.
 2. **Who is who** — which names are your side and which are the client's. This is how a date
    agreed by the client is told apart from one your team set itself.
 3. **What your words mean** — what "delivered" means, what counts as a defect, what you do not
    count at all.
-4. **What you want out** — a sheet to read, or a push to PMS.
+4. **What you want out** — a sheet to read, or a push to PMS — and **where the sheet should
+   live**: a local file (the default), a Google Drive folder, or one specific Google Sheet
+   that every run should keep updating.
 
 Everything else the setup skill reads off your board.
 
@@ -111,8 +116,9 @@ WHAT I WANT
 |---|---|
 | Each chat space, with who is in it | A row in `tools` with `kind: chat`, `people`, and `client_facing: true` on the ones you marked |
 | "CLIENT-FACING" | `client_facing: true` — this is how a client-agreed date outranks an internal one |
-| "highest traffic, most delivery chatter" | That space is listed first in `sources.evidence_channels`, so it is searched first |
-| Drive folders, plan, proposal, effort sheet, tracker sheet | `tools` rows plus `sources.plan`, `sources.estimates`, `sources.timeline` |
+| "highest traffic, most delivery chatter" | That space is listed first in `sources.evidence_channels` — consulted only on a deep run, and only for the questions a normal run could not answer |
+| Drive folders, plan, proposal, effort sheet, tracker sheet | `tools` rows plus `sources.plan`, `sources.estimates`, `sources.timeline` — the allowlist of what a run reads. Sheets get a column mapping; a PDF plan is digested once into `facts/plan.yaml` |
+| "a dedicated KPI folder per project" | `output.workbook: google-sheets` and `output.workbook_location: <that folder>` on the project — the sheet is created there once and updated in place after that |
 | "Asana, one board per project, same columns" | `tracker.adapter: asana` on the **account**, so every project inherits it |
 | "Velocity counts development finished" | `workflow.delivered_when` |
 | "Actual delivery is the handover to the client" | `periods.client_check_default: Handover` |

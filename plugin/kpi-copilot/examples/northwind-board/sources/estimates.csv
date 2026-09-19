@@ -1,0 +1,7 @@
+Additional Effort Estimates,,,,,
+,,,,,
+Ticket,Item,Dev (h),QA (h),Approved,Period
+NW-140,Single sign-on fix,10,4,07/31/2026,Initial Scope
+NW-141,Extra fields on the room profile,14,4,08/10/2026,Initial Scope
+NW-160,Calendar sync for cancelled bookings,32,8,08/28/2026,Additional Requests 1
+NW-161,Reminder emails before a booking,24,6,08/28/2026,Additional Requests 1

@@ -871,7 +871,7 @@ def tracker(results_path: Path, kif_path: Path, out: Path, reasons_path: Path | 
         ("Formatting carries on past the last row, so anything you add by hand still fits.", ""),
         ("", ""),
         ("Note format sent to PMS", "h"),
-        ("what is measured || the numbers || what was left out || why", "code"),
+        ("what the numbers say, in sentences || what was left out || why", "code"),
         ("", ""),
         ("Period names", "h"),
         ("Initial Scope, Additional Requests 1, 2 …, Milestone 1, 2 …, Full Project. "

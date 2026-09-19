@@ -8,7 +8,7 @@ Which adapter reads your board, and how your team names things.
 
 ```yaml
 tracker:
-  adapter: asana                  # asana | jira | csv
+  adapter: asana                  # asana | jira | github | csv
   project_ref: "1100000000000001" # board id / project key
   url: https://app.asana.com
   estimate_field: Estimated Time
@@ -29,15 +29,32 @@ tracker:
 
 ### Choosing an adapter
 
-| Adapter | Reads | Needs | Gives you |
+| Adapter | Reads | Signing in | Gives you |
 |---|---|---|---|
-| `asana` | A signed-in Asana tab | No token | Everything, including history |
-| `jira` | Jira Cloud REST API | `JIRA_EMAIL` + `JIRA_TOKEN` in the environment | Everything, including history |
+| `asana` | The board through Asana's API, straight to disk; only changed cards on a rerun | a token, a browser sign-in, or a signed-in tab | Everything, including history |
+| `jira` | Jira Cloud, Server or Data Center through the REST API, changelog included | an API token, a browser sign-in (Cloud), or a signed-in tab | Everything, including history |
+| `github` | A repository's issues - and a Projects board's Status, if you name one - through GraphQL | GitHub's own `gh` login, or a token | Everything, including history |
 | `csv` | An export from **any** tracker | Nothing | Six of nine KPIs; the three needing history say "Not measured" and why |
 
-**Start with `csv` if you are not on Asana or Jira.** It works this afternoon. A native
-adapter buys status history and no manual export step, and is worth writing when the export
-becomes tiring — not before. `/kpi-copilot:kpi-adapter` writes one.
+`python3 scripts/kpi.py auth` lists the ways to sign in for your profile and machine, best
+first, with what each costs to set up and how fast it is. A token never passes through the
+assistant, whichever you choose.
+
+**Start with `csv` if you are on anything else.** It works this afternoon. A reader of your
+own buys status history and no manual export step, and is one small file that fetches a board
+and judges nothing - `/kpi-copilot:kpi-adapter` writes one, and the judging, the ledger, the
+sheet and the sign-in help all come free.
+
+### Tracker options
+
+| Adapter | `tracker.options` |
+|---|---|
+| `asana` | `include_subtasks` (count subtasks as rows), `token_env` (another variable name for the token) |
+| `jira` | `jql` (read this query instead of the whole project) |
+| `github` | `project` (a Projects board, e.g. `orgs/acme/projects/7`: its Status field becomes the status), `status_field`, `graphql_url` (GitHub Enterprise Server), `max_items` |
+
+A project names its board with `tracker_ref`: the long number in an Asana board's URL, a Jira
+project key, or `owner/repository` on GitHub (several, comma-separated, are fine).
 
 ### CSV options
 

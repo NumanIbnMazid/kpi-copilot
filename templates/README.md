@@ -23,16 +23,14 @@ python3 scripts/workbook.py build --profile examples/multi-account/profile.yaml 
 python3 scripts/workbook.py build --profile examples/tracker-only/profile.yaml \
   --out "../../templates/KPI Profile Workbook (tracker only).xlsx"
 
-# A per-project tracker workbook, from a real run
-python3 scripts/kpi_engine.py --kif examples/northwind-q3/run.kif.json \
-  --profile examples/northwind-q3/profile.yaml \
-  --reasons examples/northwind-q3/reasons.yaml --out /tmp/results.json
-python3 scripts/workbook.py tracker --results /tmp/results.json \
-  --kif examples/northwind-q3/run.kif.json \
-  --reasons examples/northwind-q3/reasons.yaml \
-  --profile examples/northwind-q3/profile.yaml \
-  --out "../../templates/KPI Tracker (editable example).xlsx"
+# The KPI tracker sheet, from a whole run on the example board (offline, no credentials)
+cp -r examples/northwind-board /tmp/nw
+python3 scripts/kpi.py run --profile /tmp/nw/profile.yaml --project northwind-q3 \
+  --board /tmp/nw/board.json --today 2026-09-18
+open "/tmp/nw/northwind-q3/KPI Tracker - Northwind Q3 Release Items.xlsx"
 ```
 
-The tracker workbook is a working surface, not a report: yellow cells come back through
-`workbook.py review`. See [docs/04-Daily-Use.md](../docs/04-Daily-Use.md).
+The tracker sheet is a working surface, not a report: grey cells are live formulas, and
+whatever is typed into yellow cells is read back by the next run and kept. The same
+description is written to a Google Sheet, updated in place, when the profile asks for one.
+See [docs/04-Daily-Use.md](../docs/04-Daily-Use.md).

@@ -10,8 +10,8 @@ A tool that prepares a project's PMS KPIs from whatever issue tracker the team a
 with a link behind every judgement and notes written in English, and then either hands the
 project lead a sheet to review or pushes to PMS after they approve it.
 
-It works today with Asana, with Jira, and — through a CSV export — with any other tracker in
-the company.
+It reads Asana, Jira and GitHub (Issues and Projects) directly today, and — through a CSV
+export — any other tracker in the company.
 
 ## The problem it solves
 
@@ -33,25 +33,38 @@ hardcoded anywhere.
 Slack, pushed for one and typed in by hand for the other — all in one file. Say what is true
 for a client once and every project on it inherits.
 
-**The time goes where it belongs.** About five minutes of machine time per project. The
-remaining effort is the lead reviewing a handful of genuine judgement calls, which is the
-part that actually needs a person.
+**The time goes where it belongs.** A run is seconds of machine time: the board is read
+through its API straight to disk, and only what changed since last time. The remaining effort
+is a handful of genuine judgement calls - which is the part that actually needs a brain.
+
+**You talk to it; you do not operate it.** You ask your assistant - Claude, Cursor, Codex -
+for the KPI run. It runs one command, makes in one batch the calls the rules were unsure of,
+and comes back with the sheet and, at most, a few questions only you can answer. Every call
+is kept, with who made it and why, so the next run asks only about what is new.
+
+**The sheet is worth opening.** It looks like something a careful person built by hand, and it
+is alive: grey cells are formulas, so changing a yellow cell moves the KPI, the dashboard and
+the PMS note at once. It is written locally every run and - if you want - to one Google
+Sheet, updated in place, same link every time. What you type in it is read back and kept.
 
 **Nothing reaches PMS without a human saying yes** — unless that person deliberately turns on
 unattended mode for a scheduled run.
 
 ## The idea that makes it work
 
-One contract, in the middle:
+A contract in the middle, and a clear division of labour around it:
 
 ```
-your tracker  ->  adapter  ->  common format  ->  engine  ->  your output
-   (varies)      (small)        (fixed)          (fixed)      (varies)
+tracker ─▶ reader ─▶ board, as it is ─▶ judged ─▶ engine ─▶ the sheet, and PMS after a yes
+ (varies)  (small)                      (fixed)   (fixed)
+                     rules propose · the assistant judges what they were unsure of, once
+                     · a person overrules · all of it kept
 ```
 
-Supporting a new tracker means writing one small file that produces the common format.
-Everything downstream — the nine KPIs, the note wording, the workbook, the dry run, the
-push, the audit trail — comes free and behaves identically for everybody.
+**Scripts move data, the assistant judges, a person decides.** Supporting a new tracker means
+writing one small file that fetches a board and judges nothing. Everything downstream - the
+judging rules, the nine KPIs, the note wording, the sheet, the dry run, the push, the audit
+trail - comes free and behaves identically for everybody.
 
 That is the difference between a tool that scales across the company and one that becomes a
 maintenance problem the first time someone asks for Linear.
@@ -72,6 +85,13 @@ how a workbook ends up saying "Met" while PMS says "Not met".
 **It will not let the counting vary.** What counts as delivered, as a defect, as rework — that
 is our interpretation, not PMS's, and it is the reason two projects' numbers can be compared at
 all. A team that wants it changed changes it for everybody.
+
+**It will not go looking where you did not send it.** A run reads your tracker and the sources
+you named - the plan, the estimates, the timeline. It does not search chat or mail. What those
+cannot answer, it asks you, once. You can always send it further, for one run or for good.
+
+**It will not trust a regex over a reader.** People type `[Exisiting]`. The rules read it as
+*Existing*, and the row says that they did, so you can disagree.
 
 **It will not invent evidence.** Every Yes/No carries a link to the comment, message or
 status change behind it. A number questioned in three months can be traced to what justified

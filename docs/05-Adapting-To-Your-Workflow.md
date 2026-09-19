@@ -13,7 +13,7 @@ This document covers what you can change, how, and where the line is.
 | Tier | What it covers | How it behaves |
 |---|---|---|
 | **Yours** | Tracker, states, naming, sources, periods, output, house style | Change freely |
-| **Yours, in the sheet** | Judgements, hours, dates, the Why text — and any figure, as a recorded hand-set value | Edit, run `workbook.py review`, rerun |
+| **Yours, in the sheet** | Judgements, item types, periods, hours, dates, the Why text — and any figure, as a recorded hand-set value | Edit the yellow cell. The numbers move at once; the next run reads it back and keeps it |
 | **Recorded** | Project facts the defaults get wrong | Allowed, applied, and printed in every run summary |
 | **Set in PMS** | The targets for each KPI, per project | Change them in PMS; the next run reads them and marks them as this project's own |
 | **Fixed** | The KPI list, the ids, the counting behind each ratio | Not configurable. This is what makes two projects comparable |

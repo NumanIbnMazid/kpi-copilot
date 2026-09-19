@@ -39,8 +39,10 @@ def check(name: str, condition: bool, detail: str = "") -> None:
         print(f"  FAIL  {name}" + (f"\n          {detail}" if detail else ""))
 
 
-def run(args: list[str]) -> subprocess.CompletedProcess:
-    return subprocess.run([sys.executable, *args], capture_output=True, text=True, cwd=ROOT)
+def run(args: list[str], env: dict | None = None) -> subprocess.CompletedProcess:
+    import os
+    return subprocess.run([sys.executable, *args], capture_output=True, text=True, cwd=ROOT,
+                          env={**os.environ, **(env or {})})
 
 
 def compute(kif: Path, profile: Path, reasons: Path | None, out: Path) -> dict:
@@ -133,7 +135,7 @@ def main() -> int:
     check("...and the note says how many were left out",
           "made no commitment on" in m["note"], m["note"])
     check("the heading is about commitments, not about QA",
-          "Commitments the team met on time" in m["note"] and "QA" not in m["note"], m["note"])
+          "commitments it made" in m["note"] and "QA" not in m["note"], m["note"])
 
     none_committed = json.loads((EX / "northwind-q3" / "run.kif.json").read_text())
     for t in none_committed["tasks"]:
@@ -165,7 +167,7 @@ def main() -> int:
     m = measure(sav, "Initial Scope", "Escaped Defect Rate")
     check("the denominator is valid defects, not delivered items",
           m["denominator"] == 5, f"got {m['denominator']}, expected 5 non-rejected reports of 6")
-    check("rejected reports are in neither half", "rejected report left out" in m["note"], m["note"])
+    check("rejected reports are in neither half", "rejected report is in neither half" in m["note"], m["note"])
     m2 = measure(sav, "Additional Requests 1", "Escaped Defect Rate")
     check("no handover still means Not measured", m2["status"] == "Not measured", m2["status"])
 
@@ -212,7 +214,25 @@ def main() -> int:
         check(f"no '{bad}'", bad not in joined,
               next((n for n in notes if bad in n), ""))
     check("no links reach a PMS note", "http" not in joined)
-    check("every note has at least two parts", all("||" in n for n in notes if n))
+    for bad in ("1 reports were", "1 tasks", "1 commitments", "1 issues", "The other 1 ", "All 1 ", "1 requests on",
+                "1 items"):
+        check(f"no '{bad}'", bad not in joined, next((n for n in notes if bad in n), ""))
+    check("every part of every note is a whole sentence",
+          all(part.strip().endswith(".") for n in notes if n for part in n.split(" || ")),
+          next((part for n in notes for part in n.split(" || ") if not part.strip().endswith(".")), ""))
+    check("no note opens with a heading: the first part says the number", all(any(ch.isdigit() for ch in n.split(" || ")[0])
+          or "othing" in n or "No " in n or "None " in n or "not been handed over" in n or "Everything" in n for n in notes if n),
+          next((n for n in notes if n and not any(ch.isdigit() for ch in n.split(" || ")[0])), ""))
+    import yaml as _y
+    fp = _y.safe_load((EX / "northwind-q3" / "profile.yaml").read_text())
+    fp.setdefault("organization", {})["note_style"] = "fragments"
+    (tmp / "fragments.yaml").write_text(_y.safe_dump(fp, sort_keys=False))
+    frag = compute(EX / "northwind-q3" / "run.kif.json", tmp / "fragments.yaml", None, tmp / "fragments.json")
+    a = {(p["period"], m["name"]): m["value"] for p in sav["periods"] for m in p["measures"]}
+    b = {(p["period"], m["name"]): m["value"] for p in frag["periods"] for m in p["measures"]}
+    check("the older fragment style is still there for anyone who prefers it",
+          measure(frag, "Initial Scope", "Velocity")["note"].startswith("Work finished in this cycle ||"))
+    check("...and the style changes the wording only, never a figure", a == b)
 
     print("\nCustom instructions")
     ov = {o["rule"]: o for o in sav.get("custom_overrides", [])}
@@ -555,8 +575,8 @@ def main() -> int:
     out = r.stdout
     check("a missing plan is 'not needed', not a gap, on a tracker-only profile",
           "not needed - this profile treats the tracker as the single source of truth" in out, out[:400])
-    check("a missing evidence channel is 'not needed' too",
-          "not needed - source of truth is tracker-only" in out, out[:400])
+    check("no chat or mail listed is a complete configuration, not a gap",
+          "none - open questions go to a person" in out and "At least one evidence channel" not in out, out[:400])
     check("readiness reports the reach of a run", "A run has a bounded reach" in out)
 
     unbounded = tmp / "unbounded.yaml"
@@ -676,8 +696,394 @@ def main() -> int:
     check("a link cell round trips as its target, not as the word on it",
           all("Open" not in str(x.get("link") or "") for x in patched2["tasks"]))
 
+    pipeline_tests(tmp)
+
     print(f"\n{passed} passed, {failed} failed\n")
     return 1 if failed else 0
+
+
+def pipeline_tests(tmp: Path) -> None:
+    """The run as people actually use it: read a board, judge it, keep the judgement, build
+    the sheet, read the sheet back. Everything here runs offline against examples/northwind-board."""
+    import shutil
+    sys.path.insert(0, str(ROOT / "adapters" / "asana"))
+    import board as B
+    import sheet_google
+    import sheet_model
+    from ledger import Ledger
+
+    print("\nTags people mistype")
+    word, how, raw = B.find_tag("[Tablet][Exisiting] Bug 04: labels cropped", ["Existing", "Pre-existing"])
+    check("'[Exisiting]' is read as Existing", word == "Existing" and raw == "Exisiting", f"{word} {raw}")
+    check("...and the match says it was tolerant, so the sheet can say so too", how == "fuzzy", how)
+    check("an exact tag is exact", B.find_tag("[Web][Existing] Bug 3", ["Existing"])[1] == "exact")
+    check("a short tag gets no tolerance: [CRs] is not silently CR", B.find_tag("[CRs] Thing", ["CR"])[0] is None)
+    check("a component tag is not mistaken for anything", B.find_tag("[Tablet] Bug 2", ["Existing"])[0] is None)
+
+    print("\nAsana, read directly")
+    import api as asana
+    raw = {"project": {"gid": "77", "name": "Demo"}, "sections": [{"name": "To Do"}, {"name": "Closed"}],
+           "tasks": [{"gid": "1", "name": "TKT-9 Thing", "memberships": [{"project": {"gid": "77"}, "section": {"name": "Closed"}}],
+                      "created_at": "2026-07-01T00:00:00Z", "modified_at": "2026-07-09T00:00:00Z",
+                      "custom_fields": [{"name": "Estimated Time", "number_value": 5}]}],
+           "stories": {"1": [
+               {"gid": "s1", "resource_subtype": "section_changed", "created_at": "2026-07-05T00:00:00Z",
+                "old_section": {"name": "To Do"}, "new_section": {"name": "Closed"}},
+               {"gid": "s2", "resource_subtype": "section_changed", "created_at": "2026-07-06T00:00:00Z",
+                "new_section": {"name": "Another project's column"}},
+               {"gid": "s3", "resource_subtype": "comment_added", "created_at": "2026-07-07T00:00:00Z", "text": "done",
+                "created_by": {"name": "QA"}}]}}
+    snap = asana.from_raw(raw, r"TKT-\d+")
+    it = snap["items"][0]
+    check("a card's key, column and estimate are read", (it["key"], it["section"], it["fields"].get("Estimated Time")) == ("TKT-9", "Closed", 5))
+    check("a move in this board's columns becomes a status event", [e["to"] for e in it["events"]] == ["Closed"], str(it["events"]))
+    check("...and a move in some other project's column does not", all(e["to"] != "Another project's column" for e in it["events"]))
+    check("a comment keeps a link to itself", it["comments"][0]["url"].endswith("/1/s3/f"), it["comments"][0]["url"])
+    check("not being signed in is an explanation with every way in, not a stack trace",
+          "Do not paste a token into a chat" in asana.NO_TOKEN and "browser_snapshot.js" in asana.NO_TOKEN
+          and "Sign in in your browser" in asana.NO_TOKEN, asana.NO_TOKEN[:300])
+
+    print("\nOther trackers: Jira and GitHub, through the same pipeline")
+    import importlib.util
+    def reader(name):
+        spec = importlib.util.spec_from_file_location(f"reader_{name}", ROOT / "adapters" / name / "api.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    jira, gh = reader("jira"), reader("github")
+    adf = {"type": "doc", "content": [{"type": "paragraph", "content": [
+        {"type": "text", "text": "Could you confirm "}, {"type": "mention", "attrs": {"text": "@Dana"}},
+        {"type": "text", "text": " what should happen?"}]}]}
+    raw = {"site": "https://acme.atlassian.net", "fields": [{"id": "customfield_10016", "name": "Story Points"}], "issues": [
+        {"id": "10001", "key": "ACME-7", "fields": {
+            "summary": "Login audit trail", "description": adf, "status": {"name": "Done", "statusCategory": {"key": "done"}},
+            "issuetype": {"name": "Story", "subtask": False}, "created": "2026-07-01T09:00:00.000+0000",
+            "updated": "2026-07-20T09:00:00.000+0000", "resolutiondate": "2026-07-20T09:00:00.000+0000",
+            "resolution": {"name": "Done"}, "reporter": {"displayName": "Rafi"}, "assignee": {"displayName": "Tania"},
+            "labels": ["backend"], "parent": {"id": "9000", "key": "ACME-1"}, "timeoriginalestimate": 28800,
+            "customfield_10016": 5, "comment": {"total": 1, "comments": [
+                {"id": "55", "created": "2026-07-03T09:00:00.000+0000", "author": {"displayName": "Tania"}, "body": adf}]}},
+         "changelog": {"total": 3, "histories": [
+            {"created": "2026-07-02T09:00:00.000+0000", "author": {"displayName": "Tania"},
+             "items": [{"field": "status", "fromString": "To Do", "toString": "In Progress"}]},
+            {"created": "2026-07-10T09:00:00.000+0000", "author": {"displayName": "Tania"},
+             "items": [{"field": "assignee", "fromString": "a", "toString": "b"}]},
+            {"created": "2026-07-20T09:00:00.000+0000", "author": {"displayName": "QA"},
+             "items": [{"field": "status", "fromString": "In Progress", "toString": "Done"},
+                       {"field": "resolution", "fromString": None, "toString": "Done"}]}]}},
+        {"id": "10002", "key": "ACME-9", "fields": {
+            "summary": "Password reset email never arrives", "status": {"name": "Closed", "statusCategory": {"key": "done"}},
+            "issuetype": {"name": "Bug", "subtask": False}, "created": "2026-07-15T09:00:00.000+0000",
+            "updated": "2026-07-16T09:00:00.000+0000", "resolution": {"name": "Cannot Reproduce"}, "labels": []},
+         "changelog": {"total": 0, "histories": []}}]}
+    prof = {"tracker": {"adapter": "jira", "url": "https://acme.atlassian.net", "story_point_field": "Story Points"}}
+    jb = jira.from_raw(raw, prof, {"tracker_ref": "ACME", "name": "Acme"})
+    j1, j2 = jb["items"]
+    check("Jira: a status change in the changelog is a move on the board; other changes are not",
+          [(e["from"], e["to"]) for e in j1["events"] if e["kind"] == "section"] == [("To Do", "In Progress"), ("In Progress", "Done")])
+    check("Jira: rich text comes through as words, mentions included", "confirm @Dana what should happen" in j1["comments"][0]["text"], j1["comments"][0]["text"])
+    check("Jira: estimate in hours, story points, type and resolution arrive as fields",
+          (j1["fields"].get("Original Estimate"), j1["fields"].get("Story Points"), j1["fields"].get("Type")) == (8.0, 5, "Story"), str(j1["fields"]))
+    check("Jira: a story under an epic is a deliverable of its own, not a sub-task to skip", j1["parent"] is None and j1["fields"].get("Epic") == "ACME-1")
+    check("Jira: every item links back to the issue", j1["url"] == "https://acme.atlassian.net/browse/ACME-7")
+    import classify
+    from ledger import Ledger as _L
+    kj, _w = classify.to_kif(jb, {**prof, "conventions": {"defect_by": "issue-type", "defect_values": ["Bug"]},
+                                  "workflow": {"delivered_when": {"values": ["Done"]}, "closed_when": {"values": ["Done", "Closed"]}}},
+                             {"name": "Acme"}, {}, _L(tmp / "jira-ledger.json"), "2026-09-18")
+    check("Jira: the issue type decides what is a defect", [d["key"] for d in kj["defects"]] == ["ACME-9"] and [t["key"] for t in kj["tasks"]] == ["ACME-7"])
+    check("Jira: a 'Cannot Reproduce' resolution is a rejected report", kj["defects"][0]["rejected"] == "Yes", str(kj["defects"][0].get("basis")))
+    check("Jira: delivery is read from the move into the delivered state", kj["tasks"][0]["delivered"] == "2026-07-20")
+
+    node = {"id": "I_1", "number": 42, "title": "Crash on empty config", "body": "Steps...", "url": "https://github.com/acme/web/issues/42",
+            "state": "CLOSED", "stateReason": "COMPLETED", "createdAt": "2026-07-01T00:00:00Z", "updatedAt": "2026-07-09T00:00:00Z",
+            "closedAt": "2026-07-09T00:00:00Z", "author": {"login": "rafi"}, "assignees": {"nodes": [{"login": "tania"}]},
+            "labels": {"nodes": [{"name": "bug"}, {"name": "exisiting"}]}, "milestone": {"title": "4.2"}, "issueType": {"name": "Bug"},
+            "projectItems": {"nodes": [{"project": {"number": 7, "title": "Web"}, "fieldValues": {"nodes": [
+                {"__typename": "ProjectV2ItemFieldSingleSelectValue", "name": "Done", "field": {"name": "Status"}},
+                {"__typename": "ProjectV2ItemFieldNumberValue", "number": 3, "field": {"name": "Estimate"}}]}}]},
+            "comments": {"totalCount": 1, "nodes": [{"createdAt": "2026-07-02T00:00:00Z", "author": {"login": "qa"}, "bodyText": "Confirmed.", "url": "https://github.com/acme/web/issues/42#c1"}]},
+            "timelineItems": {"nodes": [
+                {"__typename": "ProjectV2ItemStatusChangedEvent", "createdAt": "2026-07-03T00:00:00Z", "previousStatus": "Todo", "status": "In review"},
+                {"__typename": "ProjectV2ItemStatusChangedEvent", "createdAt": "2026-07-09T00:00:00Z", "previousStatus": "In review", "status": "Done"},
+                {"__typename": "ClosedEvent", "createdAt": "2026-07-09T00:00:00Z", "stateReason": "COMPLETED"}]}}
+    g1 = gh.item_from_issue(node, "acme/web", False, 7, "Status")
+    check("GitHub: with a Project, status is the project's Status field and its changes are the history",
+          g1["section"] == "Done" and [e["to"] for e in g1["events"] if e["kind"] == "section"] == ["In review", "Done"], str(g1["events"]))
+    check("GitHub: labels arrive as tags, a project's number fields as fields", g1["tags"] == ["bug", "exisiting"] and g1["fields"].get("Estimate") == 3)
+    plain = dict(node, projectItems={"nodes": []}, stateReason="NOT_PLANNED",
+                 timelineItems={"nodes": [{"__typename": "ClosedEvent", "createdAt": "2026-07-09T00:00:00Z", "stateReason": "NOT_PLANNED"}]})
+    g2 = gh.item_from_issue(plain, "acme/web", True, None, "Status")
+    check("GitHub: without a Project, status is Open, Closed or Not planned", g2["section"] == "Not planned" and g2["events"][0]["to"] == "Not planned")
+    check("GitHub: several repositories keep their issue numbers apart", g2["key"] == "web#42" and g1["key"] == "#42")
+    gb = {"tracker": "github", "adapter": "github", "capabilities": gh.CAPABILITIES, "url": "", "items": [g1, g2], "project_name": "Web"}
+    kg, _w = classify.to_kif(gb, {"conventions": {"defect_by": "label", "defect_values": ["bug"]},
+                                  "workflow": {"closed_when": {"values": ["Done", "Closed"]}}}, {"name": "Web"}, {},
+                             _L(tmp / "gh-ledger.json"), "2026-09-18")
+    d1 = next(d for d in kg["defects"] if d["key"] == "#42")
+    check("GitHub: a label decides what is a defect, and a mistyped 'exisiting' label is still read",
+          d1["pre_existing"] == "Yes" and "exisiting" in d1["check"], d1["check"])
+    check("GitHub: closed as not planned is a rejected report", next(d for d in kg["defects"] if d["key"] == "web#42")["rejected"] == "Yes")
+
+    print("\nSigning in: every route, the best one suggested")
+    import connect, os
+    keep = {k: os.environ.pop(k, None) for k in ("ASANA_TOKEN", "ASANA_PAT", "JIRA_EMAIL", "JIRA_TOKEN", "JIRA_PAT", "GITHUB_TOKEN", "GH_TOKEN")}
+    os.environ["KPI_COPILOT_HOME"] = str(tmp / "empty-home")
+    try:
+        text = connect.advise(["asana", "jira"])
+        check("each service offers a browser sign-in, a token and a no-credential route",
+              all(w in text for w in ("Sign in in your browser", "Personal access token", "API token", "already signed in")), text[:300])
+        check("the suggestion is whatever needs no more setup on this machine", "<- suggested" in text.split("\n")[1] and "token" in text.split("\n")[1].lower(), text.split("\n")[1])
+        check("a browser sign-in that still needs the company's one-time setup says so, and how to do it",
+              "needs the one-time company setup first" in text and "http://localhost:8765/callback" in text)
+        (tmp / "empty-home").mkdir(exist_ok=True)
+        (tmp / "empty-home" / "asana_client.json").write_text(json.dumps({"client_id": "x", "client_secret": "y"}))
+        check("once that setup exists, the browser sign-in becomes the suggestion", connect.recommend("asana")[0]["id"] == "browser")
+        check("for a schedule, only routes that work with nobody there are offered",
+              {r["id"] for r in connect.recommend("asana", unattended=True)} == {"token"})
+        check("GitHub prefers the login the machine already has", connect.ROUTES["github"][0]["id"] == "cli")
+        os.environ["ASANA_TOKEN"] = "test-token-not-real"
+        check("a token in the environment is found, and counts as connected",
+              connect.status("asana") ["via"] == "token" and connect.credential("asana") == {"bearer": "test-token-not-real"})
+        os.environ.pop("ASANA_TOKEN")
+        check("what a profile needs is worked out from it: tracker, and Google only if it is used",
+              connect.needed({"tracker": {"adapter": "jira"}, "output": {"workbook": "xlsx"}}) == ["jira"]
+              and connect.needed({"tracker": {"adapter": "github"}, "output": {"workbook_location": "https://drive.google.com/drive/folders/1ExampleDriveFolderId000000000000"}}) == ["github", "google"])
+    finally:
+        for k, v in keep.items():
+            if v is not None:
+                os.environ[k] = v
+        os.environ.pop("KPI_COPILOT_HOME", None)
+    r = run(["scripts/kpi.py", "auth", "asana", "--route", "token"], env={"KPI_COPILOT_HOME": str(tmp / "no-credentials")})
+    check("a token is never taken through a chat: with no terminal, it refuses and says what to do instead",
+          r.returncode == 1 and "must not pass through a chat" in r.stderr and "Sign in in your browser" in r.stderr, r.stderr[:300])
+    r = run(["scripts/kpi.py", "run", "--profile", str(EX / "northwind-board" / "profile.yaml"), "--project", "northwind-q3",
+             "--adapter", "trello"], env={"KPI_COPILOT_HOME": str(tmp / "no-credentials")})
+    check("a tracker with no reader names the ones there are, and the way to start today",
+          r.returncode != 0 and "asana" in (r.stderr + r.stdout) and "github" in (r.stderr + r.stdout) and "CSV" in (r.stderr + r.stdout),
+          (r.stderr + r.stdout)[:300])
+
+    print("\nOne command, from a board to a sheet")
+    ws = tmp / "nw"
+    shutil.copytree(EX / "northwind-board", ws)
+    base = ["scripts/kpi.py", "run", "--profile", str(ws / "profile.yaml"), "--project", "northwind-q3",
+            "--today", "2026-09-18"]
+    env = {"KPI_COPILOT_HOME": str(tmp / "no-credentials")}
+    r = run(base + ["--board", str(ws / "board.json")], env=env)
+    check("the run finishes with a sheet on the first pass, nothing judged yet", r.returncode == 0, r.stderr[-600:])
+    proj = ws / "northwind-q3"
+    kif = json.loads((proj / "runs" / "2026-09-18" / "run.kif.json").read_text())
+    rv = run(["scripts/validate_kif.py", "--kif", str(proj / "runs" / "2026-09-18" / "run.kif.json")])
+    check("what it built is valid KIF", rv.returncode == 0, rv.stdout)
+    bug4 = next(d for d in kif["defects"] if d["key"] == "Bug 04")
+    check("the mistyped [Exisiting] bug is treated as already in the product", bug4["pre_existing"] == "Yes")
+    check("...and its row says how that was decided", "read [Exisiting] as Existing" in bug4["check"], bug4["check"])
+    bug8 = next(d for d in kif["defects"] if d["key"] == "Bug 08")
+    check("a report from the client after handover belongs to the period handed over",
+          bug8["period"] == "Initial Scope" and bug8["phase"] == "Post-release", f"{bug8['period']} {bug8['phase']}")
+    doc = next(t for t in kif["tasks"] if t["key"].startswith("PLAN:"))
+    check("a plan item with no card is not counted as late - unknown is not missed",
+          doc["met_commitment"] is None and doc["met_client_date"] is None)
+    check("a CR is recognised from the estimates even when its tag is mistyped",
+          next(t for t in kif["tasks"] if t["key"] == "NW-161")["type"] == "CR")
+    check("hours come from the plan, and the row says so",
+          next(t for t in kif["tasks"] if t["key"] == "NW-101")["hours_source"].startswith("Project plan"))
+    check("a handover date is read from the timeline sheet through its column mapping",
+          kif["periods"][0]["handover_date"] == "2026-08-12", str(kif["periods"][0].get("handover_date")))
+    rework = next(t for t in kif["tasks"] if t["key"] == "NW-104")
+    check("closed and then reopened is rework", rework["reopened"] == "Yes")
+    first = next(t for t in kif["tasks"] if t["key"] == "NW-103")
+    check("a QA failure during the first round is not", first["reopened"] == "No" and "first time" in (first["rework_evidence"] or ""))
+
+    queue = json.loads((proj / "judge" / "queue.json").read_text())
+    asked = {(i["item"]["title"][:24], a["field"]) for i in queue["items"] for a in i["asks"]}
+    check("only what the rules were unsure of is put to the assistant", 3 <= len(queue["items"]) <= 8, str(len(queue["items"])))
+    check("...including the tolerant tag match, to be confirmed",
+          any(f == "pre_existing" and "Exisiting" in t for t, f in asked), str(asked))
+    check("an excluded card is never worth a question", not any("Milestone" in t or "Checklist" in t for t, _ in asked))
+    check("the queue carries the definitions it is to be judged by", "pre_existing" in queue["rubric"] and "reasons" in queue["rubric"])
+    check("every question comes with the context to answer it, so nobody opens the board",
+          all(i["item"].get("title") and i["item"].get("url") for i in queue["items"]))
+    check("a missed KPI with no reason is asked for", any(n["kpi"] == "Defect Rate" for n in queue["notes"]))
+    check("the run says what to do next, and tells the assistant not to go searching",
+          "NEXT" in r.stdout and "Do not open the board or search anywhere else" in r.stdout, r.stdout[-500:])
+    check("what nobody can know from outside is put to a person", "scope:deliverydocumentation" in r.stdout)
+
+    print("\nThe assistant answers once, and it is kept")
+    ids = {i["item"]["title"][:30]: i["item_id"] for i in queue["items"]}
+    def iid(part): return next(v for k, v in ids.items() if part in k)
+    answers = {"answers": [
+        {"item_id": iid("Bug 04"), "field": "pre_existing", "value": "Yes", "why": "The tag is a misspelling of Existing."},
+        {"item_id": iid("NW-150"), "field": "nature", "value": "Excluded", "why": "A clean-up nobody planned or asked for."},
+        {"item_id": iid("Bug 09"), "field": "pre_existing", "value": "Maybe", "why": "unsure"},
+        {"item_id": iid("NW-101"), "field": "understood", "value": "No", "why": ""}],
+        "reasons": [{"period": "Initial Scope", "kpi": "Rework Rate", "why": "The filter reset after a tablet restart, which round one never tried."}]}
+    (proj / "judge" / "answers.json").write_text(json.dumps(answers))
+    r = run(["scripts/kpi.py", "judge", "--profile", str(ws / "profile.yaml"), "--project", "northwind-q3",
+             "--today", "2026-09-18"], env=env)
+    check("answers are folded in and the numbers recomputed in the same command", r.returncode == 0 and "Applied 2 judgements" in r.stdout, r.stdout[:300] + r.stderr[-300:])
+    check("an answer outside the allowed values is refused, by name", "'Maybe' is not one of Yes, No" in r.stdout)
+    check("an answer with no why is refused: a judgement that cannot say why is a guess", "no 'why' given" in r.stdout)
+    q2 = json.loads((proj / "judge" / "queue.json").read_text())
+    again = {(i["item_id"], a["field"]) for i in q2["items"] for a in i["asks"]}
+    check("what was answered is not asked again", (iid("Bug 04"), "pre_existing") not in again and (iid("NW-150"), "nature") not in again)
+    check("what was refused still is", (iid("NW-101"), "understood") in again)
+    led = Ledger(proj / "ledger.json")
+    check("the ledger records who decided, and why", led.get(iid("Bug 04"), "pre_existing")["by"] == "ai"
+          and "misspelling" in led.get(iid("Bug 04"), "pre_existing")["why"])
+
+    snap = json.loads((proj / "cache" / "board.json").read_text())
+    for it in snap["items"]:
+        if it["id"] == iid("Bug 04"):
+            it["title"] = "[Tablet] Bug 04: Button labels cropped on small screens"
+    (tmp / "moved.json").write_text(json.dumps(snap))
+    run(base + ["--board", str(tmp / "moved.json")], env=env)
+    q3 = json.loads((proj / "judge" / "queue.json").read_text())
+    check("when a card changes, an assistant's answer about it no longer stands", True if any(
+        i["item_id"] == iid("Bug 04") for i in q3["items"]) or
+        next(d for d in json.loads((proj / "runs" / "2026-09-18" / "run.kif.json").read_text())["defects"]
+             if d["key"] == "Bug 04")["pre_existing"] == "No" else False)
+    run(base + ["--board", str(ws / "board.json")], env=env)
+
+    print("\nThe sheet: looks made, not assembled - and is alive")
+    from openpyxl import load_workbook
+    book = next(proj.glob("KPI Tracker - *.xlsx"))
+    wb = load_workbook(book)
+    check("tabs are the ones a lead expects, in order",
+          wb.sheetnames == ["Read Me", "Dashboard", "Config", "Periods", "Task Register", "Defect Register",
+                            "KPI Summary", "Open Questions", "Run Log", "PMS Push Log"], str(wb.sheetnames))
+    tr, sm = wb["Task Register"], wb["KPI Summary"]
+    fonts = {c.font.name for row in tr.iter_rows(min_row=1, max_row=12) for c in row if c.value is not None}
+    check("every written cell is Arial; nothing falls back to Calibri", fonts == {"Arial"}, str(fonts))
+    check("headers are the navy band with white bold text",
+          tr["B3"].fill.fgColor.rgb.endswith("1F3864") and tr["B3"].font.b and tr["B3"].font.color.rgb.endswith("FFFFFF"))
+    heads = {c.value: c for c in tr[3]}
+    check("yellow is yours, grey is worked out, white was read",
+          tr.cell(4, heads["Item Type"].column).fill.fgColor.rgb.endswith("FFF2CC")
+          and tr.cell(4, heads["Status"].column).fill.fgColor.rgb.endswith("F2F2F2")
+          and tr.cell(4, heads["Title"].column).fill.fgColor.rgb.endswith("FFFFFF"))
+    check("dates are dates", tr.cell(4, heads["Delivered"].column).number_format == "yyyy-mm-dd"
+          and hasattr(tr.cell(4, heads["Delivered"].column).value, "year"))
+    check("the numbers are live formulas over the registers", str(sm["E5"].value).startswith("=COUNTIFS(") and str(sm["G5"].value).startswith("=IF("))
+    check("the note for PMS follows the reason as it is typed", sm["N5"].value == '=L5&IF(TRIM(M5)="",""," || "&TRIM(M5))')
+    check("the engine's own figure sits beside each live one", isinstance(sm["O5"].value, (int, float)) and "Run again before pushing" in str(sm["P5"].value))
+    every = [str(c.value) for w in wb.worksheets for row in w.iter_rows() for c in row if isinstance(c.value, str) and c.value.startswith("=")]
+    check("no formula relies on how a spreadsheet treats an empty cell in a criterion", not any('"<>"' in f for f in every))
+    check("only functions Excel and Google both have", not any(fn in f for f in every for fn in ("LET(", "TEXTJOIN(", "FILTER(", "MINIFS("))
+          or all("DUMMYFUNCTION" in f for f in every if "FILTER(" in f))
+    check("Google-only bars are wrapped the way Google exports them, with a fallback",
+          any(f.startswith("=IFERROR(__xludf.DUMMYFUNCTION(") and "SPARKLINE" in f and "REPT(" in f for f in every))
+    check("the row id a rerun needs is there but out of sight", tr.column_dimensions[tr.cell(3, heads["Row ID"].column).column_letter].hidden)
+    check("a card with no ticket key is not labelled with a sixteen-digit id",
+          not any(str(tr.cell(r, heads["Ticket"].column).value or "").isdigit() for r in range(4, 25)))
+    try:
+        import formulas  # noqa: F401  (optional: pip install formulas)
+        res = json.loads((proj / "runs" / "2026-09-18" / "results.json").read_text())
+        sol = formulas.ExcelModel().loads(str(book)).finish().calculate()
+        live = {str(k).split("!")[-1].strip("'"): v.value[0][0] for k, v in sol.items() if "KPI SUMMARY" in str(k).upper()}
+        bad = []
+        for rr in range(4, sm.max_row + 1):
+            per, kpi = sm.cell(rr, 1).value, sm.cell(rr, 3).value
+            if not per:
+                continue
+            m = next(m for p in res["periods"] if p["period"] == per for m in p["measures"] if m["name"] == kpi)
+            got = live.get(f"G{rr}")
+            got = None if got in ("", None) else round(float(got), 2)
+            if got != (None if m["value"] is None else round(m["value"], 2)):
+                bad.append(f"{per} {kpi}: sheet {got}, engine {m['value']}")
+        check("every live formula gives the engine's number", not bad, "; ".join(bad))
+    except ImportError:
+        print("  --    (live formulas vs engine: skipped, `pip install formulas` to run it)")
+
+    print("\nA person's edit survives the rerun")
+    ds = wb["Defect Register"]
+    dh = {c.value: c.column for c in ds[3]}
+    for rr in range(4, 20):
+        if ds.cell(rr, dh["Ticket"]).value == "Bug 02":
+            ds.cell(rr, dh["Pre-existing?"]).value = "Yes"
+        if ds.cell(rr, dh["Ticket"]).value == "Bug 04":
+            ds.cell(rr, dh["Pre-existing?"]).value = "No"
+    for rr in range(4, sm.max_row + 1):
+        if sm.cell(rr, 1).value == "Initial Scope" and sm.cell(rr, 3).value == "CR Rate":
+            sm.cell(rr, 13).value = "Both additions were approved before work began."
+    cf = wb["Config"]
+    for rr in range(1, 40):
+        if cf.cell(rr, 2).value == "Count observations as defects?":
+            cf.cell(rr, 3).value = "Yes"
+    import datetime as _dt
+    wb["Periods"].cell(6, 8).value = _dt.date(2026, 9, 16)
+    wb["Open Questions"].cell(4, 5).value = _dt.date(2026, 8, 12)
+    wb.save(book)
+    r = run(base + ["--offline"], env=env)
+    check("the run reads the sheet back before rebuilding it", "Read back from the sheet" in r.stdout, r.stdout[:600])
+    led = Ledger(proj / "ledger.json")
+    b2 = next(i["id"] for i in json.loads((ws / "board.json").read_text())["items"] if "Bug 02" in i["title"])
+    check("a Yes/No typed in the sheet becomes a person's judgement", (led.get(b2, "pre_existing") or {}).get("by") == "human")
+    check("...and outranks the assistant's", led.get(iid("Bug 04"), "pre_existing")["value"] == "No"
+          and led.get(iid("Bug 04"), "pre_existing")["by"] == "human")
+    import yaml
+    facts = yaml.safe_load((proj / "facts" / "periods.yaml").read_text())
+    check("a date typed on the Periods tab lands in the project's facts", str(facts["periods"][1]["handover_date"]) == "2026-09-16")
+    reasons = yaml.safe_load((proj / "facts" / "reasons.yaml").read_text())
+    check("a reason typed on KPI Summary is kept as the person's", reasons["Initial Scope"]["CR Rate"].startswith("Both additions")
+          and reasons["_authors"]["Initial Scope|CR Rate"] == "human")
+    check("an answer typed on Open Questions is kept, and the question stops being asked",
+          "scope:deliverydocumentation" not in r.stdout.split("NEXT")[-1])
+    check("a counting rule changed in the sheet is reported and NOT applied", "NOT applied" in r.stdout and "policy.count_observations" in r.stdout)
+    check("what moved since the last run is said out loud", "Moved since the last run" in r.stdout)
+    (proj / "judge" / "answers.json").write_text(json.dumps({"answers": [
+        {"item_id": iid("Bug 04"), "field": "pre_existing", "value": "Yes", "why": "Trying to overrule a person."}]}))
+    r = run(["scripts/kpi.py", "judge", "--profile", str(ws / "profile.yaml"), "--project", "northwind-q3",
+             "--today", "2026-09-18", "--no-rerun"], env=env)
+    check("an assistant cannot overrule what a person decided", "a person already answered this" in r.stdout, r.stdout)
+
+    print("\nThe same sheet, for Google")
+    k = json.loads((proj / "runs" / "2026-09-18" / "run.kif.json").read_text())
+    res = json.loads((proj / "runs" / "2026-09-18" / "results.json").read_text())
+    tabs = sheet_model.build(k, res, {"profile": {}})
+    fresh = sheet_google.tab_requests(tabs[4], 111, 4, None)
+    again = sheet_google.tab_requests(tabs[4], 111, 4, {"properties": {"gridProperties": {"rowCount": 10, "columnCount": 5}},
+                                                       "conditionalFormats": [{}, {}]})
+    kinds = lambda reqs: [next(iter(x)) for x in reqs]                                    # noqa: E731
+    check("a tab that is not there yet is added", kinds(fresh)[0] == "addSheet")
+    check("a tab that is there is cleared and rebuilt in place, old colour rules first",
+          kinds(again)[:4] == ["deleteConditionalFormatRule", "deleteConditionalFormatRule", "unmergeCells", "updateCells"],
+          str(kinds(again)[:5]))
+    check("formats go down as runs, not once per cell", 20 < kinds(fresh).count("repeatCell") < 400, str(kinds(fresh).count("repeatCell")))
+    check("dropdowns and colour rules come across", "setDataValidation" in kinds(fresh) and "addConditionalFormatRule" in kinds(fresh))
+    rules = [c["formula"] for t in tabs for c in t.cond]
+    check("no colour rule looks at another tab, which Google refuses", not any("!" in f for f in rules), str([f for f in rules if "!" in f]))
+    cells = [v for req in sheet_google.tab_requests(tabs[1], 5, 1, None) if "updateCells" in req
+             for row in req["updateCells"].get("rows", []) for v in row["values"]]
+    check("in Google the bars are real SPARKLINEs", any("SPARKLINE" in (c.get("userEnteredValue") or {}).get("formulaValue", "") for c in cells))
+    check("a Drive link, a folder link and a bare id all resolve",
+          sheet_google.G.file_id("https://docs.google.com/spreadsheets/d/1AbcDefGhiJklMnoPqrStuVwxYz0123456789/edit#gid=0") == "1AbcDefGhiJklMnoPqrStuVwxYz0123456789"
+          and sheet_google.G.file_id("https://drive.google.com/drive/folders/1ExampleDriveFolderId000000000000") == "1ExampleDriveFolderId000000000000"
+          and sheet_google.G.file_id("runs/x.xlsx") is None)
+    prof = (ws / "profile.yaml").read_text().replace("  workbook: xlsx", "  workbook: google-sheets\n  workbook_location: https://drive.google.com/drive/folders/1ExampleDriveFolderId000000000000")
+    (ws / "profile.yaml").write_text(prof)
+    r = run(base + ["--offline"], env=env)
+    r = run(base + ["--board", str(ws / "board.json")], env=env)
+    check("asked for a Google Sheet with Google not connected: the local sheet is still written",
+          r.returncode == 0 and next(proj.glob("KPI Tracker - *.xlsx")).exists())
+    check("...and the run says exactly what to do about it, including the no-credential route",
+          "Google Sheet not updated" in r.stdout and "kpi.py auth google" in r.stdout and "Replace spreadsheet" in r.stdout, r.stdout[-900:])
+
+    print("\nSources: those on the list, and no others")
+    import sources as S
+    st = S.pull({"sources": {"plan": {"kind": "pdf", "ref": "https://drive.google.com/file/d/1ExamplePlanFileId000000000000000/view"}}},
+                tmp / "src-proj", tmp, offline=True)
+    check("a source it cannot reach is not guessed at: it says where to drop a copy", st[0]["state"] == "missing" and "inbox" in st[0]["note"], str(st))
+    (tmp / "src-proj" / "inbox").mkdir(parents=True, exist_ok=True)
+    (tmp / "src-proj" / "inbox" / "plan.pdf").write_bytes(b"%PDF-1.4 demo")
+    st = S.pull({"sources": {"plan": {"kind": "pdf", "ref": "https://drive.google.com/file/d/1ExamplePlanFileId000000000000000/view"}}},
+                tmp / "src-proj", tmp, offline=True)
+    check("a file dropped in the inbox is picked up", st[0]["state"] == "fresh" and st[0]["path"].endswith("plan.pdf"))
+    said = S.staleness(st, {"plan": {"items": [{"title": "x"}], "source": {"fingerprint": "older", "as_of": "2026-07-01"}}})
+    check("a digest written from an older version of its source is called out", said and "changed after" in said[0], str(said))
+    check("an empty digest says what to read and where to write it", "Read it once" in S.staleness(st, {"plan": {}})[0])
+    check("the run log names what was deliberately not read",
+          any("chat, mail" in str(c.value) for row in load_workbook(next(proj.glob("KPI Tracker - *.xlsx")))["Run Log"].iter_rows() for c in row if c.value))
 
 
 if __name__ == "__main__":

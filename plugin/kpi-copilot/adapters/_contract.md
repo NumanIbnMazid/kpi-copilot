@@ -1,12 +1,68 @@
 # Adapter contract
 
-An adapter has exactly one job: turn one team's issue tracker into a valid KIF document
-(`schemas/kif.schema.json`). It does not compute KPIs, write notes, touch spreadsheets or talk
-to PMS. If you find yourself doing any of that in an adapter, it belongs somewhere else.
+An adapter has exactly one job: get one team's issue tracker onto disk. It does not compute
+KPIs, write notes, touch spreadsheets or talk to PMS. If you find yourself doing any of that
+in an adapter, it belongs somewhere else.
 
 This is what makes the tool portable. Writing support for a new tracker means writing one
-file that produces the same JSON, and every downstream behaviour - the nine KPIs, the note
-wording, the workbook, the dry run, the push - comes for free and behaves identically.
+file, and every downstream behaviour - the judging, the nine KPIs, the note wording, the
+workbook, the dry run, the push - comes for free and behaves identically.
+
+There are two shapes an adapter can produce. **Prefer the first.**
+
+## A reader: tracker -> board snapshot (preferred)
+
+A reader reports what the board says and judges nothing: cards, their fields, their status
+moves, their comments (`scripts/board.py` documents the shape; `adapters/asana/api.py` is the
+worked example). `scripts/classify.py` then decides what is a defect, what is rework, which
+period a card belongs to - by the profile's conventions, tolerantly, the same way for every
+tracker - and queues whatever it is unsure of for the assistant, once.
+
+```
+board.json
+  tracker, project_ref, project_name, url, fetched_at, capabilities[], sections[]
+  items[]: id, key, url, title, description, section, completed, created_at, created_by,
+           completed_at, modified_at, assignee, tags[], fields{}, parent,
+           events[]   {at, kind: section|field|completed|reopened, from, to, by}
+           comments[] {at, by, text, url}
+           history_at
+```
+
+Rules for a reader:
+
+- **Straight to disk.** API to file. A board must never travel through an assistant's
+  context; that is what turns a run of seconds into one of half an hour.
+- **Cache by `modified_at`.** Take the previous snapshot, re-read history only for cards
+  that changed. The second run should be a fraction of the first.
+- **No judgement, no team-specific names.** A regex for "[Existing]" inside a reader is a
+  rule nobody else's project gets, and it will miss "[Exisiting]".
+- **Declare capabilities honestly**, follow paging to the end, read-only, plain-English
+  errors, and never ask for a credential in a chat - read it from the environment or
+  `~/.config/kpi-copilot/`.
+
+The interface is one function in `adapters/<name>/api.py`, and nothing else needs editing -
+`kpi.py run` finds a reader by the adapter's name:
+
+```python
+def read(project: dict, profile: dict, cache: dict | None, progress=None) -> dict:
+    """This project's board as a snapshot. `cache` is the previous snapshot, or None.
+    Raise board.ReaderError with a message a person can act on."""
+
+def from_raw(raw: dict, profile: dict, project: dict) -> dict:     # optional
+    """The same snapshot from a file downloaded by a signed-in tab (browser_snapshot.js)."""
+```
+
+Credentials come from `scripts/connect.py` (`connect.credential("<service>")`), which knows
+every way a person can sign in - browser, an existing CLI login, a token, a signed-in tab -
+and which to suggest. Add your service's routes there, so `kpi.py auth` and the readiness
+check can explain them. `adapters/github/api.py` (one GraphQL query per fifty issues) and
+`adapters/jira/api.py` are the other two worked examples.
+
+## A converter: tracker -> KIF directly
+
+The `jira` and `csv` adapters do this: they produce a finished KIF document
+(`schemas/kif.schema.json`), making the judgement calls themselves. It remains supported -
+a CSV export has no history to judge from anyway - and the rules below are for this shape.
 
 ## Interface
 
