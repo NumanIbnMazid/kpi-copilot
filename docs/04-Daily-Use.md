@@ -17,22 +17,61 @@ python3 scripts/profile_lib.py --profile profile.yaml --list
 
 ## What happens
 
+One command does the whole deterministic chain in one process:
+
+```bash
+python3 scripts/run.py --profile profile.yaml --project <id>
+```
+
 1. **Readiness check.** Stops if something blocking is unresolved, rather than producing
    numbers from an environment that is not ready. With several projects it checks each one's
    adapter, so a missing one surfaces now rather than mid-run.
-0. **Resolve.** Your defaults, then the project's client account, then the project. This is
+2. **Resolve.** Your defaults, then the project's client account, then the project. This is
    what makes one profile cover Asana for one client and Jira for another.
-2. **KPI definitions and targets refreshed from PMS**, including any target this project sets
-   for itself, so you are never scored against a stale or borrowed bar.
 3. **Extract.** Your adapter reads the tracker.
-4. **Compute.** The nine KPIs, with notes.
-5. **Review.** Your part. One round of questions.
+4. **Validate.** The extract is checked against the interchange format before anything counts it.
+5. **Compute.** The nine KPIs, with notes.
 6. **Workbook.** The audit trail, with a link behind every judgement.
-7. **Deliver.** According to your output mode.
-8. **Log.** Everything kept under `runs/<date>/`.
+7. **The list.** What the tracker could not answer, naming the tickets.
 
-Machine time is a few minutes. The review is the part that needs you, and that is the right
-place for your time to go.
+That takes under a second. Then:
+
+8. **Look up what the list named** - and only that.
+9. **Review.** Your part. One round of questions.
+10. **Fold it back in.** `run.py review` re-reads the sheet, recomputes, and rebuilds
+    everything from the result.
+11. **Deliver.** According to your output mode.
+
+Everything is kept under `runs/<date>/`.
+
+### Why the order matters
+
+The slow part of a KPI run was never the arithmetic - the whole chain is a fraction of a
+second. It was searching chat, mail and plan documents *before* computing, which means
+hunting for evidence the board may already hold, across a space with no edges.
+
+Computing first turns that into a short list with ticket numbers on it:
+
+```
+7 tasks have no 'understood' - decides Requirement Comprehension.
+  Usually in the ticket's own comments: ACME-101, ACME-102, ACME-103, ...
+Sprint 14 has no handover date - decides Escaped Defect Rate and the client-date check.
+  Usually in the release announcement.
+```
+
+The list is already filtered down to facts that would actually change a number. An item
+nobody committed to does not appear on it, because Delivery Commitment measures promises
+kept - a blank there is the correct answer, not a gap.
+
+If a run still feels slow, the timing line at the bottom of every pass says which part was:
+
+```
+  preflight 0.06s  extract:jira 1.21s  validate 0.05s  compute 0.01s  workbook 0.20s  = 1.53s
+```
+
+If that total is small and the run took half an hour, the time went on searching. Bound it:
+`sources.mode` and the `scan` block in your profile decide how far a run reaches, and
+`docs/reference/09-scan-and-source-of-truth.md` covers both.
 
 ## The review
 
@@ -98,13 +137,33 @@ Every run produces a tracker workbook:
 
 | Tab | What it holds |
 |---|---|
-| KPI Summary | Nine rows per period: value, target, where the target came from, status, numerator, denominator, the note |
-| Task Register | Every deliverable, with hours, dates, the Yes/No judgements and their evidence links |
-| Defect Register | Every report, including the ones not counted and why |
+| Read Me | What the colours mean and what each tab is for |
+| Dashboard | Totals per period, the nine KPIs as a grid with colour, and links to everything the project uses |
+| Config | Project details, the counting rules, and every KPI with the PMS formula behind it |
 | Periods | Dates, handover, team effort, the period's story |
+| Task Register | Every deliverable, with hours, dates, the Yes/No judgements and the evidence beside each |
+| Defect Register | Every report, including the ones not counted and why |
+| KPI Summary | Nine rows per period: value, target, where the target came from, status, numerator, denominator, the note |
+| PMS Push Log | What was sent to PMS and when |
 | Gaps | What could not be measured, and why |
 
 This is what you open when somebody questions a number in three months.
+
+### Reading it
+
+Colour is the whole grammar, and it tells you the truth about what the tool will accept:
+
+| Colour | Meaning |
+|---|---|
+| **Yellow** | Yours. Change it and `run.py review` reads it back into the numbers |
+| **White** | Read from your tracker or your profile. True, but not yours to change here |
+| **Grey** | Computed. Editing it achieves nothing; the next run rebuilds it |
+
+Dates are real dates, so the date columns sort and filter as dates. The judgement columns
+have dropdowns taken from the interchange format itself, so the sheet cannot offer a value
+the tool would reject. Red marks a missed commitment, a reopen, a rejected report and a
+missed KPI with no reason yet. Formatting carries on past the last row, so a line you add by
+hand still fits. Registers print landscape, one page wide, with the header repeated.
 
 ### Editing in the sheet
 
@@ -115,14 +174,13 @@ Change a Yes/No, an hours figure, a date, a defect's rejection, a period's hando
 the **Why** text — then:
 
 ```bash
-python3 scripts/workbook.py review --tracker runs/<date>/tracker.xlsx \
-  --kif runs/<date>/run.kif.json --results runs/<date>/results.json \
-  --reasons reasons.yaml --out-kif runs/<date>/run.kif.json \
-  --out-reasons reasons.yaml --out-manual manual.yaml --by "Your Name"
+python3 scripts/run.py review --profile profile.yaml --project <id> --by "Your Name"
 ```
 
-It prints every edit it found, and every one it did not apply with the reason. Rerun the
-engine and the values and notes follow.
+That re-reads the sheet, folds the edits into the extract, recomputes, and rebuilds the
+workbook and the payloads from the result — so the sheet, the numbers and PMS cannot end up
+saying different things. It prints every edit it found, and every one it did not apply with
+the reason.
 
 **If a computed figure is wrong and you cannot fix the input in time**, put the right number
 in **Set value by hand** and a reason in **Why set by hand**. It is used — and the computed

@@ -113,6 +113,30 @@ the real push read the same payload file and take the same path until the last m
 they cannot disagree about what was going to happen. That property is why pushing is a
 separate script rather than a flag on the engine.
 
+### 4b. The orchestrator — why the pipeline is one command
+
+`scripts/run.py` calls the same scripts, in order, inside one process. It computes nothing of
+its own; delete it and every step still works by hand.
+
+It exists because of a measurement. The whole chain — preflight, extract, validate, compute,
+workbook, payloads — takes about a quarter of a second on a normal board. A run that took
+half an hour was not slow because of the arithmetic. It was slow for two reasons the code
+could actually fix:
+
+- **Seven commands is seven round trips**, each with a decision in between about what comes
+  next. One call removes all of them.
+- **Evidence was gathered before anything knew what was missing.** Searching chat, mail and
+  plan documents up front means hunting across a space with no edges for facts the board may
+  already hold. So `run.py` ends by printing what the tracker could not answer, naming the
+  tickets — turning an open-ended search into a list you can finish.
+
+That list is filtered by what would actually change a number. A blank `met_commitment` on an
+item nobody committed to is not on it: Delivery Commitment measures promises kept, so the
+blank is the correct answer, not a gap. Sending someone to search for it would cost the hour
+the list exists to save.
+
+Every pass prints its own timings, so "was that slow?" is answerable rather than a feeling.
+
 ### 5. Skills — the part a person talks to
 
 Three: `kpi-setup`, `kpi-run`, `kpi-adapter`. They orchestrate; they do not compute. Anything
@@ -201,7 +225,7 @@ When two runs disagree, diff the two `run.kif.json` files. The change is in the 
 python3 scripts/selftest.py
 ```
 
-90 assertions across three complete example stacks (Asana/Sheets/hours/push,
+159 assertions across four complete example stacks (Asana/Sheets/hours/push,
 Jira-CSV/Slack/points/review-only, and one lead running both). Most of them are about honesty
 rather than arithmetic:
 that unmeasurable things come back unmeasured, that locked settings are refused, that

@@ -216,6 +216,28 @@ delivery. It is about commitment; the meaning was in the second word. Where a de
 exists somewhere authoritative, go and read it, and put the words in the code where the next
 person will see them.
 
+**The slow part was not the code.** A real run took over half an hour, and the reflex was to
+look at the Python. That was the wrong place: the whole chain — preflight, extract, validate,
+compute, workbook, payloads — takes about a quarter of a second. Nothing in it needed
+optimising, and any time spent making it faster would have bought nothing.
+
+The time went on two things the code had shaped without anybody deciding to. The pipeline was
+seven separate commands, so it was seven round trips with a decision between each. And
+evidence was gathered *before* anything computed, which means searching chat, mail and plan
+documents across a space with no edges for facts the board very likely already held.
+
+Both fixes were about order and shape rather than speed. One command runs the chain. It ends
+by printing what the tracker could not answer, naming the tickets — so the search that
+follows is a list somebody can finish rather than a sweep with no natural end. And the list is
+filtered by what would actually move a number: an item nobody committed to does not appear on
+it, because under the real definition of Delivery Commitment a blank there is the correct
+answer, not a gap.
+
+The lesson: **measure before optimising, and when the measurement says the code is not the
+problem, believe it.** Slowness in a tool that talks to a person is usually the shape of the
+conversation, not the execution time — how many turns it takes, and whether it asks for things
+before it knows it needs them. Those do not appear in a profiler.
+
 **Computed cells were made read-only.** The first version of the editable workbook forbade
 changing a computed figure at all. Also wrong, for the reason in commitment 4: someone who
 cannot correct a number in the sheet will correct it in PMS, where nobody can see they did.

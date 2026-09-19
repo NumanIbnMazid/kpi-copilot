@@ -165,8 +165,15 @@ what the answer should be.
 /kpi-copilot:kpi-run <your project>
 ```
 
-You get the nine KPIs, the notes, and a short list of judgement calls. Then the only question
-that matters:
+or, without the assistant in the loop:
+
+```bash
+python3 scripts/run.py --profile profile.yaml --project <id>
+```
+
+Either way you get, in under a second: the nine KPIs, the notes, a workbook, and a short list
+of the facts the tracker could not answer — with the ticket numbers beside each. Then the only
+question that matters:
 
 **Does anything here disagree with what you know to be true?**
 
@@ -185,7 +192,16 @@ One command per cycle:
 /kpi-copilot:kpi-run <project>
 ```
 
-Review in chat, or in the sheet — yellow cells come back, grey ones are computed.
+Three commands if you would rather drive it yourself:
+
+```bash
+python3 scripts/run.py        --profile profile.yaml --project <id>
+python3 scripts/run.py review --profile profile.yaml --project <id> --by "Your Name"
+python3 scripts/run.py push   --profile profile.yaml --project <id> --apply
+```
+
+Review in chat, or in the sheet — yellow cells come back, grey ones are computed, white ones
+were read from your tracker.
 
 → [04-Daily-Use.md](04-Daily-Use.md)
 
