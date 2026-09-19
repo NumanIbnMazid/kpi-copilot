@@ -40,7 +40,7 @@ owner:
   timezone: Asia/Dhaka
 
 organization:
-  # Fixed for everyone at Enosis. Changing these here does not change what PMS expects.
+  # Fixed for everyone in the company. Changing these here does not change what PMS expects.
   pms_base_url: https://pms.example.com
   kpi_registry: kpi_registry.json
   note_format: "what is measured || the numbers || what was left out || why"

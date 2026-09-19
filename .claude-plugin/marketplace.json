@@ -1,6 +1,6 @@
 {
-  "name": "enosis",
-  "description": "Enosis internal Claude Code plugins for project management.",
+  "name": "pm-tools",
+  "description": "Internal Claude Code plugins for project management.",
   "owner": {
     "name": "Numan Ibn Mazid",
     "url": "https://github.com/numanibnmazid"
@@ -9,7 +9,7 @@
     {
       "name": "kpi-copilot",
       "source": "./plugin/kpi-copilot",
-      "description": "Prepare Enosis PMS project KPIs from whatever issue tracker a team already uses, with evidence links and readable notes, then push to PMS after approval.",
+      "description": "Prepare PMS project KPIs from whatever issue tracker a team already uses, with evidence links and readable notes, then push to PMS after approval.",
       "version": "1.3.0",
       "author": {
         "name": "Numan Ibn Mazid"

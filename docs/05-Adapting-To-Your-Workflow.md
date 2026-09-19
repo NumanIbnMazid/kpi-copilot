@@ -83,7 +83,7 @@ belongs to; anything untagged is shared.
 
 | id | kind | name | accounts | used for |
 |---|---|---|---|---|
-| pms | pms | Enosis PMS | *(all)* | output |
+| pms | pms | PMS | *(all)* | output |
 | asana | issue-tracker | Asana | northwind | scope, dates, defects |
 | chat-northwind-devqa | chat | Northwind Dev-QA (Google Chat) | northwind | evidence, handover |
 | jira | issue-tracker | Jira | acme | scope, dates, defects |

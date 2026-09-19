@@ -195,7 +195,7 @@ def build_checks(profile: dict | None, profile_path: Path | None,
         "plugin-installed", "Environment", "KPI Copilot plugin is loaded",
         "Without it the /kpi-copilot:* skills do not exist.",
         "claude plugin marketplace add \"<the KPI Copilot folder>\" then claude plugin install "
-        "kpi-copilot@enosis. Or skip installing: start Claude with --plugin-dir pointing at this folder.",
+        "kpi-copilot@pm-tools. Or skip installing: start Claude with --plugin-dir pointing at this folder.",
         BLOCKING,
         PASS if (PLUGIN_ROOT / ".claude-plugin" / "plugin.json").exists() else FAIL,
         f"plugin root {PLUGIN_ROOT}",

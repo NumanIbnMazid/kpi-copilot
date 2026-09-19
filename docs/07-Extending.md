@@ -131,7 +131,7 @@ Weak:
 
 What is there now:
 
-> Prepare, review and deliver Enosis PMS project KPIs for a project or period, from any issue
+> Prepare, review and deliver PMS project KPIs for a project or period, from any issue
 > tracker. ... Use whenever someone asks to prepare, calculate, refresh, recompute, review or
 > push KPIs, do the KPI run for a project or milestone or sprint or cycle, update PMS KPIs, or
 > explain why a KPI value came out the way it did.
@@ -205,11 +205,11 @@ Anyone with the folder — a shared drive, a clone of a private repo — adds it
 
 ```bash
 claude plugin marketplace add "/path/to/KPI Copilot"
-claude plugin install kpi-copilot@enosis
+claude plugin install kpi-copilot@pm-tools
 ```
 
 The same manifest works from a private git repo, so `claude plugin marketplace add
-enosis/claude-plugins` works the day someone puts it there. Nothing needs to be public at any
+your-org/claude-plugins` works the day someone puts it there. Nothing needs to be public at any
 point.
 
 Bump `version` in **both** `plugin.json` and the marketplace entry when you want people to
@@ -222,8 +222,8 @@ receive an update; `claude plugin marketplace update` then `claude plugin update
 
 This catches everyone out once, so it is worth being blunt about it.
 
-**Claude Code installs a plugin by copying it.** `claude plugin install kpi-copilot@enosis`
-copies the folder to `~/.claude/plugins/cache/enosis/kpi-copilot/<version>/` and runs from
+**Claude Code installs a plugin by copying it.** `claude plugin install kpi-copilot@pm-tools`
+copies the folder to `~/.claude/plugins/cache/pm-tools/kpi-copilot/<version>/` and runs from
 there. Editing the source folder afterwards changes nothing for anyone who installed it.
 
 **The version is the only signal that there is something new.** Run `claude plugin update`
@@ -247,8 +247,8 @@ That runs the self-test first, refuses to bump if it fails, updates both files, 
 the two commands everyone else runs:
 
 ```bash
-claude plugin marketplace update enosis
-claude plugin update kpi-copilot@enosis
+claude plugin marketplace update pm-tools
+claude plugin update kpi-copilot@pm-tools
 /reload-plugins        # or restart Claude
 ```
 

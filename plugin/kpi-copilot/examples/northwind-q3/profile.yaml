@@ -29,11 +29,11 @@ tools:
 
   - id: pms
     kind: pms
-    name: Enosis PMS
+    name: PMS
     url_or_id: https://pms.example.com/all-projects/101/kpis
     description: "Where the KPIs are finally recorded and where management reads them."
     used_for: [output]
-    access: Enosis SSO
+    access: Company SSO
 
   - id: chat-devqa
     kind: chat

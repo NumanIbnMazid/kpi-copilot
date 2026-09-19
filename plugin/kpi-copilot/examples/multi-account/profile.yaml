@@ -28,11 +28,11 @@ organization:
 tools:
   - id: pms
     kind: pms
-    name: Enosis PMS
+    name: PMS
     url_or_id: https://pms.example.com
     description: "Where every project's KPIs end up, whichever client they belong to."
     used_for: [output]
-    access: Enosis SSO
+    access: Company SSO
 
   - id: drive-trackers
     kind: doc-store

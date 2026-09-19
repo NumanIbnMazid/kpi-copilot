@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://enosis.internal/kpi-copilot/profile.schema.json",
+  "$id": "https://github.com/NumanIbnMazid/kpi-copilot/schemas/profile.schema.json",
   "title": "KPI Copilot Profile v1.0",
   "description": "Everything that varies between one project lead and another. The engine, the KPI set and the counting rules do not live here - those are the same for everyone. This file has two faces: profile.yaml (what the tools read) and the KPI Profile Workbook (what a human reads and edits). scripts/workbook.py converts between them and uses the 'x-workbook' annotations below to lay the workbook out, so the two can never drift.",
   "type": "object",
@@ -67,7 +67,7 @@
       "type": "object",
       "x-workbook": {
         "tab": "Organization",
-        "title": "Things that are the same for everyone at Enosis",
+        "title": "Things that are the same for everyone in the company",
         "readonly_hint": "Do not change these unless the company changes. They are what makes one lead's KPIs comparable with another's."
       },
       "required": [
