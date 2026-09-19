@@ -40,8 +40,9 @@ kpi-copilot/
 ├── adapters/       asana, jira, csv, _contract.md
 ├── schemas/        kif.schema.json, profile.schema.json, kpi_registry.default.json
 └── examples/       northwind-q3   Asana, hours, push after approval
-                    acme-jira    Jira via CSV, story points, review-only
+                    acme-jira      Jira via CSV, story points, review-only
                     multi-account  one lead, two clients, two trackers, one profile
+                    tracker-only   the board is the only source of truth, and bounded
 ```
 
 ## The shape of a run
@@ -64,6 +65,15 @@ python3 adapters/csv/extract.py --profile examples/acme-jira/profile.yaml \
   --project acme-identity --out /tmp/acme.kif.json
 python3 scripts/kpi_engine.py --kif /tmp/acme.kif.json --profile examples/acme-jira/profile.yaml
 ```
+
+The cheapest way to run, for a team whose board is the record:
+
+```bash
+python3 scripts/preflight.py --profile examples/tracker-only/profile.yaml --project atlas
+```
+
+Chat, mail and documents are never opened, and the readiness check says "not needed" rather
+than reporting them as gaps.
 
 Two different stacks, one engine.
 

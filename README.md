@@ -48,13 +48,14 @@ the document to read before changing anything.
 
 **[docs/01-Overview.md](docs/01-Overview.md)** — three minutes, and the one to send anybody.
 **[docs/02-Start-Here.md](docs/02-Start-Here.md)** — install, configure and run, step by step.
+**[docs/10-Setup-By-Conversation.md](docs/10-Setup-By-Conversation.md)** — what to actually say to set it up, with examples.
 **[docs/00-Philosophy.md](docs/00-Philosophy.md)** — the core document, for whoever builds on this.
 
 ## What is in this folder
 
 | | |
 |---|---|
-| `docs/` | Nine documents, from a three-minute overview to the architecture |
+| `docs/` | Ten documents, from a three-minute overview to the architecture |
 | `plugin/kpi-copilot/` | The tool itself: skills, scripts, adapters, schemas, examples |
 | `templates/` | A blank KPI Profile Workbook to look at |
 | `presentation/` | The deck for the CTO conversation |
@@ -74,6 +75,7 @@ the document to read before changing anything.
 | [07-Extending](docs/07-Extending.md) | Adding a tracker, or editing the skills |
 | [08-Rollout-Playbook](docs/08-Rollout-Playbook.md) | Deciding whether to roll it out |
 | [09-FAQ](docs/09-FAQ.md) | Stuck, or sceptical about a number |
+| [10-Setup-By-Conversation](docs/10-Setup-By-Conversation.md) | Setting it up by describing your work — a full worked example, and the awkward cases |
 | [reference/](docs/reference/) | Looking up a specific setting — every field, area by area |
 
 ## Install

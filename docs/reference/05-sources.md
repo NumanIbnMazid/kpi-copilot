@@ -6,8 +6,14 @@ Where scope, hours, dates and evidence come from when the tracker is not the agr
 history still gets KPIs — the ones that depend on a missing source say "Not measured" and
 why, rather than guessing.
 
+And all of it can be switched off deliberately. `mode: tracker-only` says the issue tracker is
+the agreed record and nothing else should be opened, which is the fastest and most
+reproducible way to run. That is a choice, not a limitation, and the readiness check treats it
+as one.
+
 ```yaml
 sources:
+  mode: tracker-first
   plan:      {tool_id: plan-pdf,        kind: pdf,   ref: "https://drive.google.com/file/d/1qSIZ/view"}
   estimates: {tool_id: estimates-sheet, kind: sheet, ref: 1ExampleEstimatesSheetId0000000000000000000}
   timeline:  {tool_id: timeline-sheet,  kind: sheet, ref: 1ExampleTimelineSheetId0000000}
@@ -18,6 +24,7 @@ sources:
 
 | Field | What it is |
 |---|---|
+| `mode` | Which sources may answer at all: `tracker-only`, `tracker-first` (default) or `multi-source`. The biggest single lever on how long a run takes — see [09-scan-and-source-of-truth.md](09-scan-and-source-of-truth.md) |
 | `plan` | The agreed scope. When the board and the plan disagree, the plan is what the client signed |
 | `estimates` | Approved change requests and their hours. The source of truth for CR Rate |
 | `timeline` | Date revisions and the change log. Shows which dates moved and why |

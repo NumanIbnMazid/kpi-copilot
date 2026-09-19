@@ -524,6 +524,57 @@ def main() -> int:
     check("'Pre-release' becomes 'QA'", bridged["defects"][0]["phase"] == "QA")
     check("the handover date survives", bridged["periods"][0]["handover_date"] == "2026-08-12")
 
+    # ---- Source of truth and scan bounds --------------------------------------------
+    # These decide how long a run takes. The risk is not a crash: it is that a profile
+    # saying "board only" quietly reads chat anyway, or that a missing plan is reported as
+    # a failure to a team that deliberately does not have one.
+    print("\nSource of truth and scan bounds")
+    to = EX / "tracker-only" / "profile.yaml"
+    check("the tracker-only example exists", to.exists())
+
+    r = run(["scripts/profile_tool.py", "validate", "--profile", str(to)])
+    check("tracker-only profile validates", r.returncode == 0, r.stderr + r.stdout)
+
+    prof = yaml.safe_load(to.read_text())
+    check("sources.mode is accepted by the schema", prof["sources"]["mode"] == "tracker-only")
+    check("scan bounds the window", prof["scan"]["window"] == "period+grace")
+    check("scan can bound the board", prof["scan"]["tracker_scope"] == "touched-since")
+
+    r = run(["scripts/preflight.py", "--profile", str(to), "--project", "atlas"])
+    out = r.stdout
+    check("a missing plan is 'not needed', not a gap, on a tracker-only profile",
+          "not needed - this profile treats the tracker as the single source of truth" in out, out[:400])
+    check("a missing evidence channel is 'not needed' too",
+          "not needed - source of truth is tracker-only" in out, out[:400])
+    check("readiness reports the reach of a run", "A run has a bounded reach" in out)
+
+    unbounded = tmp / "unbounded.yaml"
+    prof_u = yaml.safe_load(to.read_text())
+    prof_u["scan"]["window"] = "all"
+    unbounded.write_text(yaml.safe_dump(prof_u, sort_keys=False))
+    r = run(["scripts/preflight.py", "--profile", str(unbounded), "--project", "atlas"])
+    check("an unbounded run is flagged rather than accepted silently",
+          "unbounded - every run reads all history" in r.stdout, r.stdout[:400])
+
+    # scan must be settable per client, or a lead with two clients cannot have one cheap and
+    # one thorough.
+    from importlib import import_module
+    sys.path.insert(0, str(HERE))
+    profile_lib = import_module("profile_lib")
+    check("scan can be overridden per account or project", "scan" in profile_lib.OVERRIDABLE)
+
+    layered = tmp / "layered.yaml"
+    prof_l = yaml.safe_load(to.read_text())
+    prof_l["accounts"] = [{"id": "fast", "name": "Fast",
+                           "overrides": {"scan": {"comments": "never"},
+                                         "sources": {"mode": "multi-source"}}}]
+    prof_l["projects"][0]["account"] = "fast"
+    layered.write_text(yaml.safe_dump(prof_l, sort_keys=False))
+    merged, _ = profile_lib.resolve(profile_lib.load(layered), "atlas")
+    check("an account override reaches scan", merged["scan"]["comments"] == "never")
+    check("...without losing the rest of the block", merged["scan"]["window"] == "period+grace")
+    check("an account can change the source of truth", merged["sources"]["mode"] == "multi-source")
+
     print(f"\n{passed} passed, {failed} failed\n")
     return 1 if failed else 0
 

@@ -19,6 +19,10 @@ python3 scripts/workbook.py build --profile examples/northwind-q3/profile.yaml \
 python3 scripts/workbook.py build --profile examples/multi-account/profile.yaml \
   --out "../../templates/KPI Profile Workbook (two clients).xlsx"
 
+# The board as the only source of truth, with a bounded scan
+python3 scripts/workbook.py build --profile examples/tracker-only/profile.yaml \
+  --out "../../templates/KPI Profile Workbook (tracker only).xlsx"
+
 # A per-project tracker workbook, from a real run
 python3 scripts/kpi_engine.py --kif examples/northwind-q3/run.kif.json \
   --profile examples/northwind-q3/profile.yaml \
