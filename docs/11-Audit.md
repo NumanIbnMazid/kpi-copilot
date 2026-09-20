@@ -92,8 +92,11 @@ host credentials remotely, or introduce a second source of calculation truth.
   6 not met and 2 not measured outcomes. Error-marker wrappers were subsequently removed
   and covered by the required native-formula check.
 - Setup/run skill metadata validates. Both release manifests move together to 2.1.0.
-- CI runs the full suite and MCP smoke test on Python 3.10 and 3.12. Check the PR's actual
-  result before merging; configuration of CI is not a passing CI result.
+- CI is configured for the full suite and MCP smoke test on Python 3.10 and 3.12.
+  [Run 35528696666](https://github.com/NumanIbnMazid/kpi-copilot/actions/runs/35528696666)
+  was blocked before any test step by an account-level Actions restriction. A maintainer
+  must restore runner availability and rerun it. This candidate remains draft; there is
+  no passing remote CI result. Local checks ran on Python 3.9 and 3.12.
 
 ## Acceptance still outstanding
 
