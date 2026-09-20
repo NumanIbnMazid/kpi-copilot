@@ -1,0 +1,6 @@
+Plan,,,,,
+ID,Event,Period,Type,Baseline,Actual,State
+T-01,Project start,,Project start,07/01/2026,07/03/2026,Done
+T-02,Build to QA,Initial Scope,Dev,07/20/2026,07/28/2026,Done
+T-03,Handover to Northwind,Initial Scope,Handover,07/29/2026,08/12/2026,Done
+T-04,Handover to Northwind,Additional Requests 1,Handover,09/16/2026,,Planned

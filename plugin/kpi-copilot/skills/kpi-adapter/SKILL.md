@@ -6,11 +6,26 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, WebFetch, AskUserQuestion
 
 # KPI Copilot: write an adapter
 
-An adapter turns one tracker into one KIF document. Nothing else. If you are writing KPI
-maths, note wording or spreadsheet code in an adapter, it belongs somewhere else and will
-drift from everyone else's.
+An adapter gets one tracker onto disk. Nothing else. If you are writing KPI maths, note
+wording or spreadsheet code in an adapter, it belongs somewhere else and will drift from
+everyone else's.
 
 Read `adapters/_contract.md` first. It is short and it is the actual specification.
+
+**Write a reader, not a judge.** The preferred shape is a *reader*: tracker -> board snapshot
+(`scripts/board.py`), with no judgement in it - `adapters/asana/api.py` is the worked example,
+about two hundred lines. `scripts/classify.py` then decides what is a defect, what is rework
+and which period a card belongs to, tolerantly and the same way for every tracker, and the
+ledger, the assistant's judge queue, the live sheet and the read-back all come free. The
+older shape - a *converter* that produces finished KIF itself, like `jira` and `csv` - is
+still supported, and the mapping section below is about that shape.
+
+Two things a reader must get right, because they are what make a run take seconds rather
+than half an hour:
+
+- **API to disk.** The board must never travel through an assistant's context.
+- **Cache by `modified_at`.** Take the previous snapshot; re-read history only for cards that
+  changed.
 
 ## Before writing anything: is an adapter even needed?
 

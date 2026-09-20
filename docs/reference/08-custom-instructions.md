@@ -45,7 +45,7 @@ every run summary, before the numbers.
 | `client_date_source` | `the Confluence plan` |
 | `commit_date_source` | `the sprint commitment` |
 | `cr_denominator` | `period` or `project` |
-| `exclude_key` | `TKT-3333` |
+| `exclude_key` | `NW-233` |
 | `include_key` | `TKT-3401 = CR` |
 | `defect_phase` | `Bug 41 = Post-release` |
 | `hours_source` | `plan` |

@@ -44,6 +44,8 @@ from typing import Any, Iterable
 
 HERE = Path(__file__).resolve().parent
 PLUGIN_ROOT = HERE.parent
+sys.path.insert(0, str(HERE))
+import note_sentences  # noqa: E402
 
 # One resolver for every script, so they cannot disagree about what a project's settings are.
 sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
@@ -204,6 +206,8 @@ class Engine:
         self.manual_report: list[dict] = []
         self.reg_by_key = {k["key"]: k for k in registry.get("kpis", [])}
         self.capabilities = set((kif.get("generated") or {}).get("capabilities") or [])
+        # How the notes are worded. It changes no figure.
+        self.note_style = str((self.profile.get("organization") or {}).get("note_style") or "sentences").lower()
         self.policy = {
             "count_observations": False,
             "count_improvements": False,
@@ -248,6 +252,10 @@ class Engine:
                 threshold = hit["threshold"]
                 direction = hit.get("direction", direction)
                 source = f"set in PMS for project {pid}"
+            local = (self.profile.get("targets") or {}).get(key)
+            if local:
+                threshold = local["value"]
+                source = f"Local review target (PMS unchanged): {local['why']}"
             out[key] = (threshold, direction, source)
         return out
 
@@ -433,6 +441,19 @@ class Engine:
         delivered = self.delivered_in(name)
         basis = (self.sources.get("hours_basis") or "dev")
 
+        missing = [t for t in delivered if
+                   (t.get("story_points") is None if by_points else
+                    t.get("hours_dev") is None or
+                    (basis == "dev+qa" and t.get("closed") and t.get("hours_qa") is None))]
+        if missing:
+            why = (f"Velocity is not measured in {'story points' if by_points else 'hours'}: "
+                   f"{len(missing)} of {len(delivered)} delivered items lack the required estimate. "
+                   "Fill the missing estimates; blank does not mean zero.")
+            m = self._measure("velocity", value=None, unit=unit, numerator=None, denominator=None, gaps=[why])
+            m.note_parts = [self._heading("velocity", period), why, ""]
+            m._say = {"kpi": "velocity", "empty": why}
+            return m
+
         def effort(t: dict) -> float:
             if by_points:
                 return float(t.get("story_points") or 0)
@@ -454,6 +475,7 @@ class Engine:
             numbers = self._nothing_yet(period, name)
             m = self._measure("velocity", value=None, unit=unit, numerator=0, denominator=0, gaps=gaps)
             m.note_parts = [self._heading("velocity", period), numbers, ""]
+            m._say = {"kpi": "velocity", "none": True, "rows": len(self.deliverables_in(name))}
             return m
 
         n_plan = sum(1 for t in delivered if t.get("type") == "Task")
@@ -495,6 +517,10 @@ class Engine:
             gaps=gaps,
         )
         m.note_parts = [self._heading("velocity", period), numbers, ", ".join(detail)]
+        m._say = {"kpi": "velocity", "total": total, "points": by_points, "n": len(delivered), "plan": n_plan,
+                  "cr": n_cr, "scope": n_scope, "basis": basis, "team": team_hours, "open": len(not_yet),
+                  "dev": sum(float(t.get("hours_dev") or 0) for t in delivered),
+                  "qa": sum(float(t.get("hours_qa") or 0) for t in delivered if t.get("closed"))}
         return m
 
     def _ratio_measure(
@@ -531,6 +557,7 @@ class Engine:
                 self._why_empty(period, name, pending=pending, blank=blank),
                 "",
             ]
+            m._say = {"kpi": key, "empty": m.note_parts[1]}
             return m
 
         value = _pct(len(yes), den)
@@ -568,6 +595,17 @@ class Engine:
             gaps=gaps,
         )
         m.note_parts = [self._heading(key, period), numbers, "; ".join(left_out)]
+        date_field = "client_date" if key == "client_expectation" else "commit_date"
+        m._say = {"kpi": key, "yes": len(yes), "den": den, "value": value, "pending": len(pending),
+                  "pending_due": [_md(t.get("client_date") or t.get("commit_date")) for t in pending],
+                  # An item with no date from the client was never expected by one; that is
+                  # worth saying for Client Expectation and is simply not applicable elsewhere.
+                  "blank": len(blank) if key != "client_expectation" else len([t for t in blank if not t.get("client_date")]),
+                  # A row with no date of its own is held to the period's, then the project's.
+                  "dates": [_md(t.get(date_field) or period.get(date_field) or self.kif["project"].get(date_field))
+                            for t in yes + no],
+                  "check": period.get("client_check") or self.kif["project"].get("client_check") or "Handover",
+                  "handover": _md(period.get("handover_date"))}
         return m
 
     def task_comprehension(self, period: dict) -> Measure:
@@ -631,6 +669,8 @@ class Engine:
             else:
                 why = self._why_empty(period, name, pending=pending, blank=[])
             m.note_parts = [self._heading("delivery_commitment", period), why, ""]
+            m._say = ({"kpi": "delivery_commitment", "none_committed": True, "rows": len(rows)} if not committed
+                      else {"kpi": "delivery_commitment", "empty": why})
             return m
 
         value = _pct(len(yes), den)
@@ -656,6 +696,15 @@ class Engine:
             counted_keys=[t["key"] for t in yes + no], gaps=gaps,
         )
         m.note_parts = [self._heading("delivery_commitment", period), numbers, "; ".join(left)]
+        met = str(cfg.get("met_when") or "delivery").strip()
+        m._say = {"kpi": "delivery_commitment", "yes": len(yes), "den": den, "value": value,
+                  "pending": len(pending), "pending_due": [_md(t.get("commit_date")) for t in pending],
+                  "uncommitted": len(uncommitted),
+                  "dates": [_md(t.get("commit_date") or period.get("commit_date") or self.kif["project"].get("commit_date"))
+                            for t in yes + no],
+                  "phrase": {"delivery": "counted on each item's delivery date",
+                             "handover": "counted on the handover to the client",
+                             "completion": "counted on the date each item was completed"}.get(met.lower(), f"counted on {met}")}
         return m
 
     @staticmethod
@@ -673,6 +722,7 @@ class Engine:
         if den == 0:
             m = self._measure("defect_rate", value=None, numerator=len(counted), denominator=0)
             m.note_parts = [self._heading("defect_rate", period), self._nothing_yet(period, name), ""]
+            m._say = {"kpi": "defect_rate", "none": True, "rows": len(self.deliverables_in(name))}
             return m
 
         value = _pct(len(counted), den)
@@ -685,6 +735,8 @@ class Engine:
             counted_keys=[d["key"] for d in counted],
         )
         m.note_parts = [self._heading("defect_rate", period), numbers, third]
+        m._say = {"kpi": "defect_rate", "counted": len(counted), "den": den, "value": value,
+                  "left": [(why, len(rows)) for why, rows in left_out]}
         return m
 
     def escaped_defect_rate(self, period: dict) -> Measure:
@@ -714,6 +766,7 @@ class Engine:
                 "Not handed over to the client yet, so there is nothing to measure",
                 "",
             ]
+            m._say = {"kpi": "escaped_defect_rate", "no_handover": True, "den": den}
             return m
 
         if den == 0:
@@ -723,6 +776,7 @@ class Engine:
                 "No valid issues were reported in this cycle",
                 "",
             ]
+            m._say = {"kpi": "escaped_defect_rate", "no_issues": True}
             return m
 
         value = _pct(len(escaped), den)
@@ -745,6 +799,8 @@ class Engine:
             counted_keys=[d["key"] for d in escaped],
         )
         m.note_parts = [self._heading("escaped_defect_rate", period), numbers, "; ".join(left)]
+        m._say = {"kpi": "escaped_defect_rate", "escaped": len(escaped), "den": den, "value": value,
+                  "rejected": rejected, "handover": _md(period["handover_date"])}
         return m
 
     def rejection_rate(self, period: dict) -> Measure:
@@ -760,6 +816,7 @@ class Engine:
                 "No issues were reported in this cycle",
                 "",
             ]
+            m._say = {"kpi": "rejection_rate", "none_reported": True}
             return m
 
         value = _pct(len(rejected), den)
@@ -782,6 +839,7 @@ class Engine:
             counted_keys=[d["key"] for d in rejected],
         )
         m.note_parts = [self._heading("rejection_rate", period), numbers, third]
+        m._say = {"kpi": "rejection_rate", "rejected": len(rejected), "den": den, "value": value, "why": why}
         return m
 
     def rework_rate(self, period: dict) -> Measure:
@@ -807,6 +865,7 @@ class Engine:
                 f"reopened after closing",
                 "",
             ]
+            m._say = {"kpi": "rework_rate", "unjudged_all": den}
             return m
 
         if den == 0:
@@ -816,6 +875,7 @@ class Engine:
                 "Nothing has been completed in this cycle yet",
                 "",
             ]
+            m._say = {"kpi": "rework_rate", "nothing_completed": True}
             return m
 
         # Judged, not merely completed: an item nobody could assess is not evidence of no rework.
@@ -848,6 +908,8 @@ class Engine:
             counted_keys=[t["key"] for t in reopened], gaps=gaps,
         )
         m.note_parts = [self._heading("rework_rate", period), numbers, third]
+        m._say = {"kpi": "rework_rate", "reopened": len(reopened), "den": den, "value": value,
+                  "near": len(near), "unjudged": unjudged}
         return m
 
     def cr_rate(self, period: dict) -> Measure:
@@ -875,6 +937,7 @@ class Engine:
                 "There is no planned scope to measure additions against",
                 "",
             ]
+            m._say = {"kpi": "cr_rate", "no_scope": True}
             return m
 
         value = _pct(len(crs), den)
@@ -889,6 +952,8 @@ class Engine:
             counted_keys=[t["key"] for t in crs],
         )
         m.note_parts = [self._heading("cr_rate", period), numbers, third]
+        m._say = {"kpi": "cr_rate", "crs": len(crs), "den": den, "value": value,
+                  "only_crs": "because this cycle is only" in third, "project": bool(third)}
         return m
 
     # -- note assembly -----------------------------------------------------------------
@@ -949,8 +1014,15 @@ class Engine:
         return (block.get(kpi_name) or block.get(kpi_name.lower()) or "").strip()
 
     def finish_note(self, m: Measure, period_name: str) -> None:
-        """Glue the four parts. The reason is the only part a human writes, and its job is
-        to add what the numbers cannot say - never to repeat them."""
+        """Glue the parts. The reason is the only part a human writes, and its job is to add
+        what the numbers cannot say - never to repeat them.
+
+        Two styles, one set of numbers. `sentences` (the default) says each part the way a
+        person would; `fragments` is the older "heading || numbers || what was left out".
+        The counting is identical - only the wording differs (note_sentences.py)."""
+        sentences = self.note_style == "sentences" and getattr(m, "_say", None)
+        if sentences:
+            m.note_parts = note_sentences.sentences(m._say)
         parts = [p for p in (m.note_parts + [self._reason_for(period_name, m.name)]) if p and p.strip()]
         cleaned: list[str] = []
         for p in parts:
@@ -961,10 +1033,12 @@ class Engine:
             # repetition is the single most common thing that makes a note read like a machine.
             if cleaned and p.lower()[:28] == cleaned[-1].lower()[:28]:
                 continue
-            cleaned.append(p)
+            cleaned.append(p + ("." if sentences else ""))
         m.note = " || ".join(cleaned)
         if m.clamped and m.value is not None:
-            m.note += f" || PMS accepts up to {_n(m.pms_value)}; the real figure is {_n(m.value)}"
+            m.note += (f" || There is more here than PMS can hold: it stores {_n(m.pms_value)}, and the real figure "
+                       f"is {_n(m.value)}." if sentences else
+                       f" || PMS accepts up to {_n(m.pms_value)}; the real figure is {_n(m.value)}")
 
     def apply_manual(self, m: Measure, period_name: str) -> None:
         """Let a person state a different value or note than the data supports.
@@ -1024,7 +1098,8 @@ class Engine:
             # naming the figure a person recorded and why. Both readings stay visible.
             who = f" by {entry.get('by')}" if entry.get("by") else ""
             m.note += (f" || Recorded as {_n(m.value)}{'%' if m.unit == '%' else ''}{who} rather than "
-                       f"the {_n(m.computed_value)}{'%' if m.unit == '%' else ''} above: {_strip_links(why)}")
+                       f"the {_n(m.computed_value)}{'%' if m.unit == '%' else ''} above: {_strip_links(why).rstrip('.')}"
+                       + ("." if self.note_style == "sentences" else ""))
 
         m.overridden = True
         m.override_reason = why
@@ -1222,7 +1297,8 @@ def main(argv: list[str] | None = None) -> int:
     profile = resolve_profile(load_profile(args.profile), args.project)[0] if args.profile else {}
     reasons = _load_any(args.reasons) if args.reasons else {}
     manual = _load_any(args.manual) if (args.manual and args.manual.exists()) else {}
-    reg_path = args.registry or (PLUGIN_ROOT / "schemas" / "kpi_registry.default.json")
+    from kpi_registry import resolve_path
+    reg_path = resolve_path(args.profile, profile, args.registry)
     registry = _load_any(reg_path)
 
     engine = Engine(kif, profile, registry, reasons, manual)

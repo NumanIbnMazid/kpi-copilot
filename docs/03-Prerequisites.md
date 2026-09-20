@@ -1,113 +1,139 @@
-# Prerequisites and the readiness check
+# Technical setup and assistant connections
 
-Nobody should discover halfway through a KPI run that they cannot reach PMS. So the first
-thing setup does — and the first thing every run does — is check.
+For the user journey and prompts, start with [Your first KPI run](02-Start-Here.md).
+This document is for the assistant or administrator installing and operating the runner.
 
-```bash
-python3 scripts/preflight.py --profile profile.yaml --markdown readiness.md
-```
+An assistant needs a runtime that can execute the shared pipeline. A browser login alone
+is not an execution environment. No specific AI subscription is required by this project.
 
-Or just run `/kpi-copilot:kpi-setup`, which does it for you and walks the parts a script
-cannot see.
+## Local setup
 
----
-
-## What gets checked
-
-### Environment — a script can see all of this
-
-| Check | Why it matters | Fix |
-|---|---|---|
-| Python 3.9+ | The engine, workbook and adapters are Python | `brew install python3` |
-| PyYAML | The profile is YAML so a person can read it | `pip3 install pyyaml` |
-| openpyxl | Builds the workbooks | `pip3 install openpyxl` |
-| Claude Code, with an active subscription | The skills, browser control and approval steps run in it | Install the desktop app and sign in. If the company pays, ask IT for a seat |
-| The plugin is loaded | Without it the `/kpi-copilot:*` skills do not exist | `claude plugin marketplace add "/path/to/KPI Copilot"` then `claude plugin install kpi-copilot@pm-tools`, or start with `--plugin-dir` |
-
-### Configuration
-
-| Check | Why it matters |
-|---|---|
-| A profile exists | It is what makes the run follow your workflow rather than somebody else's |
-| Every required section is filled | A half-filled profile produces numbers nobody can defend |
-| KPI definitions synced from PMS | Ids, targets and this project's own thresholds come from PMS, not from a copy that quietly went stale |
-| The adapter exists | It is what turns your tracker into something the engine can read |
-
-### Access — some of this only you can confirm
-
-| Check | Who can fix it |
-|---|---|
-| PMS answers from this machine | IT, usually a VPN |
-| **Your account can open the project's KPI page** | PMS admin. Reading PMS is not the same as being allowed to see this project |
-| **Your account may edit KPIs there** | PMS admin. Only needed if you will push |
-| **The periods you will push to exist in PMS** | You. The push updates periods, it does not create them |
-| A browser session signed in to the tracker, PMS and your document store | You. Claude reads these pages as you and never types credentials |
-| Jira API token, if you use the Jira adapter | You. Keep it in the environment, never in the profile |
-| Google Drive / Sheets connector, if you work in Sheets | You, in Claude's connector settings, on the work account |
-
-### Data sources — all optional
-
-Plan, estimates sheet, timeline, evidence channels. Missing any of these is fine. The KPIs
-that depend on them come back "Not measured" with the reason, rather than a guess. The check
-marks them **limited**, not blocked.
-
-### Output targets
-
-The run folder must be writable, the Drive folder must accept your edits, and `auto-push`
-must be paired with `unattended` — otherwise a scheduled run stops and waits for somebody who
-is not there.
-
----
-
-## How to read the result
-
-```
-**Almost: 2 items still need your confirmation.**
-14 ready, 0 blocked, 2 to confirm, 1 limited.
-
-## Access
-- [x] PMS answers from this machine - ready
-- [ ] Your account may edit KPIs on that project - needs your confirmation
-      Why it matters: Output mode is 'assisted-push', which writes to PMS.
-      To fix: Try editing one KPI note by hand in PMS. (owner: PMS admin)
-```
-
-| Mark | Meaning |
-|---|---|
-| `[x]` ready | Nothing to do |
-| `[!]` blocked | Must be fixed before this can run |
-| `[ ]` confirm | A person has to check it; a script cannot |
-| `[~]` limited | Works, but some KPIs will be limited, and it says which |
-
-## Recording a confirmation
-
-Confirmations are remembered with a date, so you are not asked every month — but they expire
-after 30 days, because sessions lapse and tokens rotate.
+Use Python 3.10+ for new installations, including MCP. The CLI is also tested locally on
+Python 3.9. From the repository root:
 
 ```bash
-python3 scripts/preflight.py --profile profile.yaml --confirm pms-account --by "Your Name"
-python3 scripts/preflight.py --profile profile.yaml --fail drive-connector --why "not enabled on the work account"
-python3 scripts/preflight.py --profile profile.yaml --skip drive-folder
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
 ```
 
-The result is written to `preflight.json` next to the profile, and appears on the
-**Prerequisites** tab of the KPI Profile Workbook the next time it is built — so your whole
-team can see the state of a project's setup without asking you.
-
-## Blocking a run
+Ask the assistant to follow [Start here](02-Start-Here.md). Keep the profile and generated
+records in a private folder outside this repository. Begin with `review-only` output.
 
 ```bash
-python3 scripts/preflight.py --profile profile.yaml --strict
+.venv/bin/python plugin/kpi-copilot/scripts/kpi.py auth --profile /absolute/path/profile.yaml --project my-project
+.venv/bin/python plugin/kpi-copilot/scripts/kpi.py doctor --profile /absolute/path/profile.yaml --project my-project
 ```
 
-Non-zero means something blocking is unresolved. `/kpi-copilot:kpi-run` does this
-automatically and stops rather than producing numbers from an environment that is not ready.
+`auth` lists the available connection choices, best first for the current machine. Present
+those choices to the person. Reuse a supported existing login, such as GitHub's `gh`, when
+available. For browser authorization, the person clicks Allow. For tokens, give them the
+command to run privately; never request or read a secret in chat.
 
-## What to sort out before a wider rollout
+`preflight.py` provides a broader checklist and records dated confirmations. Readiness is
+specific to the selected project and output: review-only needs no PMS write permission.
+A saved checklist does not prove a live operation succeeded.
 
-Two of these are organisational rather than technical, and they take the longest:
+## Optional local MCP connection
 
-1. **PMS project access for each lead**, and edit rights for anyone who will push.
-2. **Claude Code seats** for everyone who will use it.
+For assistants that support local stdio MCP servers, install the optional dependencies in
+a Python 3.10+ environment:
 
-Start both early. Everything else is a `pip install`.
+```bash
+.venv/bin/python -m pip install -r requirements-mcp.txt
+```
+
+Add this server through the assistant's MCP settings. Replace all three absolute paths:
+
+```json
+{
+  "mcpServers": {
+    "kpi-copilot": {
+      "command": "/absolute/path/to/kpi-copilot/.venv/bin/python",
+      "args": ["/absolute/path/to/kpi-copilot/plugin/kpi-copilot/scripts/mcp_server.py"],
+      "env": {"KPI_PROFILE": "/absolute/path/to/private/profile.yaml"}
+    }
+  }
+}
+```
+
+Host settings formats vary; this is the common JSON shape, not an installer for every
+assistant. The server exposes eight tools: projects, readiness, preparation, review,
+judgements, person answers, PMS preview and approved submission. It runs the same CLI and
+serializes calls within that server. Do not run multiple writers against the same profile.
+
+Start with `projects`, then `readiness`, then `prepare_kpis`. `read_review` returns one batch
+of decisions. The submission tool requires the digest of the reviewed payload, and the
+assistant must obtain an explicit yes in the current conversation. A matching digest binds
+the payload; it is not proof that a person approved it.
+
+The real stdio protocol is tested. Each host still needs an installation acceptance check;
+see [the audit](11-Audit.md). This server does not expose a network listener. Browser-only
+assistants need a code workspace with approved exports, or a separately deployed authenticated
+runtime. A hosted remote service is not included.
+
+## Google and optional sources
+
+Google access is needed only for named Drive sources or a Google Sheets destination.
+`kpi.py auth google` explains supported OAuth and service-account setup. An administrator
+may need to register an application and enable the Sheets and Drive APIs. OAuth audience
+and consent requirements depend on the organization's account and deployment.
+
+Use a dedicated output spreadsheet. Tool-owned tabs are rebuilt; yellow input cells are
+read back first and unrelated tabs are preserved. Do not select a valuable manual reference
+workbook as the output destination. If Google is unavailable, the run preserves the existing
+review baseline and creates a separate local preview. Reconnect before merging or pushing.
+Local copies of configured sources can be placed in the project's `inbox` as instructed by
+NEXT. Missing or stale required source facts remain visible and prevent PMS submission.
+
+## PMS access
+
+Read the nine KPI definitions and project targets from your deployment. Refresh the registry
+beside the private profile; no organization's target cache belongs in the installed plugin.
+The bundled registry is a labelled fallback, not confirmation of current project targets.
+
+PMS submission requires an existing period, verified project ownership, supported API access,
+and explicit approval of the preview. The current CLI writer uses `PMS_TOKEN` from the
+runtime environment. A signed-in browser session is not automatically available to that
+writer. Production write acceptance remains separate from read-only definition verification.
+Never test write permission by changing production KPIs.
+
+Schedules may prepare drafts. They do not supply the conversation approval needed to push.
+Legacy `auto-push` and `unattended` settings never waive that requirement.
+
+## Operator reference: create a profile and run the pipeline
+
+This section is for the assistant or administrator carrying out the conversation in
+[Your first KPI run](02-Start-Here.md). Run commands from the repository root using the
+installed environment. Replace the example private path and project ID.
+
+Create the short profile, then fill it from the setup conversation and observed sources:
+
+```bash
+.venv/bin/python plugin/kpi-copilot/scripts/profile_tool.py init --out /private/kpi/profile.yaml
+```
+
+Use the full template only when advanced settings are needed. Shared settings can be
+inherited by multiple projects; put only differences on individual projects. Record the
+counting unit, approved additions, parent/subtask treatment, delivery and closure events,
+and expected versus actual dates before accepting a known-period result.
+
+For source tables, map columns once; use approval filters and period translations where
+needed. For documents, digest once and retain the source fingerprint. See the
+[facts reference](../plugin/kpi-copilot/skills/kpi-run/references/facts.md).
+
+```bash
+.venv/bin/python plugin/kpi-copilot/scripts/kpi.py run --profile /private/kpi/profile.yaml --project my-project
+.venv/bin/python plugin/kpi-copilot/scripts/kpi.py judge --profile /private/kpi/profile.yaml --project my-project
+.venv/bin/python plugin/kpi-copilot/scripts/kpi.py push --profile /private/kpi/profile.yaml --project my-project
+```
+
+Run `judge` only after writing the one batch answer file requested by NEXT. `push` previews;
+`--apply` is a separate, explicitly approved operation. Do not refetch the tracker just to
+apply a judgement: `judge` recomputes from the existing snapshot. Keep a draft with unresolved
+questions visibly distinct from approved results.
+
+Measure the whole interaction: initial acquisition, assistant review, source correction,
+workbook publication and verified delivery. The printed pipeline timings cover only the
+command's work. Separate waiting for a person's answer from processing time, and disclose
+both. Record cold-read and unchanged-rerun measurements; a seconds-long synthetic calculation
+cannot establish a minutes-long live experience.

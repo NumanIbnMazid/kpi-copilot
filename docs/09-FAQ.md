@@ -50,16 +50,79 @@ No. Adapters are read-only. Not a label, not a comment.
 
 ### Will it push to PMS without asking?
 
-Only if you deliberately set `mode: auto-push` **and** `unattended: true`, which is meant for
-scheduled runs. The shipped default shows you a diff and asks. Approval is per run — a yes for
-one period never carries to the next.
+No. An explicit yes in the current conversation is required for the reviewed payload.
+Schedules may prepare drafts. Legacy automatic settings do not supply approval.
+
+### Why did a run take half an hour?
+
+The pipeline avoids manual card-by-card reading: it fetches data to disk, caches evidence,
+and batches unresolved judgements. Every run prints timings. First reads, provider rate
+limits, source digestion and review still take time. Use those measurements to identify the
+bottleneck; do not assume a slow run is the user's or assistant's fault.
+
+### It counted a bug as ours because somebody typed "[Exisiting]". Seriously?
+
+Not any more. Tags are read the way a person would read them: a word one or two letters off
+your team's vocabulary is read as that word, and the row's Check column says *"read
+[Exisiting] as Existing"* so you can disagree. Anything the rules are not sure of goes to the
+assistant, which judges it once by a written definition; its answer is kept with the reason.
+And you can always overrule either in the sheet - your answer stands until you change it.
+
+### Does it go digging through my chat and mail?
+
+No. A run reads your tracker and the sources you named in the profile - the plan, the
+estimates, the timeline - and nothing else. What those cannot answer becomes a question for
+you on the Open Questions tab, asked once. If you *want* it to look further - "also check the
+client chat for the handover date" - say so, for that run; or list places under
+`sources.evidence_channels` and ask for a deep run. Even then it looks up only the open
+questions, only there.
+
+### Where does the KPI sheet live? Can it be a Google Sheet?
+
+By default it is an .xlsx beside your profile, rewritten every run. Tell it once to keep it in
+Google Sheets - a Drive folder, or one specific sheet's link - and every run updates that
+same Google Sheet in place, so the link never changes. Both look the same, because they are
+written from one description modelled on a hand-built tracker: navy headers, yellow for what
+is yours, grey live formulas, a dashboard with bars. Connecting Google is a one-time sign-in
+you do yourself ([03-Prerequisites](03-Prerequisites.md)); without it you still get the local
+file, and File > Import > Replace spreadsheet puts it over the same Google Sheet.
+
+### Which trackers does it read?
+
+Asana, Jira (Cloud, Server and Data Center) and GitHub (Issues, with or without a Projects
+board) are read directly through their APIs, straight to disk, with only changed items
+re-read on the next run. Everything downstream - the judging, the nine KPIs, the sheet - is
+identical whichever it is. Any other tracker starts today from a CSV export, and a reader for
+it is one small file that fetches and judges nothing (`adapters/_contract.md`).
+
+### Do I have to paste a token into a terminal?
+
+No - that is one way in, not the only one. `python3 scripts/kpi.py auth` (or asking your
+assistant "what do I need to connect?") lists the ways for your machine, best first:
+
+- **a login you already have** - if GitHub's `gh` is signed in, there is nothing to do;
+- **sign in in your browser** and click Allow - your own browser or your assistant's built-in
+  one. Asana, Jira Cloud and Google; it needs a small app registration your company does once;
+- **a token** you type in a terminal - a minute to set up, the fastest at run time, and the
+  only one that suits an unattended schedule;
+- **a tab where you are already signed in** - a snippet downloads the board as a file. No
+  credential at all; slower, and you have to be there.
+
+Whichever you pick, a token or password never passes through the assistant.
+
+### Does it only work with Claude?
+
+No. Everything is a Python command plus files. `AGENTS.md` at the top of the repository tells
+any assistant that can run commands - Claude, Cursor, Codex - how to drive a run. The
+`/kpi-copilot:*` skills are a convenience on Claude.
 
 ### Half my KPIs say "Not measured". Is it broken?
 
 No, it is being honest. It means the adapter could not observe something that KPI needs, and
 it would rather say so than produce a number that looks fine and is wrong.
 
-Each one comes with a reason and, in the Gaps tab, what would fix it. Six honest KPIs are
+Each one comes with a reason in its note, and what a person could answer is on the Open
+Questions tab. Six honest KPIs are
 worth more than nine confident ones, because a wrong number gets defended in a meeting and
 built on.
 
@@ -77,22 +140,9 @@ Full list with symptoms: `skills/kpi-run/references/troubleshooting.md`.
 
 ### Can I change a threshold? Our integration project cannot hit 15% defect rate.
 
-Yes — in PMS, where thresholds are configurable per project. That is the right place for it,
-and a legitimate thing to want: an integration over a legacy surface should not be held to a
-greenfield defect rate.
-
-Set it on the project in PMS. The next run reads it, scores against it, marks it with an
-asterisk and prints "Target set in PMS for project 101, not the PMS default", so anyone
-comparing two projects can see the bar differed and that PMS is what made it differ.
-
-What the profile will not do is hold a second copy of the target. That is the one thing
-refused, and not out of purism: a target in a config file is how a workbook ends up saying
-"Met" while PMS says "Not met" for the same number, and you are the one who has to explain the
-gap. The refusal says exactly where to set it instead.
-
-What genuinely does not vary is the **counting** — what delivered, defect and rework mean.
-PMS does not define those; we do, and they are the reason two projects' numbers can be
-compared at all.
+Yes. Use project targets in PMS for official reporting, or explicit local review targets
+with a reason in the profile. Local targets are labelled and prevent PMS submission until
+reconciled. See [project targets](05-Adapting-To-Your-Workflow.md#project-targets).
 
 ### But I do have project facts the defaults get wrong.
 
@@ -122,10 +172,13 @@ you meant. `^Bug` will happily remove "Bugfix: client login".
 
 Yes. Yellow cells are yours and come back; grey cells are computed and regenerated.
 
-Change a Yes/No judgement, hours, a date, a defect's rejection, a handover date or the **Why**
-text, then run `workbook.py review` and rerun the engine. The values and notes follow from
-your edits, and the push sends what the engine produced — so the sheet and PMS cannot end up
-saying different things.
+Change a Yes/No judgement, an item type, a period, hours, a date, a defect's rejection, a
+handover date or the **Why** text. The grey cells are live formulas, so the numbers, the
+dashboard and the PMS note move at once. The next run reads your edits back **before** it
+rebuilds the sheet, files each as your decision - which outranks the assistant's and the
+rules' - and tells you what it read. The push sends what the run computed from those inputs,
+so the sheet and PMS cannot end up saying different things. If KPI Summary's "Since the last
+run" column says anything, run again before pushing.
 
 ### What if the computed number itself is wrong?
 
@@ -179,20 +232,20 @@ cleanly; rerun it later against the same payload file.
 
 ### Can I run it on a schedule?
 
-Yes. `/schedule create "Prepare KPIs for Acme every second Friday at 9am"`. In
-`assisted-push` it prepares everything and waits for you. Only `auto-push` with `unattended`
-writes on its own, and it still logs every change and reads back every value.
+Yes, using your assistant or operating system scheduler to prepare drafts. Scheduling
+support varies by host. Review and approve a fresh preview before any PMS submission.
 
 ### How do I know what it did three months ago?
 
-`runs/<date>/` keeps the extract, the results, the payload and the push log for every run.
-When two runs disagree, diff the two extracts — the change is in the input, not in the engine.
+`<project>/runs/<date>/` stores the extract, results, payload and push log. Same-day reruns
+reuse that folder; use distinct `--date` labels for separate snapshots. It is a working
+record, not an immutable audit archive. Preserve reviewed snapshots under your retention policy.
 
 ### Someone questions a number in a review. What do I show them?
 
 The tracker workbook. KPI Summary has the value, target, numerator and denominator; the Task
-and Defect Registers have the evidence link behind every judgement; the Gaps tab has anything
-that could not be measured.
+and Defect Registers have the evidence link behind every judgement, and a Check column saying
+how any row that was not obvious was decided; `ledger.json` has who made each call and why.
 
 ### How do I know the tool itself is right?
 

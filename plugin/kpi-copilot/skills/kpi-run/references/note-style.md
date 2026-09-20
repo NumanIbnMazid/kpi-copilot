@@ -6,19 +6,25 @@ can act on, and a note that reads like machine output gets skimmed and then dist
 ## The format
 
 ```
-what is measured || the numbers || what was left out || why
+what the numbers say, in sentences || what was left out || why
 ```
 
-`||` reads as a line break in the PMS note field. The first three parts are generated. The
-fourth - the **why** - is the only part a person writes, and it lives in the project's
-`reasons.yaml`.
+`||` reads as a line break in the PMS note field. Everything before the last part is
+generated, as whole sentences a person might have written. The last part - the **why** - is
+the only part a person (or the assistant, from `judge/queue.json`) writes, and it lives in the
+project's `facts/reasons.yaml` and in the yellow column of KPI Summary.
 
 Example:
 
-> Work finished in this cycle || 685 h across 53 delivered items: 39 from the plan, 14
-> additional requests || 432 h of development and 118 h of QA, plus 135 h of shared work such
-> as bug fixing, QA checks and regression || The hours for the additional requests come from
-> the Additional Effort Estimates sheet; Northwind approved them on 07/31 and 08/12.
+> The team completed 685 hours of work in this cycle, across 53 delivered items: 39 from the
+> plan and 14 additional requests. || That is 432 hours of development and 118 hours of QA,
+> plus 135 hours of shared work such as bug fixing, QA checks and regression. || The hours for
+> the additional requests come from the Additional Effort Estimates sheet, which Northwind
+> approved on 07/31 and 08/12.
+
+The older style - a heading, then joined fragments ("Work finished in this cycle || 685 h
+across 53 items: ...") - is still available as `organization.note_style: fragments`. The
+style changes the wording only; the self-test checks that it never changes a figure.
 
 ## The one rule for the "why"
 
@@ -26,9 +32,9 @@ Example:
 
 It must not:
 
-- **repeat the heading.** After "Commitments the team met on time", a reason
-  starting "We committed to the Q3 feature freeze" says nothing. Delete the sentence; that is
-  almost always the whole fix.
+- **repeat what the sentence before it said.** After "The team met every commitment it
+  made", a reason starting "We met all our commitments" says nothing. Delete the sentence;
+  that is almost always the whole fix.
 - **restate a count the sheet already printed.** The reader has just read it.
 - **open with the same words as the part before it.** "This cycle is ... || This cycle is ..."
   is the most obvious tell that nobody read the output.
@@ -80,16 +86,13 @@ values, pull the current notes back from PMS and read the old and new together.
 
 If a note makes you pause, it will make a manager pause. Fix it before anyone sees it.
 
-## The generated openers
+## What the generated part already says
 
-These come from the KPI registry. Knowing them helps you spot a reason that repeats one:
+Knowing this helps you spot a reason that repeats it. For each KPI the generated sentences
+state the count and the percentage, the date it was measured against and on what basis
+("each delivered by 09/11", "counted on the handover to the client"), what was left out and
+why (items not yet due, items with no history, reports that were already in the product,
+observations, rejected reports), and whether the cycle has been handed over. A first-round QA
+failure is named as normal testing, not rework. A figure over 100 says PMS stores 100.
 
-- Work finished in this cycle
-- Requirements the team understood without asking the client
-- Work the client expected by `<date>`, counted on `<the handover date | each item's delivery date>`
-- Commitments the team met on time by `<date>`, counted on `<what meeting a commitment means>`
-- Bugs found in the work we delivered
-- Bugs the client found after handover
-- Reports that turned out not to be bugs
-- Finished tasks that had to be reopened
-- Extra work the client added after the plan
+So the reason never needs any of that. It says what happened.

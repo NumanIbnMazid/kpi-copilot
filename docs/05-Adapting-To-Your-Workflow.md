@@ -13,7 +13,7 @@ This document covers what you can change, how, and where the line is.
 | Tier | What it covers | How it behaves |
 |---|---|---|
 | **Yours** | Tracker, states, naming, sources, periods, output, house style | Change freely |
-| **Yours, in the sheet** | Judgements, hours, dates, the Why text — and any figure, as a recorded hand-set value | Edit, run `workbook.py review`, rerun |
+| **Yours, in the sheet** | Judgements, item types, periods, hours, dates, the Why text — and any figure, as a recorded hand-set value | Edit the yellow cell. The numbers move at once; the next run reads it back and keeps it |
 | **Recorded** | Project facts the defaults get wrong | Allowed, applied, and printed in every run summary |
 | **Set in PMS** | The targets for each KPI, per project | Change them in PMS; the next run reads them and marks them as this project's own |
 | **Fixed** | The KPI list, the ids, the counting behind each ratio | Not configurable. This is what makes two projects comparable |
@@ -245,8 +245,8 @@ output:
   notify: chat-devqa
 ```
 
-`auto-push` is only honoured with `unattended: true`, and the push script refuses the
-combination rather than hanging. Nobody gets an unattended push by accident.
+`auto-push` and `unattended` are legacy compatibility settings. They do not authorize a
+write. Every submission requires explicit approval of the current preview in conversation.
 
 ---
 
@@ -294,24 +294,24 @@ Supported rules: `delivered_signal`, `client_date_source`, `commit_date_source`,
 `period_of_key`, `velocity_team_hours`. An `expires` date makes a run warn when an override
 has gone stale.
 
-### What the overrides cannot touch
+### Project targets
 
-### Targets: change them in PMS, not here
+Refresh the project's PMS registry to use its official targets. For review workflows that
+need a separate bar, add an explicit local target and reason at profile, account or project
+level:
 
-Your project may well need a different bar, and PMS supports that — a threshold is configurable
-per project. Set it there. The next run reads it, scores against it, marks it with an asterisk
-and prints "Target set in PMS for project 101, not the PMS default", so anyone comparing two
-projects can see the bar differed and that PMS is what made it differ.
+```yaml
+targets:
+  defect_rate:
+    value: 20
+    why: "Agreed review target for this integration phase."
+```
 
-What the profile will not do is hold a second copy. Try it and you get this, from both the
-validator and the engine:
-
-> set `threshold_defect_rate` on this project in PMS instead. Targets are configurable per
-> project there, and the next run reads whatever PMS holds and marks it as this project's own. A
-> target kept in this file would make the workbook and PMS disagree.
-
-The refusal is reported, never silent. A silently-ignored instruction is worse than a refused
-one, because you go on believing it took effect.
+The engine and workbook use the same target and label its source as local, with PMS
+unchanged. PMS submission is blocked while local targets are active: set the intended
+project targets in PMS, remove the local override, refresh the registry and review again.
+KPI definitions remain shared; delivery mappings, defect policy and documented exceptions
+make different workflows explicit instead of hiding them in the numbers.
 
 ---
 

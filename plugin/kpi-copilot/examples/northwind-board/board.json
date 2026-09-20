@@ -1,0 +1,1050 @@
+{
+ "board_version": "1.0",
+ "tracker": "asana",
+ "adapter": "asana",
+ "adapter_version": "2.0.0",
+ "project_ref": "1100000000000001",
+ "project_name": "Northwind Q3 Release Items",
+ "url": "https://app.asana.com/0/1100000000000001",
+ "fetched_at": "2026-09-18T03:00:00+00:00",
+ "capabilities": [
+  "status_history",
+  "comments",
+  "assignee",
+  "estimates",
+  "story_points",
+  "labels",
+  "created_date",
+  "closed_date",
+  "reporter"
+ ],
+ "sections": [
+  "To Do",
+  "In Progress",
+  "Awaiting Feedback",
+  "Ready for QA",
+  "Testing Failed",
+  "Closed",
+  "Rejected"
+ ],
+ "items": [
+  {
+   "id": "1200000000000001",
+   "key": "NW-101",
+   "url": "https://app.asana.com/0/1100000000000001/1200000000000001",
+   "title": "NW-101 Booking rules for shared rooms",
+   "description": "",
+   "section": "Closed",
+   "completed": false,
+   "created_at": "2026-06-19T08:00:00.000Z",
+   "created_by": "Rafi Karim",
+   "completed_at": null,
+   "modified_at": "2026-08-05T09:00:00.000Z",
+   "due_on": null,
+   "start_on": null,
+   "assignee": "Tania Noor",
+   "tags": [],
+   "fields": {
+    "Estimated Time": 30
+   },
+   "parent": null,
+   "subtasks": 0,
+   "kind": "default_task",
+   "events": [
+    {
+     "at": "2026-07-03T09:00:00.000Z",
+     "kind": "section",
+     "from": "To Do",
+     "to": "In Progress",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-07-08T09:00:00.000Z",
+     "kind": "section",
+     "from": "In Progress",
+     "to": "Awaiting Feedback",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-07-09T09:00:00.000Z",
+     "kind": "section",
+     "from": "Awaiting Feedback",
+     "to": "In Progress",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-07-16T09:00:00.000Z",
+     "kind": "section",
+     "from": "In Progress",
+     "to": "Ready for QA",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-07-22T09:00:00.000Z",
+     "kind": "section",
+     "from": "Ready for QA",
+     "to": "Testing Failed",
+     "by": "QA"
+    },
+    {
+     "at": "2026-07-24T09:00:00.000Z",
+     "kind": "section",
+     "from": "Testing Failed",
+     "to": "Ready for QA",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-08-05T09:00:00.000Z",
+     "kind": "section",
+     "from": "Ready for QA",
+     "to": "Closed",
+     "by": "QA"
+    }
+   ],
+   "comments": [
+    {
+     "at": "2026-07-08T10:00:00.000Z",
+     "by": "Tania Noor",
+     "text": "Dana Whitfield, could you confirm what should happen when a room is already held by a recurring booking? The spec does not say.",
+     "url": "https://app.asana.com/0/1100000000000001/c/1"
+    },
+    {
+     "at": "2026-07-09T10:00:00.000Z",
+     "by": "Dana Whitfield",
+     "text": "Good catch. The recurring booking wins; do not show the warning.",
+     "url": "https://app.asana.com/0/1100000000000001/c/2"
+    }
+   ],
+   "history_at": "2026-09-18T03:00:00+00:00"
+  },
+  {
+   "id": "1200000000000002",
+   "key": "NW-102",
+   "url": "https://app.asana.com/0/1100000000000001/1200000000000002",
+   "title": "NW-102 Conflict warning on double booking",
+   "description": "",
+   "section": "Closed",
+   "completed": false,
+   "created_at": "2026-06-19T08:00:00.000Z",
+   "created_by": "Rafi Karim",
+   "completed_at": null,
+   "modified_at": "2026-08-05T09:00:00.000Z",
+   "due_on": null,
+   "start_on": null,
+   "assignee": "Tania Noor",
+   "tags": [],
+   "fields": {},
+   "parent": null,
+   "subtasks": 0,
+   "kind": "default_task",
+   "events": [
+    {
+     "at": "2026-07-03T09:00:00.000Z",
+     "kind": "section",
+     "from": "To Do",
+     "to": "In Progress",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-07-14T09:00:00.000Z",
+     "kind": "section",
+     "from": "In Progress",
+     "to": "Ready for QA",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-08-05T09:00:00.000Z",
+     "kind": "section",
+     "from": "Ready for QA",
+     "to": "Closed",
+     "by": "QA"
+    }
+   ],
+   "comments": [],
+   "history_at": "2026-09-18T03:00:00+00:00"
+  },
+  {
+   "id": "1200000000000003",
+   "key": "NW-103",
+   "url": "https://app.asana.com/0/1100000000000001/1200000000000003",
+   "title": "NW-103 Richer confirmation email template",
+   "description": "",
+   "section": "Closed",
+   "completed": false,
+   "created_at": "2026-06-20T08:00:00.000Z",
+   "created_by": "Rafi Karim",
+   "completed_at": null,
+   "modified_at": "2026-08-05T09:00:00.000Z",
+   "due_on": null,
+   "start_on": null,
+   "assignee": "Tania Noor",
+   "tags": [],
+   "fields": {},
+   "parent": null,
+   "subtasks": 0,
+   "kind": "default_task",
+   "events": [
+    {
+     "at": "2026-07-06T09:00:00.000Z",
+     "kind": "section",
+     "from": "To Do",
+     "to": "In Progress",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-07-20T09:00:00.000Z",
+     "kind": "section",
+     "from": "In Progress",
+     "to": "Ready for QA",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-07-23T09:00:00.000Z",
+     "kind": "section",
+     "from": "Ready for QA",
+     "to": "Testing Failed",
+     "by": "QA"
+    },
+    {
+     "at": "2026-07-27T09:00:00.000Z",
+     "kind": "section",
+     "from": "Testing Failed",
+     "to": "Ready for QA",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-08-05T09:00:00.000Z",
+     "kind": "section",
+     "from": "Ready for QA",
+     "to": "Closed",
+     "by": "QA"
+    }
+   ],
+   "comments": [],
+   "history_at": "2026-09-18T03:00:00+00:00"
+  },
+  {
+   "id": "1200000000000004",
+   "key": "NW-104",
+   "url": "https://app.asana.com/0/1100000000000001/1200000000000004",
+   "title": "NW-104 Remember the last used filter",
+   "description": "",
+   "section": "Closed",
+   "completed": false,
+   "created_at": "2026-06-20T08:00:00.000Z",
+   "created_by": "Rafi Karim",
+   "completed_at": null,
+   "modified_at": "2026-08-11T09:00:00.000Z",
+   "due_on": null,
+   "start_on": null,
+   "assignee": "Tania Noor",
+   "tags": [],
+   "fields": {},
+   "parent": null,
+   "subtasks": 0,
+   "kind": "default_task",
+   "events": [
+    {
+     "at": "2026-07-06T09:00:00.000Z",
+     "kind": "section",
+     "from": "To Do",
+     "to": "In Progress",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-07-13T09:00:00.000Z",
+     "kind": "section",
+     "from": "In Progress",
+     "to": "Ready for QA",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-08-04T09:00:00.000Z",
+     "kind": "section",
+     "from": "Ready for QA",
+     "to": "Closed",
+     "by": "QA"
+    },
+    {
+     "at": "2026-08-07T09:00:00.000Z",
+     "kind": "section",
+     "from": "Closed",
+     "to": "In Progress",
+     "by": "QA"
+    },
+    {
+     "at": "2026-08-10T09:00:00.000Z",
+     "kind": "section",
+     "from": "In Progress",
+     "to": "Ready for QA",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-08-11T09:00:00.000Z",
+     "kind": "section",
+     "from": "Ready for QA",
+     "to": "Closed",
+     "by": "QA"
+    }
+   ],
+   "comments": [
+    {
+     "at": "2026-08-07T10:00:00.000Z",
+     "by": "Imran QA",
+     "text": "Reopening: the filter resets after the tablet restarts. It passed on 08/04 because the tablet was never restarted.",
+     "url": "https://app.asana.com/0/1100000000000001/c/3"
+    }
+   ],
+   "history_at": "2026-09-18T03:00:00+00:00"
+  },
+  {
+   "id": "1200000000000005",
+   "key": "NW-105",
+   "url": "https://app.asana.com/0/1100000000000001/1200000000000005",
+   "title": "NW-105 Export bookings to CSV",
+   "description": "",
+   "section": "Closed",
+   "completed": false,
+   "created_at": "2026-06-21T08:00:00.000Z",
+   "created_by": "Rafi Karim",
+   "completed_at": null,
+   "modified_at": "2026-08-05T09:00:00.000Z",
+   "due_on": null,
+   "start_on": null,
+   "assignee": "Tania Noor",
+   "tags": [],
+   "fields": {},
+   "parent": null,
+   "subtasks": 0,
+   "kind": "default_task",
+   "events": [
+    {
+     "at": "2026-07-07T09:00:00.000Z",
+     "kind": "section",
+     "from": "To Do",
+     "to": "In Progress",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-07-10T09:00:00.000Z",
+     "kind": "section",
+     "from": "In Progress",
+     "to": "Awaiting Feedback",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-07-13T09:00:00.000Z",
+     "kind": "section",
+     "from": "Awaiting Feedback",
+     "to": "In Progress",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-07-17T09:00:00.000Z",
+     "kind": "section",
+     "from": "In Progress",
+     "to": "Ready for QA",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-08-05T09:00:00.000Z",
+     "kind": "section",
+     "from": "Ready for QA",
+     "to": "Closed",
+     "by": "QA"
+    }
+   ],
+   "comments": [
+    {
+     "at": "2026-07-10T10:00:00.000Z",
+     "by": "Tania Noor",
+     "text": "Blocked: the staging environment is down, waiting for access to be restored.",
+     "url": "https://app.asana.com/0/1100000000000001/c/4"
+    }
+   ],
+   "history_at": "2026-09-18T03:00:00+00:00"
+  },
+  {
+   "id": "1200000000000006",
+   "key": "NW-106",
+   "url": "https://app.asana.com/0/1100000000000001/1200000000000006",
+   "title": "NW-106 Tablet check-in screen",
+   "description": "",
+   "section": "Ready for QA",
+   "completed": false,
+   "created_at": "2026-06-22T08:00:00.000Z",
+   "created_by": "Rafi Karim",
+   "completed_at": null,
+   "modified_at": "2026-07-28T09:00:00.000Z",
+   "due_on": null,
+   "start_on": null,
+   "assignee": "Tania Noor",
+   "tags": [],
+   "fields": {},
+   "parent": null,
+   "subtasks": 0,
+   "kind": "default_task",
+   "events": [
+    {
+     "at": "2026-07-10T09:00:00.000Z",
+     "kind": "section",
+     "from": "To Do",
+     "to": "In Progress",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-07-28T09:00:00.000Z",
+     "kind": "section",
+     "from": "In Progress",
+     "to": "Ready for QA",
+     "by": "Dev"
+    }
+   ],
+   "comments": [],
+   "history_at": "2026-09-18T03:00:00+00:00"
+  },
+  {
+   "id": "1200000000000007",
+   "key": "NW-140",
+   "url": "https://app.asana.com/0/1100000000000001/1200000000000007",
+   "title": "[CR] NW-140 Single sign-on fix",
+   "description": "",
+   "section": "Closed",
+   "completed": false,
+   "created_at": "2026-07-30T08:00:00.000Z",
+   "created_by": "Rafi Karim",
+   "completed_at": null,
+   "modified_at": "2026-08-11T09:00:00.000Z",
+   "due_on": null,
+   "start_on": null,
+   "assignee": "Tania Noor",
+   "tags": [],
+   "fields": {},
+   "parent": null,
+   "subtasks": 0,
+   "kind": "default_task",
+   "events": [
+    {
+     "at": "2026-08-01T09:00:00.000Z",
+     "kind": "section",
+     "from": "To Do",
+     "to": "In Progress",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-08-06T09:00:00.000Z",
+     "kind": "section",
+     "from": "In Progress",
+     "to": "Ready for QA",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-08-11T09:00:00.000Z",
+     "kind": "section",
+     "from": "Ready for QA",
+     "to": "Closed",
+     "by": "QA"
+    }
+   ],
+   "comments": [],
+   "history_at": "2026-09-18T03:00:00+00:00"
+  },
+  {
+   "id": "1200000000000008",
+   "key": "NW-141",
+   "url": "https://app.asana.com/0/1100000000000001/1200000000000008",
+   "title": "NW-141 Extra fields on the room profile",
+   "description": "",
+   "section": "Closed",
+   "completed": false,
+   "created_at": "2026-08-10T08:00:00.000Z",
+   "created_by": "Rafi Karim",
+   "completed_at": null,
+   "modified_at": "2026-08-12T09:00:00.000Z",
+   "due_on": null,
+   "start_on": null,
+   "assignee": "Tania Noor",
+   "tags": [],
+   "fields": {},
+   "parent": null,
+   "subtasks": 0,
+   "kind": "default_task",
+   "events": [
+    {
+     "at": "2026-08-10T09:00:00.000Z",
+     "kind": "section",
+     "from": "To Do",
+     "to": "In Progress",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-08-11T09:00:00.000Z",
+     "kind": "section",
+     "from": "In Progress",
+     "to": "Ready for QA",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-08-12T09:00:00.000Z",
+     "kind": "section",
+     "from": "Ready for QA",
+     "to": "Closed",
+     "by": "QA"
+    }
+   ],
+   "comments": [],
+   "history_at": "2026-09-18T03:00:00+00:00"
+  },
+  {
+   "id": "1200000000000009",
+   "key": "NW-160",
+   "url": "https://app.asana.com/0/1100000000000001/1200000000000009",
+   "title": "NW-160 Calendar sync for cancelled bookings",
+   "description": "",
+   "section": "Ready for QA",
+   "completed": false,
+   "created_at": "2026-08-28T08:00:00.000Z",
+   "created_by": "Rafi Karim",
+   "completed_at": null,
+   "modified_at": "2026-09-10T09:00:00.000Z",
+   "due_on": null,
+   "start_on": null,
+   "assignee": "Tania Noor",
+   "tags": [],
+   "fields": {},
+   "parent": null,
+   "subtasks": 0,
+   "kind": "default_task",
+   "events": [
+    {
+     "at": "2026-09-01T09:00:00.000Z",
+     "kind": "section",
+     "from": "To Do",
+     "to": "In Progress",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-09-10T09:00:00.000Z",
+     "kind": "section",
+     "from": "In Progress",
+     "to": "Ready for QA",
+     "by": "Dev"
+    }
+   ],
+   "comments": [],
+   "history_at": "2026-09-18T03:00:00+00:00"
+  },
+  {
+   "id": "1200000000000010",
+   "key": "NW-161",
+   "url": "https://app.asana.com/0/1100000000000001/1200000000000010",
+   "title": "[CRs] NW-161 Reminder emails before a booking",
+   "description": "",
+   "section": "Closed",
+   "completed": false,
+   "created_at": "2026-08-28T08:00:00.000Z",
+   "created_by": "Rafi Karim",
+   "completed_at": null,
+   "modified_at": "2026-09-15T09:00:00.000Z",
+   "due_on": null,
+   "start_on": null,
+   "assignee": "Tania Noor",
+   "tags": [],
+   "fields": {},
+   "parent": null,
+   "subtasks": 0,
+   "kind": "default_task",
+   "events": [
+    {
+     "at": "2026-09-01T09:00:00.000Z",
+     "kind": "section",
+     "from": "To Do",
+     "to": "In Progress",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-09-08T09:00:00.000Z",
+     "kind": "section",
+     "from": "In Progress",
+     "to": "Ready for QA",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-09-15T09:00:00.000Z",
+     "kind": "section",
+     "from": "Ready for QA",
+     "to": "Closed",
+     "by": "QA"
+    }
+   ],
+   "comments": [],
+   "history_at": "2026-09-18T03:00:00+00:00"
+  },
+  {
+   "id": "1200000000000011",
+   "key": "NW-150",
+   "url": "https://app.asana.com/0/1100000000000001/1200000000000011",
+   "title": "NW-150 Tidy up tablet log noise",
+   "description": "Spotted while fixing the sign-on issue. Small clean-up, not requested by the client.",
+   "section": "Closed",
+   "completed": false,
+   "created_at": "2026-08-03T08:00:00.000Z",
+   "created_by": "Rafi Karim",
+   "completed_at": null,
+   "modified_at": "2026-08-06T09:00:00.000Z",
+   "due_on": null,
+   "start_on": null,
+   "assignee": "Tania Noor",
+   "tags": [],
+   "fields": {},
+   "parent": null,
+   "subtasks": 0,
+   "kind": "default_task",
+   "events": [
+    {
+     "at": "2026-08-03T09:00:00.000Z",
+     "kind": "section",
+     "from": "To Do",
+     "to": "In Progress",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-08-05T09:00:00.000Z",
+     "kind": "section",
+     "from": "In Progress",
+     "to": "Ready for QA",
+     "by": "Dev"
+    },
+    {
+     "at": "2026-08-06T09:00:00.000Z",
+     "kind": "section",
+     "from": "Ready for QA",
+     "to": "Closed",
+     "by": "QA"
+    }
+   ],
+   "comments": [],
+   "history_at": "2026-09-18T03:00:00+00:00"
+  },
+  {
+   "id": "1200000000000012",
+   "key": null,
+   "url": "https://app.asana.com/0/1100000000000001/1200000000000012",
+   "title": "[QA] Checklist for release 4.2",
+   "description": "",
+   "section": "Closed",
+   "completed": false,
+   "created_at": "2026-07-01T08:00:00.000Z",
+   "created_by": "Imran QA",
+   "completed_at": null,
+   "modified_at": "2026-07-01T08:00:00.000Z",
+   "due_on": null,
+   "start_on": null,
+   "assignee": "Tania Noor",
+   "tags": [],
+   "fields": {},
+   "parent": null,
+   "subtasks": 0,
+   "kind": "default_task",
+   "events": [],
+   "comments": [],
+   "history_at": "2026-09-18T03:00:00+00:00"
+  },
+  {
+   "id": "1200000000000013",
+   "key": null,
+   "url": "https://app.asana.com/0/1100000000000001/1200000000000013",
+   "title": "Milestone 1",
+   "description": "",
+   "section": "Closed",
+   "completed": false,
+   "created_at": "2026-06-18T08:00:00.000Z",
+   "created_by": "Rafi Karim",
+   "completed_at": null,
+   "modified_at": "2026-06-18T08:00:00.000Z",
+   "due_on": null,
+   "start_on": null,
+   "assignee": "Tania Noor",
+   "tags": [],
+   "fields": {},
+   "parent": null,
+   "subtasks": 0,
+   "kind": "milestone",
+   "events": [],
+   "comments": [],
+   "history_at": "2026-09-18T03:00:00+00:00"
+  },
+  {
+   "id": "1200000000000014",
+   "key": null,
+   "url": "https://app.asana.com/0/1100000000000001/1200000000000014",
+   "title": "Regression Testing round 2",
+   "description": "",
+   "section": "Closed",
+   "completed": false,
+   "created_at": "2026-08-06T08:00:00.000Z",
+   "created_by": "Imran QA",
+   "completed_at": null,
+   "modified_at": "2026-08-06T08:00:00.000Z",
+   "due_on": null,
+   "start_on": null,
+   "assignee": "Tania Noor",
+   "tags": [],
+   "fields": {},
+   "parent": null,
+   "subtasks": 0,
+   "kind": "default_task",
+   "events": [],
+   "comments": [],
+   "history_at": "2026-09-18T03:00:00+00:00"
+  },
+  {
+   "id": "1200000000000020",
+   "key": null,
+   "url": "https://app.asana.com/0/1100000000000001/1200000000000020",
+   "title": "[Web] Bug 01: Warning shown for recurring bookings",
+   "description": "",
+   "section": "Closed",
+   "completed": false,
+   "created_at": "2026-07-18T08:00:00.000Z",
+   "created_by": "Imran QA",
+   "completed_at": null,
+   "modified_at": "2026-07-25T09:00:00.000Z",
+   "due_on": null,
+   "start_on": null,
+   "assignee": "Tania Noor",
+   "tags": [],
+   "fields": {},
+   "parent": null,
+   "subtasks": 0,
+   "kind": "default_task",
+   "events": [
+    {
+     "at": "2026-07-25T09:00:00.000Z",
+     "kind": "section",
+     "from": "To Do",
+     "to": "Closed",
+     "by": "QA"
+    }
+   ],
+   "comments": [],
+   "history_at": "2026-09-18T03:00:00+00:00"
+  },
+  {
+   "id": "1200000000000021",
+   "key": null,
+   "url": "https://app.asana.com/0/1100000000000001/1200000000000021",
+   "title": "[Tablet] Bug 02: Filter lost when the language changes",
+   "description": "",
+   "section": "Closed",
+   "completed": false,
+   "created_at": "2026-07-19T08:00:00.000Z",
+   "created_by": "Imran QA",
+   "completed_at": null,
+   "modified_at": "2026-07-26T09:00:00.000Z",
+   "due_on": null,
+   "start_on": null,
+   "assignee": "Tania Noor",
+   "tags": [],
+   "fields": {},
+   "parent": null,
+   "subtasks": 0,
+   "kind": "default_task",
+   "events": [
+    {
+     "at": "2026-07-26T09:00:00.000Z",
+     "kind": "section",
+     "from": "To Do",
+     "to": "Closed",
+     "by": "QA"
+    }
+   ],
+   "comments": [],
+   "history_at": "2026-09-18T03:00:00+00:00"
+  },
+  {
+   "id": "1200000000000022",
+   "key": null,
+   "url": "https://app.asana.com/0/1100000000000001/1200000000000022",
+   "title": "[Web][Existing] Bug 03: Long room names overlap the next column",
+   "description": "",
+   "section": "Closed",
+   "completed": false,
+   "created_at": "2026-07-19T08:00:00.000Z",
+   "created_by": "Imran QA",
+   "completed_at": null,
+   "modified_at": "2026-07-29T09:00:00.000Z",
+   "due_on": null,
+   "start_on": null,
+   "assignee": "Tania Noor",
+   "tags": [],
+   "fields": {},
+   "parent": null,
+   "subtasks": 0,
+   "kind": "default_task",
+   "events": [
+    {
+     "at": "2026-07-29T09:00:00.000Z",
+     "kind": "section",
+     "from": "To Do",
+     "to": "Closed",
+     "by": "QA"
+    }
+   ],
+   "comments": [],
+   "history_at": "2026-09-18T03:00:00+00:00"
+  },
+  {
+   "id": "1200000000000023",
+   "key": null,
+   "url": "https://app.asana.com/0/1100000000000001/1200000000000023",
+   "title": "[Tablet][Exisiting] Bug 04: Button labels cropped on small screens",
+   "description": "",
+   "section": "Closed",
+   "completed": false,
+   "created_at": "2026-07-21T08:00:00.000Z",
+   "created_by": "Imran QA",
+   "completed_at": null,
+   "modified_at": "2026-07-30T09:00:00.000Z",
+   "due_on": null,
+   "start_on": null,
+   "assignee": "Tania Noor",
+   "tags": [],
+   "fields": {},
+   "parent": null,
+   "subtasks": 0,
+   "kind": "default_task",
+   "events": [
+    {
+     "at": "2026-07-30T09:00:00.000Z",
+     "kind": "section",
+     "from": "To Do",
+     "to": "Closed",
+     "by": "QA"
+    }
+   ],
+   "comments": [],
+   "history_at": "2026-09-18T03:00:00+00:00"
+  },
+  {
+   "id": "1200000000000024",
+   "key": null,
+   "url": "https://app.asana.com/0/1100000000000001/1200000000000024",
+   "title": "[Web] Observation 05: Email subject could name the building",
+   "description": "",
+   "section": "Closed",
+   "completed": false,
+   "created_at": "2026-07-21T08:00:00.000Z",
+   "created_by": "Imran QA",
+   "completed_at": null,
+   "modified_at": "2026-07-30T09:00:00.000Z",
+   "due_on": null,
+   "start_on": null,
+   "assignee": "Tania Noor",
+   "tags": [],
+   "fields": {},
+   "parent": null,
+   "subtasks": 0,
+   "kind": "default_task",
+   "events": [
+    {
+     "at": "2026-07-30T09:00:00.000Z",
+     "kind": "section",
+     "from": "To Do",
+     "to": "Closed",
+     "by": "QA"
+    }
+   ],
+   "comments": [],
+   "history_at": "2026-09-18T03:00:00+00:00"
+  },
+  {
+   "id": "1200000000000025",
+   "key": null,
+   "url": "https://app.asana.com/0/1100000000000001/1200000000000025",
+   "title": "[Web] Bug 06: Confirmation email sent twice",
+   "description": "",
+   "section": "Rejected",
+   "completed": false,
+   "created_at": "2026-07-22T08:00:00.000Z",
+   "created_by": "Imran QA",
+   "completed_at": null,
+   "modified_at": "2026-07-23T09:00:00.000Z",
+   "due_on": null,
+   "start_on": null,
+   "assignee": "Tania Noor",
+   "tags": [],
+   "fields": {},
+   "parent": null,
+   "subtasks": 0,
+   "kind": "default_task",
+   "events": [
+    {
+     "at": "2026-07-23T09:00:00.000Z",
+     "kind": "section",
+     "from": "To Do",
+     "to": "Rejected",
+     "by": "Tania Noor"
+    }
+   ],
+   "comments": [
+    {
+     "at": "2026-07-23T10:00:00.000Z",
+     "by": "Tania Noor",
+     "text": "Not reproducible: the second email came from the test harness, not the product.",
+     "url": "https://app.asana.com/0/1100000000000001/c/5"
+    }
+   ],
+   "history_at": "2026-09-18T03:00:00+00:00"
+  },
+  {
+   "id": "1200000000000026",
+   "key": null,
+   "url": "https://app.asana.com/0/1100000000000001/1200000000000026",
+   "title": "[Tablet] Improvement 07: Larger confirm button",
+   "description": "",
+   "section": "To Do",
+   "completed": false,
+   "created_at": "2026-07-24T08:00:00.000Z",
+   "created_by": "Imran QA",
+   "completed_at": null,
+   "modified_at": "2026-07-24T08:00:00.000Z",
+   "due_on": null,
+   "start_on": null,
+   "assignee": "Tania Noor",
+   "tags": [],
+   "fields": {},
+   "parent": null,
+   "subtasks": 0,
+   "kind": "default_task",
+   "events": [],
+   "comments": [],
+   "history_at": "2026-09-18T03:00:00+00:00"
+  },
+  {
+   "id": "1200000000000027",
+   "key": null,
+   "url": "https://app.asana.com/0/1100000000000001/1200000000000027",
+   "title": "[Web] Bug 08: CSV export ignores the date filter",
+   "description": "Found by the client on production after the 08/12 release.",
+   "section": "Closed",
+   "completed": false,
+   "created_at": "2026-08-20T08:00:00.000Z",
+   "created_by": "Dana Whitfield",
+   "completed_at": null,
+   "modified_at": "2026-08-25T09:00:00.000Z",
+   "due_on": null,
+   "start_on": null,
+   "assignee": "Tania Noor",
+   "tags": [],
+   "fields": {},
+   "parent": null,
+   "subtasks": 0,
+   "kind": "default_task",
+   "events": [
+    {
+     "at": "2026-08-25T09:00:00.000Z",
+     "kind": "section",
+     "from": "To Do",
+     "to": "Closed",
+     "by": "QA"
+    }
+   ],
+   "comments": [],
+   "history_at": "2026-09-18T03:00:00+00:00"
+  },
+  {
+   "id": "1200000000000028",
+   "key": null,
+   "url": "https://app.asana.com/0/1100000000000001/1200000000000028",
+   "title": "[Web] Bug 09: Export times out for large buildings",
+   "description": "Also happens on the current production version; not related to this release.",
+   "section": "Closed",
+   "completed": false,
+   "created_at": "2026-07-27T08:00:00.000Z",
+   "created_by": "Imran QA",
+   "completed_at": null,
+   "modified_at": "2026-08-03T09:00:00.000Z",
+   "due_on": null,
+   "start_on": null,
+   "assignee": "Tania Noor",
+   "tags": [],
+   "fields": {},
+   "parent": null,
+   "subtasks": 0,
+   "kind": "default_task",
+   "events": [
+    {
+     "at": "2026-08-03T09:00:00.000Z",
+     "kind": "section",
+     "from": "To Do",
+     "to": "Closed",
+     "by": "QA"
+    }
+   ],
+   "comments": [],
+   "history_at": "2026-09-18T03:00:00+00:00"
+  },
+  {
+   "id": "1200000000000029",
+   "key": null,
+   "url": "https://app.asana.com/0/1100000000000001/1200000000000029",
+   "title": "[Web] Bug 10: Reminder email shows the wrong room",
+   "description": "",
+   "section": "Closed",
+   "completed": false,
+   "created_at": "2026-09-09T08:00:00.000Z",
+   "created_by": "Imran QA",
+   "completed_at": null,
+   "modified_at": "2026-09-12T09:00:00.000Z",
+   "due_on": null,
+   "start_on": null,
+   "assignee": "Tania Noor",
+   "tags": [],
+   "fields": {},
+   "parent": null,
+   "subtasks": 0,
+   "kind": "default_task",
+   "events": [
+    {
+     "at": "2026-09-12T09:00:00.000Z",
+     "kind": "section",
+     "from": "To Do",
+     "to": "Closed",
+     "by": "QA"
+    }
+   ],
+   "comments": [],
+   "history_at": "2026-09-18T03:00:00+00:00"
+  },
+  {
+   "id": "1200000000000030",
+   "key": null,
+   "url": "https://app.asana.com/0/1100000000000001/1200000000000030",
+   "title": "[Web] Bug 11: Cancelled bookings still shown after sync",
+   "description": "",
+   "section": "To Do",
+   "completed": false,
+   "created_at": "2026-09-11T08:00:00.000Z",
+   "created_by": "Imran QA",
+   "completed_at": null,
+   "modified_at": "2026-09-11T08:00:00.000Z",
+   "due_on": null,
+   "start_on": null,
+   "assignee": "Tania Noor",
+   "tags": [],
+   "fields": {},
+   "parent": null,
+   "subtasks": 0,
+   "kind": "default_task",
+   "events": [],
+   "comments": [],
+   "history_at": "2026-09-18T03:00:00+00:00"
+  }
+ ],
+ "stats": {
+  "requests": 0,
+  "refreshed": 25,
+  "reused": 0
+ }
+}

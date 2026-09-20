@@ -1,268 +1,186 @@
-# Start here
+# Your first KPI run
 
-Install, configure, run, update. Everything you need to be producing real KPIs, in order,
-with links out when you want more depth.
+Imagine you are preparing a monthly review. Your tasks are in an issue tracker, estimates
+are in a sheet, and the delivery dates changed during the project. You want the numbers,
+but you also want notes that explain what actually happened.
 
-About an hour end to end, most of it answering questions about your own board.
+KPI Copilot helps your AI assistant do that work. You describe your workflow once, review
+what it understood, and ask it to prepare KPIs. You normally work with two things: **your
+saved profile** and **your KPI workbook**. The assistant handles the files behind them.
 
----
+## 1. Choose where you will talk to the assistant
 
-## Step 1 — Install (5 minutes)
+Start in the AI tool you already use. What matters is what that session can access.
 
-There is no public marketplace and none is needed. The shared project folder **is** a private
-marketplace.
-
-```bash
-claude plugin marketplace add "/path/to/KPI Copilot"
-claude plugin install kpi-copilot@pm-tools
-```
-
-Then `/reload-plugins`, or restart Claude.
-
-<details>
-<summary>Other ways in</summary>
-
-**Try it without installing** — good for a first look:
-
-```bash
-claude --plugin-dir "/path/to/KPI Copilot/plugin/kpi-copilot"
-```
-
-**Auto-load for just you** — copy the plugin folder to `~/.claude/skills/kpi-copilot/` and it
-loads every session with no marketplace and no flag.
-
-`claude plugin install kpi-copilot` on its own will **not** work — that form only resolves
-against a marketplace you have already added.
-
-</details>
-
-Python 3.9+ and three libraries:
-
-```bash
-pip3 install pyyaml openpyxl jsonschema
-```
-
-## Step 2 — Check you are ready (10 minutes)
-
-```
-/kpi-copilot:kpi-setup
-```
-
-The first thing it does is a readiness check, grouped as **blocked / needs your confirmation
-/ limited / ready**. For anything blocked it tells you the fix and **who owns it** — several
-are things only a PMS admin can do, and it is much better to find that out now.
-
-Two items are usually the slow ones, so start them today:
-
-- **PMS project access**, and edit rights if you will push.
-- **A Claude Code seat**, if the company manages them.
-
-If something is blocked, **keep going anyway**. Setup finishes in review-only mode and tells
-you what unlocks when the block clears.
-
-→ Full list of what is checked: [03-Prerequisites.md](03-Prerequisites.md)
-
-## Step 3 — Answer the interview (20 minutes)
-
-Claude asks four or five things it genuinely cannot see, then goes and reads your board and
-shows you what it found as statements to correct:
-
-> - Your columns: Backlog, In Progress, **In Test**, Testing Failed, **Done**.
-> - **Delivered** = the first time an item reaches *In Test*.
-> - **Defects** = issue type *Bug*; *Improvement* is reported but not counted.
-> - **Not deliverables**: 4 cards titled "Sprint Goal" or "QA Checklist".
-
-Correct what is wrong. That conversation *is* the setup.
-
-The questions worth thinking about before you start:
-
-| Question | Why it matters |
+| Where you work | What you need before the first run |
 |---|---|
-| How many clients and projects, and is the tracker the same for all? | Decides whether you need accounts. One profile covers all of them |
-| Which state really means "delivered"? | Velocity and Delivery Commitment both hang off it |
-| **What does your team commit to, and what counts as keeping the promise?** | Delivery Commitment measures reliability of promises, so it counts only items with a commitment |
-| Hours or story points? | Velocity's unit |
-| What happens at the end — you type it into PMS, or it pushes after you approve? | Can differ per client |
+| A coding assistant such as Cursor, Codex or a CLI | A local copy of this repository opened in the assistant, with permission to run commands and read your project files |
+| A desktop assistant with local MCP support | A one-time connection to KPI Copilot's local runner; ask the assistant or your administrator to follow the [connection guide](03-Prerequisites.md#optional-local-mcp-connection) |
+| A browser assistant with a Python/file workspace | The repository archive and exports of the project sources you want it to read; downloadable workbooks are the simplest output |
+| A browser chat with no code workspace or connected runner | It can help review a workbook, but it cannot run KPI Copilot yet; use one of the routes above |
 
-You end up with two files: `profile.yaml`, which the tools read, and a **KPI Profile
-Workbook**, the same thing laid out for a human. Edit whichever you prefer; they convert both
-ways and cannot drift.
+You do not need all these tools. Choose one. Installing a skill gives the assistant
+instructions; it does not, by itself, give it access to your tracker or a place to run code.
+Individual host installation checks are still tracked in the [audit](11-Audit.md).
 
-## Step 4 — Configure the parts that matter
+If you have not installed the tool, send this first:
 
-Most of it is filled in for you. These four are worth looking at yourself.
+> Help me get KPI Copilot ready in this AI tool. Use the repository's setup instructions,
+> check whether this session can run it, and explain any one-time installation or connection
+> step I need to do. Start with a local review workbook.
 
-### The Tools tab — where everything lives
+The [technical setup guide](03-Prerequisites.md) is for the assistant or person doing that
+installation. You do not need to learn its commands to prepare KPIs.
 
-One row per place your projects' truth is kept. This is the tab people actually open, and the
-fastest explanation of a project that exists.
+## 2. Bring one project and the sources you trust
 
-```yaml
-tools:
-  - id: chat-devqa
-    kind: chat
-    name: Northwind Dev-QA (Google Chat)
-    url_or_id: AAAAexampleDevQA
-    description: "Builds, QA rounds, environment problems. Best source for when something was delivered."
-    used_for: [evidence, handover]
-    accounts: [northwind]
-    client_facing: false
-    access: Google SSO
-    note: "Internal. Nothing agreed here counts as a client commitment."
+For your first run, choose a finished period you know well. It is easier to spot a wrong
+delivery rule on work you remember than on an unfamiliar project.
 
-  - id: slack-acme
-    kind: chat
-    name: "#acme-delivery (Slack)"
-    url_or_id: C07ACMEDEL
-    description: "Where builds are announced. Best evidence for handover dates."
-    used_for: [evidence, handover]
-    accounts: [acme]
-    people: [Client PM, A. Rahman]
-    client_facing: true
-    access: Slack SSO
-```
+Have these ready:
 
-`client_facing` and `people` matter more than they look: a client-facing space is where
-agreed dates get set and where a client-found defect first appears. Getting it wrong is how a
-date somebody agreed in a client call gets treated as an internal decision.
+- **The project:** its name, tracker link or export, and the period you want to measure.
+- **Your working rules:** hours or story points, what “done” means, and any categories you
+  exclude. If you are unsure, the assistant will propose a mapping for you to correct.
+- **Extra sources, if needed:** the agreed plan, approved estimates, and a timeline or
+  project tracker. A tracker-only workflow is fine when it has the necessary evidence.
+- **The destination:** a local workbook, a Google Drive folder, or a dedicated KPI Google
+  Sheet. Keep your original project tracker and manual reference workbook separate.
 
-→ Every field, and every kind of tool: [reference/01-tools.md](reference/01-tools.md)
+You do not need to reorganize your team's boards or create a new sheet of configuration
+before starting. The assistant can map the columns you already use.
+If work for this project was delivered on another board, provide those specific task links.
+The assistant can include them without searching every project in the account.
 
-### The Workflow tab — what your states mean
+## 3. Connect the accounts this project needs
 
-The single most important section. It is what turns "a column called In Test" into a number
-comparable across the company.
+Being signed in to an AI tool does not automatically connect Asana, Jira, GitHub, Google
+or PMS. Even a browser login is usable only when the assistant can access **that browser
+and profile** through its supported tools.
 
-→ [reference/04-workflow.md](reference/04-workflow.md)
+Ask for a readiness check. The assistant should tell you what already works and offer the
+available connection choices before asking you to sign in.
 
-### Output — what happens at the end
-
-```yaml
-output:
-  mode: assisted-push          # review-only | dry-run | assisted-push | auto-push
-  workbook: google-sheets      # or xlsx
-  workbook_location: <Drive folder id, or a local folder>
-```
-
-Most people want `assisted-push`. Start with `review-only` for a cycle or two if you would
-rather watch it first.
-
-→ Where files go, and every mode: [reference/07-output-and-files.md](reference/07-output-and-files.md)
-
-### Accounts — only if you have more than one client
-
-One profile covers several clients on several trackers. Say what is true for a client once,
-and every project on it inherits.
-
-→ [reference/02-accounts-and-projects.md](reference/02-accounts-and-projects.md)
-
-## Step 5 — Prove it on a period you already know
-
-Pick your most recently finished milestone or sprint — one where you already know roughly
-what the answer should be.
-
-```
-/kpi-copilot:kpi-run <your project>
-```
-
-or, without the assistant in the loop:
-
-```bash
-python3 scripts/run.py --profile profile.yaml --project <id>
-```
-
-Either way you get, in under a second: the nine KPIs, the notes, a workbook, and a short list
-of the facts the tracker could not answer — with the ticket numbers beside each. Then the only
-question that matters:
-
-**Does anything here disagree with what you know to be true?**
-
-When something is off it is nearly always one of four things: the delivered-when mapping, an
-exclusion pattern eating real work, a date level, or the hours source. Say what looks wrong;
-Claude fixes the profile and reruns. **Two or three rounds is normal** and does not mean
-anything is broken.
-
-→ When a number looks wrong: `skills/kpi-run/references/troubleshooting.md`
-
-## Step 6 — From now on
-
-One command per cycle:
-
-```
-/kpi-copilot:kpi-run <project>
-```
-
-Three commands if you would rather drive it yourself:
-
-```bash
-python3 scripts/run.py        --profile profile.yaml --project <id>
-python3 scripts/run.py review --profile profile.yaml --project <id> --by "Your Name"
-python3 scripts/run.py push   --profile profile.yaml --project <id> --apply
-```
-
-Review in chat, or in the sheet — yellow cells come back, grey ones are computed, white ones
-were read from your tracker.
-
-→ [04-Daily-Use.md](04-Daily-Use.md)
-
----
-
-## Updating
-
-An installed plugin is a **copy**, so changes to the shared folder reach you only when the
-version is bumped. When someone says there is a new version:
-
-```bash
-claude plugin marketplace update pm-tools
-claude plugin update kpi-copilot@pm-tools
-```
-
-Then `/reload-plugins`.
-
-If you are the one making changes, `scripts/release.py --patch` runs the self-test, bumps
-both manifests and prints what everyone else runs.
-
-→ [07-Extending.md](07-Extending.md#part-5-how-updates-reach-people)
-
----
-
-## Where everything lives
-
-Lost track of which file the tools actually read?
-
-```bash
-python3 scripts/where.py --profile /path/to/profile.yaml
-```
-
-It prints your profile, workbook, readiness checklist, reasons file, run folder, the KPI
-definition cache and the plugin itself — each with whether it exists — then the exact commands
-to change something.
-
-→ [reference/07-output-and-files.md](reference/07-output-and-files.md)
-
----
-
-## Changing something later
-
-| You want to | Do this |
+| What you want to use | What needs to be accessible |
 |---|---|
-| Change a setting, in a spreadsheet | Edit the workbook, then `workbook.py read --xlsx <it> --out profile.yaml` |
-| Change a setting, in text | Edit `profile.yaml`, then `profile_tool.py validate --profile profile.yaml` |
-| Find out what a setting means | `profile_tool.py explain --key workflow.delivered_when` |
-| See what a project resolves to | `profile_lib.py --profile profile.yaml --list` |
-| Add a client or a project | [reference/02-accounts-and-projects.md](reference/02-accounts-and-projects.md) |
-| Add a tracker nobody supports | `/kpi-copilot:kpi-adapter` |
-| Understand why it works this way | [00-Philosophy.md](00-Philosophy.md) |
+| Your issue tracker | A supported existing connection, an approved API connection, or a saved export; Asana also has a signed-in-tab export route |
+| Files already on your computer | The assistant's runner must be able to read the folder you select |
+| Google Drive sources or a live Google Sheet | Google access for the selected files; an AI connector and the local runner may have separate connections |
+| A local `.xlsx` review workbook | No Google login is needed |
+| PMS targets or submission | Access to your PMS deployment and selected project; submission requires a supported write route and your approval |
 
----
+With browser sign-in, you complete the sign-in and consent step yourself. If you choose a
+token instead, the assistant explains how to enter it privately. **Do not paste passwords
+or tokens into the conversation.** Exported files are a valid starting route when account
+connections are unavailable.
 
-## Where to go next
+## 4. Describe your workflow and let the assistant build the profile
 
-| You are | Read |
-|---|---|
-| Wanting the three-minute version | [01-Overview.md](01-Overview.md) |
-| Using it week to week | [04-Daily-Use.md](04-Daily-Use.md) |
-| Customising something unusual | [05-Adapting-To-Your-Workflow.md](05-Adapting-To-Your-Workflow.md) |
-| Looking up a specific field | [reference/](reference/) |
-| Maintaining or extending it | [00-Philosophy.md](00-Philosophy.md), then [06-Architecture.md](06-Architecture.md) |
-| Stuck | [09-FAQ.md](09-FAQ.md) |
+Here is a fictional first message. Replace the bracketed parts with your own details;
+leave out any source you do not use.
+
+> Set up KPI Copilot for [project name]. The tracker is [link], and I want KPIs for
+> [period]. We estimate in [hours/story points]. Development is finished at [state];
+> client handover is recorded in [place].
+>
+> Use this plan [file/link], approved estimates [file/link], and timeline [file/link].
+> For defects, count [your rule] and exclude [your exceptions]. Show me how you will
+> count parent tasks, subtasks and separately estimated changes so work is counted once.
+>
+> Create a local review workbook first. Inspect the available sources, propose my profile
+> in plain English, and ask only what you cannot determine. Do not read email or chat.
+
+The assistant now checks access, reads the bounded sources, and describes its proposal.
+For example: “Velocity uses story points from accepted tickets. Improvements are listed
+but excluded from the defect count. Each approved change is one deliverable. The timeline
+supplies actual handover dates.”
+
+Correct anything that does not match your team. A feature-freeze date, the final delivery
+deadline and the actual handover date can all be different; say so. An old estimate status
+may also need a confirmed correction rather than a guess.
+
+The assistant saves this agreement as your **profile**, outside the repository, and tells
+you where it is. You can ask to change it later in ordinary language. The workbook's
+**Config** tab shows the counting rules; **Periods** shows the dates and shared effort.
+The profile is reusable configuration, not a form you must fill in before every run.
+
+## 5. Review the first result
+
+Once setup is ready, say:
+
+> Prepare KPIs for [project] for [period] using my saved profile. Update the review
+> workbook, explain any missed targets from the evidence, and show me what still needs
+> my answer. Do not submit to PMS yet.
+
+The assistant reads the tracker in bulk, calculates the measures, and reviews uncertain
+classifications together. It should then bring you one short set of questions only you
+can answer, such as an actual handover date or whether a change was approved.
+
+Open the workbook and start with:
+
+1. **Dashboard and KPI Summary:** values, targets, and plain-language notes.
+2. **Open Questions:** missing facts or decisions that affect the result.
+3. **Task and defect registers:** what counted, what was excluded, and evidence links.
+
+Yellow cells are for corrections and explanations. Answer in the conversation or edit
+those cells, then ask the assistant to refresh. It reads your edits back before rebuilding
+the workbook. A missing fact should say **Not measured** or remain visibly unresolved;
+it should never become a guessed zero or a flattering percentage.
+
+A useful note tells you the unit, the relevant count, the exclusions and the actual
+reason. For example: “In story points, the team completed 42 of the 50 planned. The export
+feature moved to the next cycle after the client changed the required format.” That last
+sentence belongs there only when the sources support it.
+
+## 6. Choose how the results leave the review
+
+You can keep the `.xlsx`, ask for a dedicated Google Sheet updated in place, or copy the
+reviewed values into PMS yourself. If you choose Google Sheets, the assistant first checks
+the connection and confirms the destination. A reference workbook is a reference, not the
+output to replace.
+
+When you want the assistant to submit, ask:
+
+> Show me the final values and notes for [project and period] that you would send to PMS.
+
+After reviewing that preview, explicitly approve it in the conversation. The assistant
+submits through the available supported route and reads the saved values back. If the
+inputs change, it must show you the changed result before submission. A successful local
+workbook is not proof that PMS or Google Sheets was updated.
+
+## 7. Next month, start with one sentence
+
+> Refresh KPIs for [project] for [period] using my saved profile and update the same workbook.
+
+You should not repeat the setup interview. Stable evidence and earlier decisions are
+reused; changed cards and new questions get attention. To add another project, say what it
+shares with the first and what differs. One project can use hours and another story points.
+
+To change a rule, be specific:
+
+> For this project, include existing bugs from the next period onward. Show me the effect
+> before saving that change to my profile.
+
+## Keeping a run quick
+
+**A routine refresh should take minutes, not half an hour of opening cards.** This is the
+product goal, not a promised time for every board. Connection setup, a changed plan PDF,
+provider limits, assistant review and waiting for your answers add time.
+
+The normal route reads the tracker in bulk, reuses unchanged history where the reader
+supports it, remembers judgements, and digests a document only when it changes. Signed-in
+browser exports currently read the full configured board; API caching can make repeated
+reads faster. Email and chat are searched only when you explicitly request a focused check.
+
+If a run drags, say:
+
+> Show what is taking time: source reading, calculation, review or publishing. Reuse the
+> current snapshot for judgement and recalculation. Do not re-read unchanged sources or
+> open cards one by one. Give me the draft and the unresolved questions together.
+
+The assistant should report both the measured processing time and any unfinished review
+or delivery work. A fast calculation alone is not a fast completed KPI run.
+
+For more examples, see [setup prompts](10-Setup-By-Conversation.md). For everyday corrections,
+see [daily use](04-Daily-Use.md). Installation and troubleshooting live in the
+[technical setup guide](03-Prerequisites.md).

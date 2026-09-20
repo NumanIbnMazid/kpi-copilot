@@ -1,77 +1,73 @@
 # Using it week to week
 
-Once you are set up, a cycle is one command and a review.
+Once you are set up, a cycle is one sentence to your assistant:
 
-```
-/kpi-copilot:kpi-run <project>
-```
+> "Do the KPI run for the Q3 release."
 
-Name the project. If your profile covers several, every script takes `--project`, and leaving
-it out is an error listing the ones it knows rather than a guess about which you meant.
+You do not run anything in a terminal. Whichever assistant you use - Claude, Cursor, Codex -
+runs one command, reads what it prints, and comes back to you with the sheet and, only if
+needed, a short list of questions. In Claude that is also `/kpi-copilot:kpi-run <project>`.
 
-```bash
-python3 scripts/profile_lib.py --profile profile.yaml --list
-```
+Name the project. If your profile covers several, leaving it out is an error listing the ones
+it knows rather than a guess about which you meant.
 
 ---
 
 ## What happens
 
-One command does the whole deterministic chain in one process:
-
 ```bash
-python3 scripts/run.py --profile profile.yaml --project <id>
+python3 scripts/kpi.py run --profile profile.yaml --project <id>
 ```
 
-1. **Readiness check.** Stops if something blocking is unresolved, rather than producing
-   numbers from an environment that is not ready. With several projects it checks each one's
-   adapter, so a missing one surfaces now rather than mid-run.
-2. **Resolve.** Your defaults, then the project's client account, then the project. This is
-   what makes one profile cover Asana for one client and Jira for another.
-3. **Extract.** Your adapter reads the tracker.
-4. **Validate.** The extract is checked against the interchange format before anything counts it.
-5. **Compute.** The nine KPIs, with notes.
-6. **Workbook.** The audit trail, with a link behind every judgement.
-7. **The list.** What the tracker could not answer, naming the tickets.
+1. **The board.** Read through the tracker's API, straight to disk. Cards that have not
+   changed since last time keep the history already read, so a rerun takes seconds.
+2. **Your edits.** Whatever you typed into the sheet's yellow cells since the last run is
+   read back first, and kept. Nothing you change is ever overwritten.
+3. **The sources on your list.** The plan, the estimates, the timeline - the ones named in
+   your profile, and nothing else. Each is fetched only if it changed.
+4. **Judge.** Every card is classified by the shared rules: what it is, which period, what
+   was delivered when, whether it was rework, whether the client had to explain it. Rules read
+   what people actually typed - `[Exisiting]` is read as *Existing*, and the row says so.
+5. **Count.** The nine KPIs, with notes, the same way for everybody.
+6. **The sheet.** Rebuilt locally, and - if you keep it in Google Sheets - the same
+   Google Sheet updated in place. Same link every time.
+7. **NEXT.** One short block: what, if anything, would make the numbers better.
 
-That takes under a second. Then:
+That is a few seconds. Then, only when there is something to do:
 
-8. **Look up what the list named** - and only that.
-9. **Review.** Your part. One round of questions.
-10. **Fold it back in.** `run.py review` re-reads the sheet, recomputes, and rebuilds
-    everything from the result.
-11. **Deliver.** According to your output mode.
+8. **The assistant judges** what the rules were unsure of - all at once, from one file, by
+   written definitions. Its answers are kept, with the reason; next time it is asked only
+   about what is new.
+9. **You answer** what nobody can know from outside: when the build reached the client,
+   whether a plan item with no card was delivered. Once. On the **Open Questions** tab, or
+   by telling the assistant.
+10. **Deliver.** According to your output mode. Nothing reaches PMS without your yes.
 
-Everything is kept under `runs/<date>/`.
+Everything is kept under `<project>/runs/<date>/`.
 
-### Why the order matters
+### What a run reads - and what it does not
 
-The slow part of a KPI run was never the arithmetic - the whole chain is a fraction of a
-second. It was searching chat, mail and plan documents *before* computing, which means
-hunting for evidence the board may already hold, across a space with no edges.
+The tracker, plus the sources your profile names. **It does not search chat, mail or
+Drive.** If those sources cannot answer something, you are asked; that is the right outcome,
+not a failure, and it is what keeps a run to minutes.
 
-Computing first turns that into a short list with ticket numbers on it:
+Reaching further is yours to ask for, per run - *"also check the client chat for the
+handover date"* - or for good, by listing places under `sources.evidence_channels` and
+asking for a deep run (`--deep`). Even then only the open questions are looked up, only
+there.
+
+### If a run feels slow
+
+The last line of every run says where the time went:
 
 ```
-7 tasks have no 'understood' - decides Requirement Comprehension.
-  Usually in the ticket's own comments: ACME-101, ACME-102, ACME-103, ...
-Sprint 14 has no handover date - decides Escaped Defect Rate and the client-date check.
-  Usually in the release announcement.
+  board 2.1s  read-back 0.4s  sources 0.9s  classify 0.1s  compute 0.1s  sheet 3.2s  = 6.8s
 ```
 
-The list is already filtered down to facts that would actually change a number. An item
-nobody committed to does not appear on it, because Delivery Commitment measures promises
-kept - a blank there is the correct answer, not a gap.
-
-If a run still feels slow, the timing line at the bottom of every pass says which part was:
-
-```
-  preflight 0.06s  extract:jira 1.21s  validate 0.05s  compute 0.01s  workbook 0.20s  = 1.53s
-```
-
-If that total is small and the run took half an hour, the time went on searching. Bound it:
-`sources.mode` and the `scan` block in your profile decide how far a run reaches, and
-`docs/reference/09-scan-and-source-of-truth.md` covers both.
+If that total is small and the run took half an hour, the time went on something the
+assistant did around it - reading the board in a browser, carrying a sheet through the
+conversation, searching for a fact. None of that is needed, and `AGENTS.md` tells it so. Say
+"just run the command and read NEXT".
 
 ## The review
 
@@ -125,7 +121,7 @@ measured" — those are the ones a manager will ask about.
 | `review-only` | Workbook plus a copy-paste block per period. You enter it in PMS |
 | `dry-run` | Also the exact PMS diff. Still never writes |
 | `assisted-push` | The diff, then a question, then the push |
-| `auto-push` | Pushes without asking. Scheduled runs only, and only with `unattended` on |
+| `auto-push` | Legacy mode; still requires explicit approval in this conversation |
 
 Switching is one line in the profile, or one sentence to Claude.
 
@@ -145,7 +141,8 @@ Every run produces a tracker workbook:
 | Defect Register | Every report, including the ones not counted and why |
 | KPI Summary | Nine rows per period: value, target, where the target came from, status, numerator, denominator, the note |
 | PMS Push Log | What was sent to PMS and when |
-| Gaps | What could not be measured, and why |
+| Open Questions | What the sources could not answer. Type the answer; the next run keeps it and stops asking |
+| Run Log | Which sources this run read, which it deliberately did not, and how long it took |
 
 This is what you open when somebody questions a number in three months.
 
@@ -155,42 +152,75 @@ Colour is the whole grammar, and it tells you the truth about what the tool will
 
 | Colour | Meaning |
 |---|---|
-| **Yellow** | Yours. Change it and `run.py review` reads it back into the numbers |
+| **Yellow** | Yours. The numbers move at once, and the next run reads it back and keeps it |
 | **White** | Read from your tracker or your profile. True, but not yours to change here |
 | **Grey** | Computed. Editing it achieves nothing; the next run rebuilds it |
 
+**Grey cells are live formulas**, not pasted numbers: change a yellow cell and the KPI, the
+dashboard bar and the note for PMS all move at once, in Excel and in Google Sheets alike. The
+formulas mirror the engine's counting rules exactly, and the self-test checks that they give
+the same number.
+
 Dates are real dates, so the date columns sort and filter as dates. The judgement columns
-have dropdowns taken from the interchange format itself, so the sheet cannot offer a value
-the tool would reject. Red marks a missed commitment, a reopen, a rejected report and a
-missed KPI with no reason yet. Formatting carries on past the last row, so a line you add by
-hand still fits. Registers print landscape, one page wide, with the header repeated.
+have dropdowns. Red marks a missed date, a reopen, a client-found defect and a missed KPI with
+no reason yet. The **Check** column is empty when a row was obvious and says how it was
+decided when it was not - *"read [Exisiting] as Existing"*, *"loose title match to the plan"*.
+Formatting and formulas carry on past the last row, so a line you add by hand still counts.
 
 ### Editing in the sheet
 
-The workbook is a working surface, not a read-only report. **Yellow cells come back; grey
-cells are computed and regenerated.**
+The workbook is a working surface, not a read-only report. Change a Yes/No, an item type, a
+period, an hours figure, a date, a period's handover date, or the **Why** text. The numbers
+follow immediately.
 
-Change a Yes/No, an hours figure, a date, a defect's rejection, a period's handover date, or
-the **Why** text — then:
+**The next run reads your edits back before it rebuilds anything**, files each one as your
+decision - which outranks the assistant's and the rules' - and tells you what it read:
 
-```bash
-python3 scripts/run.py review --profile profile.yaml --project <id> --by "Your Name"
+```
+Read back from the sheet:
+  · Defect Register · Bug 02 · pre existing -> Yes
+  · Periods · Additional Requests 1 · handover date -> 2026-09-16
+  · Initial Scope · CR Rate: reason taken from the sheet
 ```
 
-That re-reads the sheet, folds the edits into the extract, recomputes, and rebuilds the
-workbook and the payloads from the result — so the sheet, the numbers and PMS cannot end up
-saying different things. It prints every edit it found, and every one it did not apply with
-the reason.
+So the sheet, the numbers and PMS cannot end up saying different things, and you never
+re-enter anything.
+
+Two things worth knowing:
+
+- **KPI Summary has a "Since the last run" column.** If it says anything, the sheet was
+  edited after the run computed. Run again before pushing: PMS always receives what the run
+  computed, never what was typed.
+- **A counting rule changed on the Config tab is not applied.** The live numbers follow it,
+  which is handy for seeing what it would do, but a counting rule changes how your project
+  compares with every other. The run reports it and says where to change it properly.
 
 **If a computed figure is wrong and you cannot fix the input in time**, put the right number
-in **Set value by hand** and a reason in **Why set by hand**. It is used — and the computed
-figure stays beside it, the reason is printed above the numbers, the note gains a sentence
-saying a person recorded a different figure and why, and the PMS payload carries both. A
-hand-set value with no reason is refused, because that is the one that becomes a discrepancy
-nobody can explain later.
+in **Set value by hand** and a reason in **Why set by hand**. It is used - and the computed
+figure stays beside it, the note gains a sentence saying a person recorded a different figure
+and why, and the PMS payload carries both. A hand-set value with no reason is refused,
+because that is the one that becomes a discrepancy nobody can explain later.
 
-Typing over the grey Value or Note column does nothing, and `review` tells you so and points
-at the column that would have worked.
+### Where the sheet lives
+
+By default, beside your profile: `<project>/KPI Tracker - <name>.xlsx`, rewritten each run.
+
+To keep it in Google Sheets, say so once - *"keep the KPI sheet in this Drive folder"*, or
+*"update this sheet: <link>"*:
+
+```yaml
+output:
+  workbook: google-sheets
+  workbook_location: <Drive folder link>     # created there on the first run, then found by name
+  # or
+  workbook_file: <Google Sheet link>         # update exactly this one
+```
+
+Every run then updates the same Google Sheet in place, atomically, and the link never
+changes. Tabs you add yourself are left alone. It needs Google connected once
+(`python3 scripts/kpi.py auth google` - you run that, not the assistant); until then the run
+writes the local file and tells you how to import it over the same sheet (File > Import >
+Replace spreadsheet), which also keeps the link.
 
 ## When a number looks wrong
 
@@ -221,9 +251,8 @@ A new project is a row on the Projects tab.
 /schedule create "Prepare KPIs for Acme every second Friday at 9am"
 ```
 
-A scheduled run in `assisted-push` prepares everything and waits for you. Only `auto-push`
-with `unattended: true` writes on its own — and it still logs every change and reads back
-every value.
+A scheduled run prepares a draft and waits for review. Sending to PMS always requires
+explicit approval in the current conversation; legacy automatic settings do not waive it.
 
 ## Where the evidence lives
 
