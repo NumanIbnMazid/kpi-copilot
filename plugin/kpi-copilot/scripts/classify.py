@@ -110,6 +110,9 @@ class Classifier:
         self.wf = self.profile.get("workflow") or {}
         self.trk = self.profile.get("tracker") or {}
         self.src = self.profile.get("sources") or {}
+        self.assignee_include = {
+            B.norm(name) for name in (self.conv.get("assignee_include") or []) if B.norm(name)
+        }
         self.tags = {**DEFAULT_TAGS, **{k: v for k, v in (self.conv.get("tags") or {}).items() if v}}
         self.caps = set(board.get("capabilities") or [])
         self.queue: list[dict] = []
@@ -183,8 +186,13 @@ class Classifier:
 
     # -- what kind of thing is this card ----------------------------------------------------
 
+    def _assignee_allowed(self, item: dict) -> bool:
+        return not self.assignee_include or B.norm(item.get("assignee") or "") in self.assignee_include
+
     def nature(self, item: dict) -> tuple[Proposal, dict | None]:
         title = item.get("title") or ""
+        if not self._assignee_allowed(item):
+            return Proposal("Excluded", "assignee is outside the configured project team", 1.0), None
         for rule in (self.profile.get("custom_instructions") or {}).get("rule_overrides") or []:
             if rule.get("rule") != "include_key":
                 continue
@@ -561,12 +569,13 @@ class Classifier:
             if item.get("parent") and not include_sub:
                 continue
             nat, scope_row = self.nature(item)
-            nat = self.settle(item, "nature", nat,
-                              "What is this card? Task = in the agreed plan. CR = an approved addition. Scope = "
-                              "in-scope work that is neither. Excluded = not a deliverable (admin, grouping, "
-                              "duplicate). Bug / Observation / Improvement / Query = a report against the work.",
-                              ["Task", "CR", "Scope", "Excluded", "Bug", "Observation", "Improvement", "Query"],
-                              "description")
+            if self._assignee_allowed(item):
+                nat = self.settle(item, "nature", nat,
+                                  "What is this card? Task = in the agreed plan. CR = an approved addition. Scope = "
+                                  "in-scope work that is neither. Excluded = not a deliverable (admin, grouping, "
+                                  "duplicate). Bug / Observation / Improvement / Query = a report against the work.",
+                                  ["Task", "CR", "Scope", "Excluded", "Bug", "Observation", "Improvement", "Query"],
+                                  "description")
             if scope_row is not None:
                 self._matched.add(scope_row["_idx"])
             if nat["value"] in ("Bug", "Observation", "Improvement", "Query", "Other"):
@@ -600,6 +609,9 @@ class Classifier:
 
         for row in tasks + defects:
             self._overlay(row)
+            if "assignee" in row and not self._assignee_allowed(row):
+                row.update(type="Excluded", exclude_reason="assignee is outside the configured project team",
+                           planned=False)
         for row in tasks + defects:
             row.setdefault("_row", row["_item"])
         tasks = self._plan_only_rows(tasks)
@@ -683,12 +695,14 @@ class Classifier:
             p = next(x for x in self.periods if x["name"] == per)
             delivered = ans.get("delivered") or r.get("delivered")
             known = bool(delivered or ans)      # somebody has said something about it
+            scoped_out = bool(self.assignee_include)
             commit = r.get("commit_date") or p.get("commit_date") or self.project_dates.get("commit_date")
             client = r.get("client_date") or p.get("client_date") or self.project_dates.get("client_date")
             tasks.append({
                 "period": per, "key": f"PLAN: {r['title']}"[:60], "link": None, "title": r["title"],
-                "type": "Task" if r["_src"] == "plan" else "CR", "exclude_reason": None,
-                "planned": r["_src"] == "plan", "hours_dev": _num(r.get("dev_hours")),
+                "type": "Excluded" if scoped_out else ("Task" if r["_src"] == "plan" else "CR"),
+                "exclude_reason": "no tracker assignee to establish project-team scope" if scoped_out else None,
+                "planned": False if scoped_out else r["_src"] == "plan", "hours_dev": _num(r.get("dev_hours")),
                 "hours_qa": _num(r.get("qa_hours")),
                 "hours_source": "Project plan" if r["_src"] == "plan" else "Estimates sheet",
                 "story_points": None, "assignee": None, "created": None, "delivered": delivered,
@@ -699,11 +713,12 @@ class Classifier:
                 "met_client_date": on_time(delivered, client, self.today) if known else None, "client_date": client,
                 "met_commitment": on_time(delivered, commit, self.today) if (commit and known) else None,
                 "commit_date": commit, "reopened": None, "rework_evidence": None,
-                "remarks": "In the plan with no card of its own on the board", "basis": {},
-                "check": "" if known else "no card on the board; delivery date not known", "_item": None,
+                "remarks": ("Excluded: no tracker assignee to establish project-team scope" if scoped_out
+                            else "In the plan with no card of its own on the board"), "basis": {},
+                "check": "" if known or scoped_out else "no card on the board; delivery date not known", "_item": None,
                 "_row": f"plan:{B.norm(r['title'])[:40]}",
             })
-            if not known:
+            if not known and not scoped_out:
                 self.questions.append({
                     "id": qid, "about": r["title"],
                     "question": f"'{r['title']}' is in the {r['_src']} but has no card on the board. Was it "
@@ -859,6 +874,11 @@ def to_kif(board: dict, profile: dict, project_cfg: dict, facts: dict, ledger, t
     work = {"queue": c.queue, "questions": c.questions, "grain": c.grain,
             "counts": {"cards": len(board.get("items") or []), "tasks": len(rows["tasks"]),
                        "defects": len(rows["defects"]), "to_judge": len(c.queue),
+                       "excluded_assignees": sum(
+                           r.get("exclude_reason") in (
+                               "assignee is outside the configured project team",
+                               "no tracker assignee to establish project-team scope")
+                           for r in rows["tasks"]),
                        "skipped_subtasks": sum(bool(i.get("parent")) for i in board.get("items") or [])
                        if not ((profile.get("tracker") or {}).get("options") or {}).get("include_subtasks") else 0}}
     return kif, work

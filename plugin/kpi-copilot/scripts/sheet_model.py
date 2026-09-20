@@ -291,6 +291,8 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         ("Sources read", ctx.get("sources_text") or plain(project.get("sources_text")) or "Issue tracker only"),
         ("Deliverables are counted as", {"plan-items": "Plan items (a card the plan splits into modules counts once per module)",
                                         "board-cards": "Board cards (one card, one deliverable)"}.get(ctx.get("grain") or "board-cards")),
+        ("Assignee scope", ", ".join((profile.get("conventions") or {}).get("assignee_include") or [])
+         or "All assignees"),
         ("Calculated as of", (ctx.get("as_of") or ctx.get("refreshed") or "")[:10]), ("Prepared by", ctx.get("prepared_by") or ""),
     ]
     for label, value in info:

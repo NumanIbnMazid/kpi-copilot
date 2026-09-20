@@ -562,6 +562,9 @@ def report(ws, results, kif, work, queue, qpath, questions, edits, notes, said, 
     if c.get("skipped_subtasks"):
         notes.append(f"{c['skipped_subtasks']} subtasks were excluded by tracker.options.include_subtasks. "
                      "Enable it if those cards are deliverables or defect reports.")
+    if c.get("excluded_assignees"):
+        notes.append(f"{c['excluded_assignees']} cards were kept as evidence but excluded because their assignee "
+                     "is outside this project's configured team scope or is unassigned.")
     print(f"\n  {met} met · {notmet} not met · {unmeasured} not measured"
           + (f"   ({c.get('cards')} cards -> {c.get('tasks')} task rows, {c.get('defects')} reports)" if c else ""))
 

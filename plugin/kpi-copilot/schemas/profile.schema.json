@@ -366,6 +366,17 @@
             "hint": "One regex per line."
           }
         },
+        "assignee_include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Optional exact, case-insensitive tracker assignee allowlist. When set, only cards currently assigned to one of these people are eligible; all others remain visible as Excluded evidence.",
+          "x-workbook": {
+            "label": "Only count work assigned to",
+            "hint": "Exact tracker display names, one per line. Blank = all assignees."
+          }
+        },
         "cr_marker": {
           "type": "string",
           "x-workbook": {

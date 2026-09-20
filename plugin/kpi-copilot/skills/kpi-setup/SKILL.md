@@ -28,6 +28,9 @@ provide the relevant evidence. Do not inspect the tracker card by card or scrape
 Propose delivery/closed/reopened states, defect exclusions and period grouping. Ask only
 about ambiguity: what counts as delivery, which promises are commitments, and which dates
 were actually agreed. Validate a proposal with the person before treating it as policy.
+When a tracker project contains several teams, use a project-scoped
+`conventions.assignee_include` allowlist of exact tracker display names. Do not encode real
+people in repository examples; the private profile owns those names.
 
 ## Keep configuration understandable
 

@@ -121,6 +121,36 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(c.nature({'title': '[QA] Release testing', 'key': 'DEMO-42'})[0]['value'], 'CR')
         self.assertEqual(c.nature({'title': '[QA] Routine checklist', 'key': 'DEMO-43'})[0]['value'], 'Excluded')
 
+    def test_assignee_allowlist_excludes_other_and_unassigned_cards_before_counting(self):
+        profile = {'conventions': {'defect_by': 'issue-type', 'defect_values': ['Bug'],
+                                   'assignee_include': ['Alex Example', 'Sam Example']}}
+        facts = {'periods': {'periods': [{'name': 'Cycle A'}]}}
+        items = [
+            {'id':'1','key':'DEMO-1','title':'Included work','assignee':'alex example'},
+            {'id':'2','key':'DEMO-2','title':'Other work','assignee':'Client Person'},
+            {'id':'3','key':'DEMO-3','title':'Unassigned work','assignee':None},
+            {'id':'4','key':'DEMO-4','title':'Outside report','assignee':'Client Person',
+             'fields':{'Type':'Bug'}},
+            {'id':'5','key':'DEMO-5','title':'Included report','assignee':'Sam Example',
+             'fields':{'Type':'Bug'}},
+        ]
+        stored = ledger.Ledger(self.base / 'assignee-ledger.json')
+        stored.set('2','nature','Task','human','Previously included by hand')
+        stored.set('2','set:type','Task','human','Previously edited in the sheet')
+        work = classify.Classifier({'items':items}, profile, {}, facts, stored, '2026-09-18').run()
+        self.assertEqual([r['key'] for r in work['defects']], ['DEMO-5'])
+        by_key = {r['key']:r for r in work['tasks']}
+        self.assertEqual(by_key['DEMO-1']['type'], 'Task')
+        for key in ('DEMO-2','DEMO-3','DEMO-4'):
+            self.assertEqual(by_key[key]['type'], 'Excluded')
+            self.assertIn('configured project team', by_key[key]['exclude_reason'])
+        _, run_work = classify.to_kif({'items':items}, profile, {}, facts, stored, '2026-09-18')
+        self.assertEqual(run_work['counts']['excluded_assignees'], 3)
+        tabs = {t.name:t for t in sheet_model.build(
+            {'project':{},'periods':[{'name':'Cycle A'}],'tasks':work['tasks'],'defects':work['defects']},
+            {'periods':[]}, {'profile':profile})}
+        self.assertTrue(any(c.get('v') == 'Alex Example, Sam Example' for c in tabs['Config'].cells.values()))
+
     def test_judge_context_keeps_early_clarification_and_recent_replies(self):
         comments = [{'at': '2026-07-01', 'text': 'Please confirm which account type is intended.', 'url': 'demo:1'}]
         comments += [{'at': '2026-09-01', 'text': 'Progress update', 'url': f'demo:{i}'} for i in range(2, 12)]

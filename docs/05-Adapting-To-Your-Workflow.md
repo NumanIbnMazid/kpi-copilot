@@ -96,6 +96,11 @@ producing an empty evidence search three weeks later.
 
 ### Running one of them
 
+If a shared tracker project mixes delivery teams, set `conventions.assignee_include` in that
+project's overrides to the exact tracker display names that belong to the measured team. The
+filter is case-insensitive. Cards assigned to anybody else, or left unassigned, remain visible
+as `Excluded` evidence and cannot enter a numerator or denominator.
+
 Every command takes `--project`. With several projects, leaving it out is an error naming
 the ones it knows, rather than a guess:
 
