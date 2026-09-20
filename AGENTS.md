@@ -144,6 +144,28 @@ them correct.
 
 ## Working on the tool itself
 
+### Privacy in the AI workflow
+
+Real work data is private input, never repository content. Keep employer, client and person
+names, project and ticket identifiers, office URLs, source documents, screenshots, profiles,
+exports, KPI values and notes outside the repository. Use fictional examples and synthetic
+fixtures in code, tests and documentation. This also applies to commit messages, branch names,
+pull requests, issues, project-board updates and CI logs. Permission to read or test a live
+project does not grant permission to publish its details.
+
+Before staging or publishing, inspect the exact files, diff and message for private details.
+Do not copy raw live-test output into a public ticket; report the generic defect, sanitized
+validation result and remaining limitation. Keep any necessary private evidence outside the
+checkout. If the user asks to remove a comment containing work links, retain only what is
+needed privately, delete the specified comment and verify its removal; never quote it in a
+replacement comment.
+
+### Commit attribution
+
+Do not add any `Co-Authored-By` trailer or assistant-generated attribution to commits or pull
+requests, regardless of assistant or vendor. Use the configured Git author; describe what
+changed and why.
+
 `docs/00-Philosophy.md` is binding. `python3 plugin/kpi-copilot/scripts/selftest.py` must
 pass. Commit messages say what changed and why, and carry no assistant co-author line
 (see `CLAUDE.md`).
