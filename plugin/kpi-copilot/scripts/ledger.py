@@ -53,8 +53,9 @@ class Ledger:
         if path.exists():
             try:
                 self.data.update(json.loads(path.read_text(encoding="utf-8")))
-            except (OSError, json.JSONDecodeError):
-                pass
+            except (OSError, json.JSONDecodeError) as e:
+                raise SystemExit(f"Cannot read judgement memory {path}. Restore this file before running; "
+                                 f"it has not been replaced. {e}") from e
         self.dirty = False
 
     # -- judgements ---------------------------------------------------------------------
@@ -131,7 +132,9 @@ class Ledger:
         if not self.dirty:
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(self.data, indent=1, ensure_ascii=False), encoding="utf-8")
+        temporary = self.path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(self.data, indent=1, ensure_ascii=False), encoding="utf-8")
+        temporary.replace(self.path)
         self.dirty = False
 
 

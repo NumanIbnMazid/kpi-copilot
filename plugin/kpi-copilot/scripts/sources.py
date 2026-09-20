@@ -88,6 +88,8 @@ def pull(profile: dict, project_dir: Path, base_dir: Path, offline: bool = False
     for s in declared(profile, project):
         role, ref = s["role"], str(s["ref"])
         meta = _read_meta(cache, role)
+        if meta.get("ref") != ref:
+            meta = {}  # a different plan is not an offline copy of the current source
         st: dict[str, Any] = {"role": role, "kind": s.get("kind"), "ref": ref, "state": "missing",
                               "path": meta.get("path"), "fingerprint": meta.get("fingerprint"), "note": ""}
 
@@ -178,7 +180,9 @@ def table(path: Path, spec: dict) -> tuple[list[dict], str]:
     tabs = read_tables(path)
     if not tabs:
         return [], f"{Path(path).name} is not a spreadsheet, so it has no tables to map"
-    names = [spec["tab"]] if spec.get("tab") in tabs else list(tabs)
+    if spec.get("tab") and spec["tab"] not in tabs:
+        return [], f"mapped tab '{spec['tab']}' is missing; correct the mapping instead of reading another tab"
+    names = [spec["tab"]] if spec.get("tab") else list(tabs)
     for name in names:
         found = _find_header(tabs[name], list(cols.values()))
         if not found:
@@ -223,6 +227,9 @@ def facts_from_mapping(status: dict, cfg: dict, facts: dict) -> list[str]:
 
     if role in ("plan", "estimates") and mp.get("columns"):
         rows, problem = table(Path(path), mp)
+        if problem:
+            status["problem"] = problem
+            return [f"{role}: {problem}. Previous mapped facts are withheld from this run."]
         items = []
         for r in rows:
             if not r.get("title") and not r.get("board_key"):
@@ -232,10 +239,9 @@ def facts_from_mapping(status: dict, cfg: dict, facts: dict) -> list[str]:
                 if d in it:
                     it[d] = _iso(it[d])
             items.append(it)
-        if items:
-            kept = {k: v for k, v in (facts.get(role) or {}).items() if k not in ("items", "source")}
-            facts[role] = {"source": stamp, **kept, "items": items}
-            said.append(f"{role}: {len(items)} rows read through the column mapping")
+        kept = {k: v for k, v in (facts.get(role) or {}).items() if k not in ("items", "source")}
+        facts[role] = {"source": stamp, **kept, "items": items}
+        said.append(f"{role}: {len(items)} rows read through the column mapping")
         if problem:
             said.append(f"{role}: {problem}")
 
@@ -243,6 +249,9 @@ def facts_from_mapping(status: dict, cfg: dict, facts: dict) -> list[str]:
         per = facts.setdefault("periods", {})
         if mp.get("events"):
             rows, problem = table(Path(path), mp["events"])
+            if problem:
+                status["problem"] = problem
+                return [f"timeline: {problem}"]
             types = [B.norm(t) for t in (mp["events"].get("handover_types") or ["Handover", "Delivery", "Release"])]
             done = [B.norm(t) for t in (mp["events"].get("done_states") or ["Done", "Complete", "Completed"])]
             for p in per.get("periods") or []:
@@ -257,12 +266,18 @@ def facts_from_mapping(status: dict, cfg: dict, facts: dict) -> list[str]:
                     if newest != p.get("handover_date"):
                         said.append(f"{p['name']}: handover {newest} read from the timeline")
                     p["handover_date"] = auto["handover_date"] = newest
+                elif not got and auto.get("handover_date") == p.get("handover_date"):
+                    p.pop("handover_date", None)
+                    auto.pop("handover_date", None)
                 if planned and not p.get("plan_client_date"):
                     p["plan_client_date"] = p["plan_commit_date"] = max(planned)
             if problem:
                 said.append(f"timeline events: {problem}")
         if mp.get("log"):
             rows, problem = table(Path(path), mp["log"])
+            if problem:
+                status["problem"] = problem
+                return [f"timeline log: {problem}. Previous context is withheld from this run."]
             only = mp["log"].get("only_flagged", True)
             log = [{"date": _iso(r.get("date")) or r.get("date"), "type": r.get("type"), "period": r.get("period") or "",
                     "what": str(r.get("what") or "")[:400], "why": str(r.get("why") or "")[:300]}
@@ -289,8 +304,36 @@ def staleness(statuses: list[dict], facts: dict) -> list[str]:
             out.append(f"facts/{role}.yaml is empty, and the {role} is at {where}. Read it once and write "
                        f"its items there (shape: references/facts.md)" if st.get("path") else
                        f"facts/{role}.yaml is empty and the {role} could not be read: {st.get('note')}")
-        elif (f.get("source") or {}).get("fingerprint") not in (None, st["fingerprint"]):
+        elif (f.get("source") or {}).get("fingerprint") != st["fingerprint"]:
             out.append(f"The {role} changed after facts/{role}.yaml was written "
                        f"({(f.get('source') or {}).get('as_of')}). Re-read {st.get('path')} and update it, then set "
                        f"source.fingerprint to {st['fingerprint']}")
     return out
+
+
+def usable_facts(statuses: list[dict], facts: dict) -> tuple[dict, list[str]]:
+    """Retain stored evidence for repair, but do not calculate from a stale digest."""
+    import copy
+    active, blocked = copy.deepcopy(facts), []
+    for st in statuses:
+        role = st["role"]
+        fact = facts.get(role) or {}
+        problem = st.get("problem")
+        if st["state"] == "missing":
+            problem = st.get("note") or "source is unavailable"
+        if role in ("plan", "estimates") and st.get("path"):
+            if (fact.get("source") or {}).get("fingerprint") != st.get("fingerprint"):
+                problem = f"digest needs updating from {st['path']}; source.fingerprint must be {st.get('fingerprint')}"
+        if problem:
+            blocked.append(f"{role}: {problem}")
+            if role in ("plan", "estimates"):
+                active[role] = {}
+            elif role == "timeline":
+                active.setdefault("periods", {}).pop("log", None)
+                for period in (active.get("periods") or {}).get("periods") or []:
+                    for key, value in (period.get("_from_timeline") or {}).items():
+                        if period.get(key) == value:
+                            period.pop(key, None)
+        elif st["state"] == "cached":
+            blocked.append(f"{role}: freshness could not be checked; reconnect and rerun before sending to PMS")
+    return active, blocked

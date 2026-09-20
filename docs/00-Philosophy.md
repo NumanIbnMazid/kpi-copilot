@@ -10,7 +10,7 @@ commitments are the thing worth keeping.
 
 ## What this is really for
 
-Not automation. Automation is the cheap part.
+Automate KPI preparation and insertion, with judgement a person can inspect.
 
 The expensive part of preparing a project's KPIs was never the arithmetic — it was the
 **judgement**: deciding what counted as delivered, whether a QA failure was rework, whether a
@@ -22,8 +22,8 @@ That is the actual problem. When every project lead is their own measuring instr
 numbers management reads are not comparable, and nobody can tell whether a Defect Rate of 12%
 on one project means anything next to 12% on another.
 
-**So the purpose of this tool is to hold the judgement still.** The time it saves is a side
-effect, and a smaller one than it looks.
+**The purpose is to save the lead's time without losing the reason behind a number.**
+Stable judgement, bounded source reads and reusable configuration make that automation useful.
 
 ---
 
@@ -33,12 +33,12 @@ effect, and a smaller one than it looks.
 
 This is the first question to ask about any new feature, and it answers most of them.
 
-**Identical for everyone:** how a thing is counted. What "delivered" means. What makes a
-defect. What makes rework. The shape of each ratio. The format of a note.
+**Shared:** the calculation engine, evidence requirements and published meaning of each KPI.
+The same inputs and policy must produce the same result.
 
 **Free to vary:** the tracker, the column names, the ticket format, the chat tool, the period
-model, the spreadsheet, where files live, how far a run may go on its own, and the **target**
-each project is held to.
+model, the spreadsheet, where files live, delivery gates, defect inclusion policy, note style,
+and the **target** each project is held to. Differences must be visible alongside the result.
 
 Getting this line right is the whole design. Put too much on the fixed side and nobody adopts
 it, because it demands they change how they work. Put too much on the varying side and the
@@ -89,7 +89,9 @@ moves it somewhere you cannot see. Refuse to let someone set a target in their p
 they will change it in PMS afterwards without telling anyone. Refuse to let someone correct a
 figure and they will edit it in PMS by hand.
 
-So every refusal in this tool points at the supported route in the same sentence. "Set it on
+Local review targets are allowed with a reason and a visible source label. They never
+silently change PMS targets; reconcile them before submission. Every refusal points at
+the supported route in the same sentence. "Set it on
 this project in PMS instead." "Put it in 'Set value by hand' with a reason."
 
 If you add a restriction and cannot name the alternative, you have not finished designing it.
@@ -334,9 +336,20 @@ a reason to decline it, not a requirement to satisfy.
 calls that genuinely need a person, and does the rest the same way every time. A run that
 needs no human review has probably hidden something.
 
-**Not a reporting product.** It exists to make one company's KPI preparation consistent. When
-a feature would be nice for a general audience but adds a setting nobody here needs, leave it
-out. Every option is a thing the next person has to understand.
+**Not a second project-management system.** It serves many teams through the trackers and
+spreadsheets they already maintain. Start with a small profile; expose advanced settings only
+when a team's workflow needs them. Examples and published material use fictional organizations.
+
+### Recovery is part of a successful run
+
+Never replace a review sheet whose edits could not be read. Offline output is a separate
+preview when the authoritative sheet is remote. A failed publish preserves the remote sheet's
+identity and comparison baseline. Corrupt memory stops with a recovery instruction; it never
+silently becomes an empty ledger. Use one resolved KPI registry for calculations and output.
+
+An assistant's undecidable answer becomes a remembered question for the person. Unresolved
+judgements and stale sources remain visible and prevent an unattended-looking final result.
+Preparing a scheduled draft is supported; a configuration flag is never approval to send it.
 
 ---
 

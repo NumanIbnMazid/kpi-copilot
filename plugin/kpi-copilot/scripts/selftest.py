@@ -571,7 +571,7 @@ def main() -> int:
     check("scan bounds the window", prof["scan"]["window"] == "period+grace")
     check("scan can bound the board", prof["scan"]["tracker_scope"] == "touched-since")
 
-    r = run(["scripts/preflight.py", "--profile", str(to), "--project", "atlas"])
+    r = run(["scripts/preflight.py", "--profile", str(to), "--project", "atlas", "--state", str(tmp / "pf-tracker.json")])
     out = r.stdout
     check("a missing plan is 'not needed', not a gap, on a tracker-only profile",
           "not needed - this profile treats the tracker as the single source of truth" in out, out[:400])
@@ -698,6 +698,10 @@ def main() -> int:
 
     pipeline_tests(tmp)
 
+    audit = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", str(ROOT / "tests"), "-v"],
+                           capture_output=True, text=True)
+    check("audit failure-path regressions", audit.returncode == 0, audit.stdout + audit.stderr)
+
     print(f"\n{passed} passed, {failed} failed\n")
     return 1 if failed else 0
 
@@ -804,8 +808,8 @@ def pipeline_tests(tmp: Path) -> None:
                 {"__typename": "ProjectV2ItemFieldNumberValue", "number": 3, "field": {"name": "Estimate"}}]}}]},
             "comments": {"totalCount": 1, "nodes": [{"createdAt": "2026-07-02T00:00:00Z", "author": {"login": "qa"}, "bodyText": "Confirmed.", "url": "https://github.com/acme/web/issues/42#c1"}]},
             "timelineItems": {"nodes": [
-                {"__typename": "ProjectV2ItemStatusChangedEvent", "createdAt": "2026-07-03T00:00:00Z", "previousStatus": "Todo", "status": "In review"},
-                {"__typename": "ProjectV2ItemStatusChangedEvent", "createdAt": "2026-07-09T00:00:00Z", "previousStatus": "In review", "status": "Done"},
+                {"__typename": "ProjectV2ItemStatusChangedEvent", "createdAt": "2026-07-03T00:00:00Z", "previousStatus": "Todo", "status": "In review", "project": {"number": 7}},
+                {"__typename": "ProjectV2ItemStatusChangedEvent", "createdAt": "2026-07-09T00:00:00Z", "previousStatus": "In review", "status": "Done", "project": {"number": 7}},
                 {"__typename": "ClosedEvent", "createdAt": "2026-07-09T00:00:00Z", "stateReason": "COMPLETED"}]}}
     g1 = gh.item_from_issue(node, "acme/web", False, 7, "Status")
     check("GitHub: with a Project, status is the project's Status field and its changes are the history",
@@ -971,8 +975,8 @@ def pipeline_tests(tmp: Path) -> None:
     check("no formula relies on how a spreadsheet treats an empty cell in a criterion", not any('"<>"' in f for f in every))
     check("only functions Excel and Google both have", not any(fn in f for f in every for fn in ("LET(", "TEXTJOIN(", "FILTER(", "MINIFS("))
           or all("DUMMYFUNCTION" in f for f in every if "FILTER(" in f))
-    check("Google-only bars are wrapped the way Google exports them, with a fallback",
-          any(f.startswith("=IFERROR(__xludf.DUMMYFUNCTION(") and "SPARKLINE" in f and "REPT(" in f for f in every))
+    check("Excel dashboard uses native bars without undefined-function error markers",
+          any("REPT(" in f for f in every) and not any("DUMMYFUNCTION" in f or "SPARKLINE" in f for f in every))
     check("the row id a rerun needs is there but out of sight", tr.column_dimensions[tr.cell(3, heads["Row ID"].column).column_letter].hidden)
     check("a card with no ticket key is not labelled with a sixteen-digit id",
           not any(str(tr.cell(r, heads["Ticket"].column).value or "").isdigit() for r in range(4, 25)))
@@ -993,7 +997,7 @@ def pipeline_tests(tmp: Path) -> None:
                 bad.append(f"{per} {kpi}: sheet {got}, engine {m['value']}")
         check("every live formula gives the engine's number", not bad, "; ".join(bad))
     except ImportError:
-        print("  --    (live formulas vs engine: skipped, `pip install formulas` to run it)")
+        check("formula verification dependency is installed", False, "Install requirements-test.txt; formulas must not be skipped.")
 
     print("\nA person's edit survives the rerun")
     ds = wb["Defect Register"]

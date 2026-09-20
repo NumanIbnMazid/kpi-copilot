@@ -35,6 +35,21 @@ SCHEMAS = HERE.parent / "schemas"
 DEFAULT = SCHEMAS / "kpi_registry.default.json"
 CACHE = SCHEMAS / "kpi_registry.json"
 
+
+def resolve_path(profile_path: Path | None, profile: dict, explicit: Path | None = None) -> Path:
+    """Resolve once, relative to the profile rather than the assistant's working folder."""
+    if explicit:
+        return explicit
+    configured = (profile.get("organization") or {}).get("kpi_registry")
+    base = profile_path.resolve().parent if profile_path else Path.cwd()
+    candidate = base / (configured or "kpi_registry.json")
+    if candidate.is_file():
+        return candidate
+    if configured and configured != "kpi_registry.json":
+        raise SystemExit(f"KPI registry not found: {candidate}. Refresh it or correct organization.kpi_registry.")
+    # A shared installed-plugin cache may belong to another company. Never adopt it.
+    return DEFAULT
+
 # How a PMS KPI name maps onto the keys the engine uses. Names are what PMS shows a human;
 # keys are what our code says. Matching on the name keeps working if PMS renumbers.
 NAME_TO_KEY = {
@@ -84,7 +99,7 @@ def project_thresholds(rows: list[dict]) -> tuple[dict, list[str]]:
             if name:
                 unknown.append(name)
             continue
-        threshold = row.get("threshold", row.get("minValue", row.get("maxValue")))
+        threshold = next((row[k] for k in ("threshold", "minValue", "maxValue") if row.get(k) is not None), None)
         if threshold is None:
             continue
         entry = {"threshold": threshold}
@@ -122,7 +137,7 @@ def merge(pms_rows: list[dict], fallback: dict) -> dict:
             unknown.append(name)
             continue
         base = by_key.get(key, {"key": key, "heading": name, "basis": "", "requires": []})
-        threshold = row.get("threshold", row.get("minValue", row.get("maxValue")))
+        threshold = next((row[k] for k in ("threshold", "minValue", "maxValue") if row.get(k) is not None), None)
         base.update({
             "name": name,
             "pms_id": row.get("id", row.get("kpiId", base.get("pms_id"))),
@@ -167,8 +182,12 @@ def main(argv: list[str] | None = None) -> int:
                          "pms_project_id in the profile.")
     ap.add_argument("--project-from-json", type=Path,
                     help="A saved /api/projects/<id>/kpis response; use with a single --project.")
-    ap.add_argument("--out", type=Path, default=CACHE)
+    ap.add_argument("--out", type=Path)
     a = ap.parse_args(argv)
+
+    profile = _load(a.profile) if a.profile else {}
+    a.out = a.out or ((a.profile.resolve().parent / ((profile.get("organization") or {}).get("kpi_registry")
+                                                  or "kpi_registry.json")) if a.profile else CACHE)
 
     fallback = _load(DEFAULT)
 
@@ -242,6 +261,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"Project {pid} uses the PMS defaults for every KPI.")
 
+    a.out.parent.mkdir(parents=True, exist_ok=True)
     a.out.write_text(json.dumps(reg, indent=2), encoding="utf-8")
     print(f"Wrote {a.out}: {len(reg['kpis'])} KPIs, {len(reg['projects'])} project(s) with their own "
           f"targets, synced {reg['synced_at']}.")

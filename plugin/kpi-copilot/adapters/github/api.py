@@ -2,10 +2,10 @@
 """
 GitHub Issues, and Projects, read directly.
 
-One GraphQL query per fifty issues brings back everything a run needs - the issue, its
+One GraphQL query per twenty issues brings back everything a run needs - the issue, its
 labels, its comments, and its history (closed, reopened, labelled, and every status change on
 a Project board) - so a repository of a few hundred issues is read in a handful of requests.
-On a rerun only issues updated since the cached snapshot are asked for.
+Each read refreshes repository membership so removed project items cannot persist in the snapshot.
 
 What "status" means depends on how the team works:
 
@@ -47,11 +47,11 @@ CAPABILITIES = ["status_history", "comments", "assignee", "labels", "issue_type"
 _ISSUE = """
 id number title body url state stateReason createdAt updatedAt closedAt
 author{login} assignees(first:5){nodes{login}} labels(first:30){nodes{name}} milestone{title} %(type)s
-projectItems(first:5){nodes{project{number title} fieldValues(first:30){nodes{__typename
+projectItems(first:100){pageInfo{hasNextPage endCursor} nodes{project{number title url} fieldValues(first:100){pageInfo{hasNextPage} nodes{__typename
   ... on ProjectV2ItemFieldSingleSelectValue{name field{... on ProjectV2SingleSelectField{name}}}
   ... on ProjectV2ItemFieldNumberValue{number field{... on ProjectV2Field{name}}}}}}}
-comments(first:50){totalCount nodes{createdAt author{login} bodyText url}}
-timelineItems(first:100,itemTypes:[CLOSED_EVENT,REOPENED_EVENT,LABELED_EVENT,UNLABELED_EVENT%(status_enum)s]){nodes{__typename
+comments(first:50){pageInfo{hasNextPage endCursor} totalCount nodes{createdAt author{login} bodyText url}}
+timelineItems(first:100,itemTypes:[CLOSED_EVENT,REOPENED_EVENT,LABELED_EVENT,UNLABELED_EVENT%(status_enum)s]){pageInfo{hasNextPage endCursor} nodes{__typename
   ... on ClosedEvent{createdAt actor{login} stateReason}
   ... on ReopenedEvent{createdAt actor{login}}
   ... on LabeledEvent{createdAt actor{login} label{name}}
@@ -59,10 +59,10 @@ timelineItems(first:100,itemTypes:[CLOSED_EVENT,REOPENED_EVENT,LABELED_EVENT,UNL
   %(status_event)s}}
 """
 _QUERY = """query($owner:String!,$name:String!,$cursor:String,$since:DateTime){repository(owner:$owner,name:$name){
-  issues(first:50,after:$cursor,orderBy:{field:UPDATED_AT,direction:DESC},filterBy:{since:$since}){
+  issues(first:20,after:$cursor,orderBy:{field:UPDATED_AT,direction:DESC},filterBy:{since:$since}){
     pageInfo{hasNextPage endCursor} nodes{%s}}}}"""
 _FULL = {"type": "issueType{name}", "status_enum": ",PROJECT_V2_ITEM_STATUS_CHANGED_EVENT",
-         "status_event": "... on ProjectV2ItemStatusChangedEvent{createdAt actor{login} previousStatus status}"}
+         "status_event": "... on ProjectV2ItemStatusChangedEvent{createdAt actor{login} previousStatus status project{number url}}"}
 _PLAIN = {"type": "", "status_enum": "", "status_event": ""}
 
 NO_LOGIN = "GitHub is not connected.\n" + connect.advise(["github"])
@@ -94,7 +94,7 @@ class Client:
                     raise B.ReaderError(f"Could not reach GitHub: {e.reason}") from e
                 time.sleep(2 ** attempt)
                 continue
-            if doc.get("errors") and not doc.get("data"):
+            if doc.get("errors"):
                 raise _QueryError("; ".join(str(x.get("message")) for x in doc["errors"])[:400])
             return doc.get("data") or {}
         raise B.ReaderError("GitHub kept asking to slow down; try again in a few minutes.")
@@ -105,6 +105,8 @@ class _QueryError(B.ReaderError):
 
 
 def _status_of(node: dict, project_no: int | None, field: str) -> str | None:
+    if project_no is None:
+        return None
     for pi in ((node.get("projectItems") or {}).get("nodes") or []):
         if project_no and (pi.get("project") or {}).get("number") != project_no:
             continue
@@ -121,13 +123,16 @@ def item_from_issue(node: dict, repo: str, many: bool, project_no: int | None, s
     status = _status_of(node, project_no, status_field)
     fields = {"Milestone": (node.get("milestone") or {}).get("title"), "Type": (node.get("issueType") or {}).get("name")}
     for pi in ((node.get("projectItems") or {}).get("nodes") or []):
+        if project_no is None or (pi.get("project") or {}).get("number") != project_no:
+            continue
         for fv in ((pi.get("fieldValues") or {}).get("nodes") or []):
             if fv.get("__typename") == "ProjectV2ItemFieldNumberValue" and (fv.get("field") or {}).get("name"):
                 fields[fv["field"]["name"]] = fv.get("number")
     events = []
     for t in ((node.get("timelineItems") or {}).get("nodes") or []):
         kind, at, by = t.get("__typename"), t.get("createdAt"), (t.get("actor") or {}).get("login")
-        if kind == "ProjectV2ItemStatusChangedEvent" and t.get("status"):
+        if kind == "ProjectV2ItemStatusChangedEvent" and t.get("status") and project_no and \
+                (t.get("project") or {}).get("number") == project_no:
             events.append({"at": at, "kind": "section", "from": t.get("previousStatus"), "to": t.get("status"), "by": by})
         elif kind == "ClosedEvent" and not status:
             to = {"NOT_PLANNED": "Not planned", "DUPLICATE": "Not planned"}.get(t.get("stateReason") or "", "Closed")
@@ -164,6 +169,33 @@ def _project_number(ref: str | None) -> int | None:
     return int(digits[-1]) if digits else None
 
 
+def complete_issue(client, node: dict, shape: dict) -> dict:
+    """Do not claim complete history after the first hundred events or fifty comments."""
+    if (node.get("projectItems", {}).get("pageInfo") or {}).get("hasNextPage"):
+        raise B.ReaderError("This issue belongs to over 100 Projects. Export a scoped snapshot; membership is incomplete.")
+    for pi in node.get("projectItems", {}).get("nodes") or []:
+        if (pi.get("fieldValues", {}).get("pageInfo") or {}).get("hasNextPage"):
+            raise B.ReaderError("Project fields are incomplete. Export a scoped snapshot before computing KPIs.")
+    for field in ("comments", "timelineItems"):
+        connection = node.get(field) or {}
+        seen = set()
+        while (connection.get("pageInfo") or {}).get("hasNextPage"):
+            cursor = connection["pageInfo"]["endCursor"]
+            if not cursor or cursor in seen:
+                raise B.ReaderError(f"GitHub repeated a {field} cursor; no incomplete snapshot was saved.")
+            seen.add(cursor)
+            # Reuse the same tested issue shape, replacing just this connection's cursor.
+            fragment = (_ISSUE % shape).replace(f'{field}(first:', f'{field}(after:$after,first:')
+            query = 'query($id:ID!,$after:String!){node(id:$id){... on Issue{' + fragment + '}}}'
+            more = client.query(query, {"id": node["id"], "after": cursor}).get("node") or {}
+            if field not in more:
+                raise B.ReaderError(f"GitHub did not return the rest of {field}; retry the read.")
+            connection = more[field]
+            node[field]["nodes"].extend(connection.get("nodes") or [])
+            node[field]["pageInfo"] = connection.get("pageInfo") or {}
+    return node
+
+
 def read(project: dict, profile: dict, cache: dict | None, progress=None, max_items: int | None = None) -> dict:
     say = progress or (lambda *_: None)
     trk = profile.get("tracker") or {}
@@ -179,9 +211,8 @@ def read(project: dict, profile: dict, cache: dict | None, progress=None, max_it
     ref = ",".join(repos)
     old = {i["id"]: i for i in (cache or {}).get("items") or []} if (cache or {}).get("project_ref") == ref else {}
     since = None
-    if old and (cache or {}).get("fetched_at"):
-        since = (datetime.fromisoformat(cache["fetched_at"]) - timedelta(minutes=5)).astimezone(timezone.utc) \
-            .strftime("%Y-%m-%dT%H:%M:%SZ")
+    # Project field edits need not update an issue's updatedAt. Reconcile membership on each
+    # read so moved/deleted issues and changed project fields cannot survive in the cache.
     cap = max_items or opts.get("max_items")
 
     fresh: dict[str, dict] = {}
@@ -193,7 +224,7 @@ def read(project: dict, profile: dict, cache: dict | None, progress=None, max_it
             try:
                 data = client.query(_QUERY % (_ISSUE % shape), {"owner": owner, "name": name, "cursor": cursor, "since": since})
             except _QueryError as e:
-                if shape is _FULL:                   # an older GitHub Enterprise without issue types / status events
+                if shape is _FULL and any(x in str(e).lower() for x in ("doesn't exist", "does not exist", "invalid value", "undefinedfield")):
                     shape = _PLAIN
                     say("this GitHub does not expose issue types or project status history; reading without them")
                     continue
@@ -202,12 +233,28 @@ def read(project: dict, profile: dict, cache: dict | None, progress=None, max_it
                 raise B.ReaderError(f"GitHub has no repository {repo}, or this account cannot see it.")
             page = data["repository"]["issues"]
             for node in page["nodes"]:
+                node = complete_issue(client, node, shape)
+                if project_no:
+                    configured = str(opts.get("project") or "")
+                    matches = [pi for pi in node.get("projectItems", {}).get("nodes") or []
+                               if (pi.get("project") or {}).get("number") == project_no
+                               and ("/" not in configured or
+                                    (pi.get("project") or {}).get("url", "").rstrip("/").endswith(configured.rstrip("/")))]
+                    if not matches:
+                        continue
+                    node["projectItems"]["nodes"] = matches
+                    project_urls = {pi["project"].get("url") for pi in matches}
+                    node["timelineItems"]["nodes"] = [e for e in node.get("timelineItems", {}).get("nodes") or []
+                        if e.get("__typename") != "ProjectV2ItemStatusChangedEvent" or
+                        (e.get("project") or {}).get("url") in project_urls]
                 it = item_from_issue(node, repo, len(repos) > 1, project_no, status_field)
                 fresh[it["id"]] = it
             cursor = page["pageInfo"]["endCursor"]
+            if cap and len(fresh) >= cap and page["pageInfo"]["hasNextPage"]:
+                raise B.ReaderError("GitHub max_items would truncate this board. Remove the limit for a complete KPI run.")
             if not page["pageInfo"]["hasNextPage"] or (cap and len(fresh) >= cap):
                 break
-    items = list({**old, **fresh}.values())
+    items = list(fresh.values())
     say(f"{len(items)} issues; {len(fresh)} read now, {len(items) - len(fresh)} unchanged and reused")
     statuses = sorted({i["section"] for i in items if i.get("section")} | {"Open", "Closed", "Not planned"})
     caps = [c for c in CAPABILITIES if shape is _FULL or c != "issue_type"]

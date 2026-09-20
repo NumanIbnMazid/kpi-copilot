@@ -1,7 +1,7 @@
 {
   "name": "kpi-copilot",
   "description": "Prepare PMS project KPIs from whatever issue tracker a team already uses: one command reads the board through its API, judges each card by shared rules (an assistant settles only what the rules were unsure of, once), computes the nine KPIs with evidence, and keeps a hand-built-looking KPI tracker up to date - locally, or as one Google Sheet updated in place. Nothing reaches PMS without approval.",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "author": {
     "name": "Numan Ibn Mazid",
     "url": "https://github.com/numanibnmazid"

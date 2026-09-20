@@ -47,8 +47,7 @@ is alive: grey cells are formulas, so changing a yellow cell moves the KPI, the 
 the PMS note at once. It is written locally every run and - if you want - to one Google
 Sheet, updated in place, same link every time. What you type in it is read back and kept.
 
-**Nothing reaches PMS without a human saying yes** — unless that person deliberately turns on
-unattended mode for a scheduled run.
+**Nothing reaches PMS without a human saying yes** in the current conversation, including a draft prepared on a schedule.
 
 ## The idea that makes it work
 

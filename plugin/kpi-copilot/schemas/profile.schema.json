@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/NumanIbnMazid/kpi-copilot/schemas/profile.schema.json",
   "title": "KPI Copilot Profile v1.0",
-  "description": "Everything that varies between one project lead and another. The engine, the KPI set and the counting rules do not live here - those are the same for everyone. This file has two faces: profile.yaml (what the tools read) and the KPI Profile Workbook (what a human reads and edits). scripts/workbook.py converts between them and uses the 'x-workbook' annotations below to lay the workbook out, so the two can never drift.",
+  "description": "Settings that map a team workflow onto the shared KPI engine. Start small; account and project overrides hold only what differs. Generated workbooks expose settings and evidence for review.",
   "type": "object",
   "required": [
     "profile_version",
@@ -910,6 +910,13 @@
               }
             }
           }
+        },
+        "velocity_unit": {
+          "enum": [
+            "Estimated Hours",
+            "Story Points"
+          ],
+          "description": "Default estimation unit; a project can override it."
         }
       }
     },
@@ -978,7 +985,7 @@
             "auto-push"
           ],
           "default": "assisted-push",
-          "description": "review-only = build the workbook and a copy-paste block; never touch PMS. dry-run = also compute the PMS payload and show the diff, but never write. assisted-push = dry run, then push after an explicit yes in chat. auto-push = push without asking; only honoured when unattended is true, and every push is still logged.",
+          "description": "review-only produces a review workbook; dry-run also previews PMS changes; assisted-push allows an explicitly approved write. Legacy auto-push still requires explicit per-run approval; a schedule only prepares drafts.",
           "x-workbook": {
             "label": "How results reach PMS",
             "hint": "review-only | dry-run | assisted-push | auto-push"
@@ -990,7 +997,8 @@
           "x-workbook": {
             "label": "Allow scheduled runs to push without a person",
             "hint": "Only meaningful with auto-push. Leave No unless you have run this for a while."
-          }
+          },
+          "description": "Legacy scheduling compatibility flag. It never grants permission to send values to PMS."
         },
         "workbook": {
           "enum": [
@@ -1230,6 +1238,10 @@
               "custom_instructions": {
                 "type": "object",
                 "description": "House style or rule overrides for this scope only."
+              },
+              "targets": {
+                "type": "object",
+                "description": "Local review targets for this scope, with value and why for each KPI."
               }
             },
             "description": "What is true for every project on this account, but not for your others. Set the tracker, the chat spaces and the conventions here rather than repeating them on each project."
@@ -1339,6 +1351,10 @@
               "custom_instructions": {
                 "type": "object",
                 "description": "House style or rule overrides for this scope only."
+              },
+              "targets": {
+                "type": "object",
+                "description": "Local review targets for this scope, with value and why for each KPI."
               }
             },
             "description": "What differs for this one project, on top of its account. Usually empty - if you find yourself repeating the same override on several projects, it belongs on the account instead."
@@ -1402,6 +1418,175 @@
           "by": {
             "type": "string",
             "description": "Who asked."
+          }
+        }
+      }
+    },
+    "targets": {
+      "type": "object",
+      "description": "Optional local review targets. Each needs a value and reason; source is printed beside the result. Remove these and refresh PMS targets before sending.",
+      "additionalProperties": false,
+      "properties": {
+        "velocity": {
+          "type": "object",
+          "required": [
+            "value",
+            "why"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "number",
+              "minimum": 0
+            },
+            "why": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "task_comprehension": {
+          "type": "object",
+          "required": [
+            "value",
+            "why"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "number",
+              "minimum": 0
+            },
+            "why": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "client_expectation": {
+          "type": "object",
+          "required": [
+            "value",
+            "why"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "number",
+              "minimum": 0
+            },
+            "why": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "delivery_commitment": {
+          "type": "object",
+          "required": [
+            "value",
+            "why"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "number",
+              "minimum": 0
+            },
+            "why": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "defect_rate": {
+          "type": "object",
+          "required": [
+            "value",
+            "why"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "number",
+              "minimum": 0
+            },
+            "why": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "escaped_defect_rate": {
+          "type": "object",
+          "required": [
+            "value",
+            "why"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "number",
+              "minimum": 0
+            },
+            "why": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "rejection_rate": {
+          "type": "object",
+          "required": [
+            "value",
+            "why"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "number",
+              "minimum": 0
+            },
+            "why": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "rework_rate": {
+          "type": "object",
+          "required": [
+            "value",
+            "why"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "number",
+              "minimum": 0
+            },
+            "why": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "cr_rate": {
+          "type": "object",
+          "required": [
+            "value",
+            "why"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "number",
+              "minimum": 0
+            },
+            "why": {
+              "type": "string",
+              "minLength": 1
+            }
           }
         }
       }

@@ -171,6 +171,7 @@ TASK_COLS = [
     ("board_status", "Board Column", 16, "data", ""), ("check", "Check (how this row was decided)", 40, "data", ""),
     ("handover", "Period handover", 11, "calc", ""), ("client_check", "Client date check", 10, "calc", ""),
     ("item", "Row ID", 10, "calc", ""),
+    ("delivery_unknown", "Delivery evidence missing", 10, "data", ""),
 ]
 DEFECT_COLS = [
     ("n", "#", 4, "calc", "c"), ("period", "Period", 14, "in", ""), ("key", "Ticket", 11, "data", ""),
@@ -242,6 +243,12 @@ def _register(tab: Tab, title: str, subtitle: str, cols: list[tuple], rows: list
 def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     """ctx: profile, registry, reasons, manual, questions, sources, changes, push_log, grain,
     refreshed (ISO), tool_version."""
+    LAST = max(999, len(kif.get("tasks") or []) + SPARE + 4,
+               len(kif.get("defects") or []) + SPARE + 4, len(ctx.get("questions") or []) + SPARE + 4)
+
+    def _rng(sheet: str, letter: str, first: int) -> str:
+        return f"'{sheet}'!${letter}${first}:${letter}${LAST}"
+
     profile = ctx.get("profile") or {}
     policy = {"count_observations": False, "count_improvements": False, "count_pre_existing": False,
               "count_post_release": True, **(profile.get("policy") or {})}
@@ -270,7 +277,7 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         ("Sources read", ctx.get("sources_text") or plain(project.get("sources_text")) or "Issue tracker only"),
         ("Deliverables are counted as", {"plan-items": "Plan items (a card the plan splits into modules counts once per module)",
                                         "board-cards": "Board cards (one card, one deliverable)"}.get(ctx.get("grain") or "board-cards")),
-        ("Data pulled on", (ctx.get("refreshed") or "")[:10]), ("Prepared by", ctx.get("prepared_by") or ""),
+        ("Calculated as of", (ctx.get("as_of") or ctx.get("refreshed") or "")[:10]), ("Prepared by", ctx.get("prepared_by") or ""),
     ]
     for label, value in info:
         r += 1
@@ -281,6 +288,8 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
             ref["project_name"] = f"Config!$C${r}"
         if label == "PMS project ID":
             ref["pms_id"] = f"Config!$C${r}"
+        if label == "Calculated as of":
+            ref["as_of"] = f"Config!$C${r}"
 
     r += 2
     cfg.band(r, "COUNTING RULES", 2, 4, "soft")
@@ -310,7 +319,7 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         ref[key] = f"Config!$C${r}"
 
     r += 2
-    cfg.band(r, "KPI TARGETS  (read from PMS for this project; change them in PMS, not here)", 2, 9, "soft")
+    cfg.band(r, "KPI TARGETS  (source and any local review override are shown beside each target)", 2, 9, "soft")
     r += 1
     for i, h in enumerate(["KPI", "Unit", "PMS KPI ID", "Type", "Target", "Formula (PMS definition)",
                            "How this sheet counts it", "Target comes from"], start=2):
@@ -327,7 +336,7 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         cfg.put(r, 4, m.get("pms_id"), "data_c")
         cfg.put(r, 5, "Min" if m.get("direction") == "higher-is-better" else "Max", "data_c")
         cfg.put(r, 6, m.get("threshold"), "data_c")
-        cfg.put(r, 7, g.get("formula") or g.get("definition") or "", "data")
+        cfg.put(r, 7, g.get("formula_pms") or g.get("formula") or g.get("definition") or "", "data")
         cfg.put(r, 8, HOW_COUNTED.get(name, ""), "data")
         cfg.put(r, 9, m.get("threshold_source") or "", "data")
     ref["kpi_last"] = r
@@ -409,6 +418,7 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
             "remarks": plain(t.get("remarks")) or (t.get("exclude_reason") if excl else ""),
             "hours_dev": t.get("hours_dev"), "hours_qa": t.get("hours_qa"), "board_status": t.get("status"),
             "check": t.get("check"), "item": t.get("_row") or t.get("_item"),
+            "delivery_unknown": "Yes" if (t.get("client_date") or t.get("commit_date")) and t.get("met_client_date") is None and t.get("met_commitment") is None and not t.get("delivered") else "No",
         })
     n_tasks = len(trows)
     last_t = _register(tk, f"Task Register ({n_tasks} rows)",
@@ -431,8 +441,9 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     done_m = f'IF({ref["commit_on"]}="Handover",IF(OR({dl}{{r}}="",N({ho}{{r}})=0),"",MAX({dl}{{r}},{ho}{{r}})),{dl}{{r}})'
 
     def ontime(gate: str, due: str, done: str) -> str:
-        return (f'=IF(OR(B{{r}}="",{T["type"]}{{r}}="Excluded",{gate}{{r}}<>"Yes",{due}{{r}}=""),"",'
-                f'IF({done}="",IF(TODAY()<={due}{{r}},"Pending","No"),IF({done}<={due}{{r}},"Yes","No")))')
+        return (f'=IF(OR(B{{r}}="",{T["type"]}{{r}}="Excluded",{gate}{{r}}<>"Yes",{due}{{r}}="",'
+                f'AND({T["delivery_unknown"]}{{r}}="Yes",{dl}{{r}}="")),"",'
+                f'IF({done}="",IF({ref["as_of"]}<={due}{{r}},"Pending","No"),IF({done}<={due}{{r}},"Yes","No")))')
 
     tf["met_client_date"] = ontime(T["client_expected"], T["client_date"], done_c)
     tf["met_commitment"] = ontime(T["team_committed"], T["commit_date"], done_m)
@@ -450,7 +461,7 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         tk.when(4, c, last_t, c, f'={col(c)}4="{bad}"', fill=REDFILL)
     cc = _n(TASK_COLS, "check")
     tk.when(4, cc, last_t, cc, f'={col(cc)}4<>""', fill=AMBER)
-    tk.hidden_cols = [_n(TASK_COLS, k) for k in ("handover", "client_check", "item")]
+    tk.hidden_cols = [_n(TASK_COLS, k) for k in ("handover", "client_check", "item", "delivery_unknown")]
     tk.readback = {"kind": "table", "first": 4, "key": "item", "alt_key": "key", "cols": TASK_COLS}
 
     # ---- Defect Register ------------------------------------------------------------------
@@ -538,7 +549,14 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     }
     ratio = '=IF(Q{r}<>"",Q{r},IF(N(F{r})=0,"",ROUND(E{r}/F{r}*100,2)))'
     val = {n: ratio for n in KPI_ORDER}
-    val["Velocity"] = f'=IF(Q{{r}}<>"",Q{{r}},IF({deliv}=0,"",ROUND(E{{r}},2)))'
+    dev_col = _rng("Task Register", T["hours_dev"], 4)
+    qa_col = _rng("Task Register", T["hours_qa"], 4)
+    missing_points = f'SUMPRODUCT(({tP}=$A{{r}})*({tTy}<>"Excluded")*({tDl}>0)*(LEN({tSp})=0))'
+    missing_hours = (f'SUMPRODUCT(({tP}=$A{{r}})*({tTy}<>"Excluded")*({tDl}>0)*(LEN({dev_col})=0))+'
+                     f'IF({ref["hours_basis"]}="Dev + QA",SUMPRODUCT(({tP}=$A{{r}})*({tTy}<>"Excluded")*'
+                     f'({tDl}>0)*({tCl}>0)*(LEN({qa_col})=0)),0)')
+    val["Velocity"] = (f'=IF(Q{{r}}<>"",Q{{r}},IF(OR({deliv}=0,IF({ref["velocity_unit"]}="Story Points",'
+                       f'{missing_points},{missing_hours})>0),"",ROUND(E{{r}},2)))')
     val["Escaped Defect Rate"] = (f'=IF(Q{{r}}<>"",Q{{r}},IF(OR(N(F{{r}})=0,N(IFERROR(INDEX({PH},MATCH($A{{r}},{PN},0)),0))=0),'
                                   f'"",ROUND(E{{r}}/F{{r}}*100,2)))')
     reasons, manual = ctx.get("reasons") or {}, ctx.get("manual") or {}
@@ -562,6 +580,8 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
                                             f'IF(G{r}>=H{r},"Met","Below minimum"),IF(G{r}<=H{r},"Met","Above maximum"))))')
             sm.put(r, 11, None, "calc_c", f=f'=IF(OR(J{r}="Below minimum",J{r}="Above maximum"),"Yes","No")')
             auto = " || ".join(x for x in (m.get("note_parts") or []) if x and x.strip())
+            note_text = auto + " " + plain((reasons.get(pn) or {}).get(name))
+            sm.heights[r] = max(45, min(250, 15 * (len(note_text) // 65 + 2)))
             sm.put(r, 12, auto, "calc")
             man = (manual.get(pn) or {}).get(name) or {}
             sm.put(r, 13, plain((reasons.get(pn) or {}).get(name)), "in")

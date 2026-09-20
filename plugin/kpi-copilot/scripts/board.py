@@ -74,8 +74,11 @@ def fingerprint(item: dict) -> str:
         "completed": bool(item.get("completed")),
         "fields": item.get("fields") or {},
         "tags": sorted(item.get("tags") or []),
-        "events": len(item.get("events") or []),
-        "comments": len(item.get("comments") or []),
+        "events": item.get("events") or [],
+        "comments": item.get("comments") or [],
+        "created_by": item.get("created_by"),
+        "created_at": item.get("created_at"),
+        "completed_at": item.get("completed_at"),
         "description": hashlib.sha1((item.get("description") or "").encode("utf-8")).hexdigest()[:8],
     }
     raw = json.dumps(basis, sort_keys=True, ensure_ascii=False)

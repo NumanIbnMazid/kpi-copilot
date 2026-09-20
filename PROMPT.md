@@ -36,8 +36,7 @@ If these vary between people, the exercise is theatre.
 - **The note format** — `what the numbers say, in sentences || what was left out || why` —
   and the requirement that notes read as though a person wrote them.
 - **Evidence or it does not go in.** Every judgement and every date traces to a link.
-- **Nothing reaches PMS without a human saying yes**, unless that person has deliberately
-  enabled unattended mode for a scheduled run.
+- **Nothing reaches PMS without a human saying yes** in the current conversation. A scheduled draft still needs review.
 
 ## 3. What must be free to vary
 

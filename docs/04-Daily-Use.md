@@ -121,7 +121,7 @@ measured" — those are the ones a manager will ask about.
 | `review-only` | Workbook plus a copy-paste block per period. You enter it in PMS |
 | `dry-run` | Also the exact PMS diff. Still never writes |
 | `assisted-push` | The diff, then a question, then the push |
-| `auto-push` | Pushes without asking. Scheduled runs only, and only with `unattended` on |
+| `auto-push` | Legacy mode; still requires explicit approval in this conversation |
 
 Switching is one line in the profile, or one sentence to Claude.
 
@@ -251,9 +251,8 @@ A new project is a row on the Projects tab.
 /schedule create "Prepare KPIs for Acme every second Friday at 9am"
 ```
 
-A scheduled run in `assisted-push` prepares everything and waits for you. Only `auto-push`
-with `unattended: true` writes on its own — and it still logs every change and reads back
-every value.
+A scheduled run prepares a draft and waits for review. Sending to PMS always requires
+explicit approval in the current conversation; legacy automatic settings do not waive it.
 
 ## Where the evidence lives
 

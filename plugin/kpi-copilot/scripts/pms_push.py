@@ -11,7 +11,7 @@ Four guards, and none of them can be turned off from a config file alone:
   1. The profile's output mode decides what is allowed. `review-only` cannot push at all.
   2. `--apply` on a profile set to `auto-push` still requires `output.unattended: true`.
   3. Anything outside the KPI's PMS range is clamped, and the note says the real figure.
-  4. After a write, every value, note and name is read back and compared. A mismatch is
+  4. After a write, every value and note is read back and compared. A mismatch is
      reported as a failure, not smoothed over.
 
 Usage:
@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -81,7 +82,7 @@ def _api(base: str, path: str, method: str = "GET", body: dict | None = None,
         return json.loads(raw) if raw.strip() else {}
 
 
-def read_current(base: str, project_id: int, token: str | None) -> dict:
+def read_current(base: str, project_id: int, token: str | None) -> dict | None:
     """What PMS holds right now, so the diff is against reality rather than against the last
     thing we sent."""
     try:
@@ -90,13 +91,13 @@ def read_current(base: str, project_id: int, token: str | None) -> dict:
     except Exception as e:  # noqa: BLE001
         print(f"Could not read current values from PMS ({type(e).__name__}). "
               f"The diff below shows what would be sent, not what would change.", file=sys.stderr)
-        return {}
+        return None
     current: dict = {}
-    for kpi in (data.get("kpis") or data.get("data") or []):
+    for kpi in (data if isinstance(data, list) else data.get("kpis") or data.get("data") or []):
         for per in (kpi.get("periods") or []):
             pid = per.get("periodId") or (per.get("period") or {}).get("id")
             val = per.get("periodKpiValue") or {}
-            current.setdefault(pid, {})[kpi.get("name")] = {
+            current.setdefault(str(pid), {})[kpi.get("name")] = {
                 "value": val.get("value"), "note": val.get("note"),
             }
     return current
@@ -104,7 +105,7 @@ def read_current(base: str, project_id: int, token: str | None) -> dict:
 
 def diff_lines(payload: dict, current: dict) -> list[str]:
     pid = payload.get("periodId")
-    have = current.get(pid, {})
+    have = (current or {}).get(str(pid), {})
     out = []
     for k in payload.get("kpis", []):
         old = have.get(k["name"])
@@ -136,11 +137,40 @@ def main(argv: list[str] | None = None) -> int:
     payloads = _load(a.payloads)
     # Resolve for the project: an account can set a different output mode, so pushing for
     # one client and reviewing by hand for another is a profile setting, not two profiles.
-    profile = resolve_profile(load_profile(a.profile), a.project)[0]
+    profile, project = resolve_profile(load_profile(a.profile), a.project)
     out_cfg = profile.get("output") or {}
     mode = out_cfg.get("mode", "assisted-push")
     base = (profile.get("organization") or {}).get("pms_base_url", "")
     token = os.environ.get("PMS_TOKEN")
+
+    if a.apply:
+        if any(p.get("skipped") for p in payloads):
+            print("Refusing to write an incomplete KPI set: this PMS endpoint may replace the period. "
+                  "Resolve missing measures or use the reviewed manual-entry output.", file=sys.stderr)
+            return 2
+        if profile.get("targets"):
+            print("Refusing to write: local review targets are active. Set the intended targets in PMS, "
+                  "remove local targets, refresh the registry and review a new run.", file=sys.stderr)
+            return 2
+        if mode not in MODES_THAT_MAY_WRITE:
+            print(f"Refusing to write: output mode is '{mode}'.", file=sys.stderr)
+            return 2
+        if not payloads or not project.get("pms_project_id") or any(
+                p.get("projectId") != project["pms_project_id"] for p in payloads):
+            print("Refusing to write: payload project does not match the selected profile project.", file=sys.stderr)
+            return 2
+        ids = [p.get("periodId") for p in payloads]
+        if len(set(ids)) != len(ids):
+            print("Refusing to write: more than one payload targets the same period.", file=sys.stderr)
+            return 2
+        for p in payloads:
+            if len(p.get("name") or "") > 25:
+                print("Refusing to write: PMS period names allow 25 characters. Rename the period and rerun.", file=sys.stderr)
+                return 2
+            for k in p.get("kpis") or []:
+                if not isinstance(k.get("value"), (int, float)) or not math.isfinite(k["value"]):
+                    print("Refusing to write: a KPI value is not a finite number.", file=sys.stderr)
+                    return 2
 
     for p in payloads:
         for k in p.get("kpis", []):
@@ -192,9 +222,12 @@ def main(argv: list[str] | None = None) -> int:
     if blocked:
         print("Refusing to write: at least one period has no PMS period id.", file=sys.stderr)
         return 2
+    if current is None:
+        print("Refusing to write: current PMS values could not be read. Restore access and review a fresh diff.", file=sys.stderr)
+        return 2
     if not token:
-        print("No PMS_TOKEN in the environment, so this script cannot write. Two options: set a token, or let "
-              "the run push through the signed-in browser session, which is what most people do.", file=sys.stderr)
+        print("No PMS_TOKEN in the environment, so this script cannot write. Configure API access "
+              "privately or use the reviewed manual-entry output; a browser login is not an API token.", file=sys.stderr)
         return 2
 
     # -- write, then read back --------------------------------------------------------
@@ -203,6 +236,9 @@ def main(argv: list[str] | None = None) -> int:
         pid = p["periodId"]
         try:
             period = _api(base, f"/api/periods/{pid}", token=token)
+            owner = period.get("projectId") or (period.get("project") or {}).get("id")
+            if str(owner) != str(project_id):
+                raise ValueError("PMS did not confirm that this period belongs to the selected project")
             last_modified = period.get("updatedAt")
             body = {
                 "name": p["name"],
@@ -217,7 +253,7 @@ def main(argv: list[str] | None = None) -> int:
             results.append({"period": p["name"], "periodId": pid, "result": f"failed: {e}"})
             continue
 
-        after = read_current(base, p.get("projectId"), token).get(pid, {})
+        after = (read_current(base, p.get("projectId"), token) or {}).get(str(pid), {})
         mismatched = [
             k["name"] for k in p["kpis"]
             if after.get(k["name"], {}).get("value") != k["value"]

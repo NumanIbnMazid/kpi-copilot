@@ -107,14 +107,15 @@ def tab_requests(tab: M.Tab, sid: int, index: int, existing: dict | None) -> lis
             reqs.append({"clearBasicFilter": {"sheetId": sid}})
         reqs.append({"updateCells": {"range": {"sheetId": sid},
                                      "fields": "userEnteredValue,userEnteredFormat,dataValidation"}})
-        reqs.append({"updateDimensionProperties": {
-            "range": {"sheetId": sid, "dimension": "COLUMNS", "startIndex": 0, "endIndex": cols},
-            "properties": {"hiddenByUser": False}, "fields": "hiddenByUser"}})
     reqs.append({"updateSheetProperties": {
         "properties": {"sheetId": sid, "title": tab.name, "index": index, "tabColor": _rgb(tab.color),
                        "gridProperties": {"rowCount": rows, "columnCount": cols, "frozenRowCount": tab.freeze[0],
                                           "frozenColumnCount": tab.freeze[1], "hideGridlines": not tab.gridlines}},
         "fields": "title,index,tabColor,gridProperties(rowCount,columnCount,frozenRowCount,frozenColumnCount,hideGridlines)"}})
+    # Expand the grid before touching dimensions outside the old bounds.
+    reqs.append({"updateDimensionProperties": {
+        "range": {"sheetId": sid, "dimension": "COLUMNS", "startIndex": 0, "endIndex": cols},
+        "properties": {"hiddenByUser": False}, "fields": "hiddenByUser"}})
 
     last_r, last_c = tab.size
     data = [{"values": [_value(tab.cells.get((r, c)) or {}) for c in range(1, last_c + 1)]} for r in range(1, last_r + 1)]
@@ -183,16 +184,12 @@ def resolve(s: G.Session, out_cfg: dict, name: str) -> tuple[str, bool]:
 def publish(tabs: list[M.Tab], out_cfg: dict, name: str, known_id: str | None = None,
             session: G.Session | None = None) -> dict:
     s = session or G.Session()
+    configured = G.file_id(out_cfg.get("workbook_file"))
+    if known_id and configured and configured != known_id:
+        raise G.GoogleError("The configured review sheet differs from the saved destination. "
+                            "Finish reviewing the current sheet before migrating the destination.")
     fid, created = (known_id, False) if known_id else resolve(s, out_cfg, name)
-    try:
-        meta = s.call("GET", f"{G.SHEETS}/{fid}", params={
-            "fields": META_FIELDS})
-    except G.GoogleError:
-        if not known_id:
-            raise
-        # The sheet remembered from last time is gone or out of reach; fall back to the profile.
-        fid, created = resolve(s, out_cfg, name)
-        meta = s.call("GET", f"{G.SHEETS}/{fid}", params={"fields": META_FIELDS})
+    meta = s.call("GET", f"{G.SHEETS}/{fid}", params={"fields": META_FIELDS})
     have = {sh["properties"]["title"]: sh for sh in meta.get("sheets") or []}
     reqs: list[dict] = []
     for i, tab in enumerate(tabs):
@@ -222,7 +219,9 @@ def read_grid(fid: str, tabs: list[str], session: G.Session | None = None) -> Ca
     date comes back as the ISO text it is displayed as, whatever a person typed."""
     s = session or G.Session()
     doc = s.call("GET", f"{G.SHEETS}/{fid}/values:batchGet", params={
-        "ranges": [f"'{t}'!A1:AZ2000" for t in tabs], "valueRenderOption": "FORMATTED_VALUE"})
+        "ranges": ["'" + t.replace("'", "''") + "'" for t in tabs], "valueRenderOption": "FORMATTED_VALUE"})
+    if len(doc.get("valueRanges") or []) != len(tabs):
+        raise G.GoogleError("Incomplete review-sheet read. Retry before replacing any cells.")
     data = {}
     for t, vr in zip(tabs, doc.get("valueRanges") or []):
         data[t] = vr.get("values") or []

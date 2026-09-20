@@ -68,7 +68,7 @@ from typing import Any
 # those describe the person and the company, not a project.
 OVERRIDABLE = (
     "tracker", "conventions", "workflow", "sources", "scan", "periods", "policy",
-    "output", "custom_instructions",
+    "output", "custom_instructions", "targets",
 )
 
 

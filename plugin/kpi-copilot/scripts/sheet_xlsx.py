@@ -7,10 +7,8 @@ are worth knowing:
 
   * Every cell gets the base font. A workbook that falls back to Calibri in the cells nobody
     styled looks assembled rather than made.
-  * A Google-only formula (the dashboard's SPARKLINE bars) is wrapped exactly the way Google
-    itself exports one: IFERROR(__xludf.DUMMYFUNCTION("..."), fallback). Excel shows the
-    fallback; import the same file into Google Sheets and the bars come back to life. So one
-    file serves both.
+  * Excel gets native formulas for the dashboard bars. The Google writer uses the model's
+    SPARKLINE variant. Undefined-function wrappers caused error markers in desktop Excel.
   * Formulas are written without cached results, as openpyxl must. Excel, Numbers, ONLYOFFICE
     and Google all calculate on open. A viewer that does not (a file preview) shows the grey
     cells empty - the numbers are also printed by the run and saved in results.json.
@@ -23,6 +21,8 @@ the difference and files each edit where it belongs.
 from __future__ import annotations
 
 import datetime as dt
+import os
+import tempfile
 from pathlib import Path
 from typing import Any, Callable
 
@@ -47,14 +47,13 @@ def _style(spec: dict) -> tuple[Font, PatternFill | None, Alignment, Border | No
     return font, fill, align, (_BOX if spec.get("box") else None)
 
 
-def google_wrapped(gf: str, fallback: str | None) -> str:
-    inner = gf.lstrip("=").replace('"', '""')
-    return f'=IFERROR(__xludf.DUMMYFUNCTION("{inner}"),{(fallback or "").lstrip("=") or chr(34) * 2})'
-
-
 def write(tabs: list[M.Tab], out: Path) -> Path:
-    wb = Workbook()
-    wb.remove(wb.active)
+    wb = load_workbook(out) if out.exists() else Workbook()
+    if not out.exists():
+        wb.remove(wb.active)
+    for tab in tabs:
+        if tab.name[:31] in wb.sheetnames:
+            del wb[tab.name[:31]]
     cache = {name: _style(spec) for name, spec in M.STYLES.items()}
     for tab in tabs:
         ws = wb.create_sheet(tab.name[:31])
@@ -62,12 +61,12 @@ def write(tabs: list[M.Tab], out: Path) -> Path:
         ws.sheet_view.showGridLines = tab.gridlines
         for (r, c), cell in tab.cells.items():
             x = ws.cell(row=r, column=c)
-            if cell.get("gf"):
-                x.value = google_wrapped(cell["gf"], cell.get("f"))
-            elif cell.get("f"):
+            if cell.get("f"):
                 x.value = cell["f"]
             elif "v" in cell:
                 x.value = cell["v"]
+                if isinstance(cell["v"], str):
+                    x.data_type = "s"  # tracker text beginning '=' is text, never an executable formula
             font, fill, align, box = cache.get(cell.get("style") or "text", cache["text"])
             x.font, x.alignment = font, align
             if fill:
@@ -101,7 +100,14 @@ def write(tabs: list[M.Tab], out: Path) -> Path:
                                   if rule.get("fill") else None),
                             font=Font(color=rule["color"]) if rule.get("color") else None))
     out.parent.mkdir(parents=True, exist_ok=True)
-    wb.save(out)
+    fd, name = tempfile.mkstemp(suffix=".xlsx", dir=out.parent)
+    os.close(fd)
+    try:
+        wb.save(name)
+        os.replace(name, out)
+    finally:
+        if os.path.exists(name):
+            os.unlink(name)
     return out
 
 

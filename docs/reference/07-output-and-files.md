@@ -20,7 +20,7 @@ output:
 | Field | What it is |
 |---|---|
 | `mode` | How far a run may go. See below |
-| `unattended` | Allow a scheduled run to push with nobody watching. Only meaningful with `auto-push` |
+| `unattended` | Legacy compatibility flag; does not authorize submission |
 | `workbook` | `xlsx` (the default): the sheet is written locally. `google-sheets`: a live Google Sheet is **also** kept, updated in place on every run. `none`: results are printed and nothing is written |
 | `workbook_location` | A **Drive folder** (link or id). The first run creates the Google Sheet there; later runs find it by name and update it |
 | `workbook_file` | A **specific Google Sheet** (link or id) to update in place, instead of creating one. Wins over `workbook_location` |
@@ -34,7 +34,7 @@ output:
 | `review-only` | Builds the workbook and a copy-paste block. **Physically cannot write to PMS** |
 | `dry-run` | Also computes the payload and shows a field-by-field diff. Still never writes |
 | `assisted-push` | The diff, then a question, then the push on an explicit yes |
-| `auto-push` | Pushes without asking. Honoured **only** with `unattended: true`; the push script refuses the contradictory combination |
+| `auto-push` | Legacy mode; explicit approval in the current conversation is still required |
 
 Approval is per run. A yes for one period never carries to the next.
 

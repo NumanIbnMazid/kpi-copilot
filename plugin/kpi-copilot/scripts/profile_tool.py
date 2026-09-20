@@ -153,18 +153,48 @@ def _deep_merge(base: dict, extra: dict) -> dict:
     return base
 
 
-def init(out: Path, answers: Path | None) -> int:
+MINIMAL_TEMPLATE = '''profile_version: "1.0"
+# The assistant fills these from your workflow. Add optional sources only when needed.
+owner: {name: "Project lead"}
+organization: {pms_base_url: "", kpi_registry: kpi_registry.json}
+tracker:
+  adapter: csv  # asana, jira, github, or csv
+  project_ref: ""
+conventions:
+  defect_by: issue-type
+  defect_values: [Bug]
+  observation_values: [Observation, Improvement]
+workflow:
+  delivered_when: {signal: status-entered, values: []}
+  closed_when: {values: []}
+sources: {mode: tracker-only}
+periods: {model: Full project}
+policy:
+  count_observations: false
+  count_improvements: false
+  count_pre_existing: false
+output: {mode: review-only, workbook: xlsx}
+projects:
+  - id: my-project
+    name: My project
+    tracker_ref: ""
+    velocity_unit: Estimated Hours
+'''
+
+
+def init(out: Path, answers: Path | None, full: bool = False) -> int:
     if out.exists():
         print(f"{out} already exists. Delete it or pick another path.", file=sys.stderr)
         return 2
     out.parent.mkdir(parents=True, exist_ok=True)
+    template = TEMPLATE if full else MINIMAL_TEMPLATE
     if answers:
         import yaml  # type: ignore
-        base = yaml.safe_load(TEMPLATE)
+        base = yaml.safe_load(template)
         merged = _deep_merge(base, _load(answers))
         out.write_text(yaml.safe_dump(merged, sort_keys=False, allow_unicode=True, width=100), encoding="utf-8")
     else:
-        out.write_text(TEMPLATE, encoding="utf-8")
+        out.write_text(template, encoding="utf-8")
     print(f"Wrote {out}")
     return 0
 
@@ -200,7 +230,8 @@ def validate(path: Path) -> int:
             else:
                 errors.append(f"{where}: {e.message}")
     except ImportError:
-        warnings.append("jsonschema is not installed, so only the hand-written checks ran. pip3 install jsonschema")
+        print("ERROR: jsonschema is required to validate settings. Install requirements.txt and retry.")
+        return 2
 
     tools = {t.get("id") for t in (profile.get("tools") or [])}
     accounts = {a.get("id") for a in (profile.get("accounts") or [])}
@@ -265,6 +296,11 @@ def validate(path: Path) -> int:
             except SystemExit as e:
                 errors.append(str(e))
                 continue
+            effective = {k: v for k, v in merged.items() if not k.startswith("_")}
+            for section in OVERRIDABLE:
+                if section in effective and section in schema.get("properties", {}):
+                    for error in jsonschema.Draft7Validator(schema["properties"][section]).iter_errors(effective[section]):
+                        errors.append(f"Project '{pr.get('id')}' {section}: {error.message}")
             seen = {t.get("id") for t in merged.get("tools") or []}
             known = {n.lower() for n in (merged.get("conventions") or {}).get("client_names") or []}
             for t in merged.get("tools") or []:
@@ -371,11 +407,12 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Create and check a KPI Copilot profile.")
     sub = ap.add_subparsers(dest="cmd", required=True)
     i = sub.add_parser("init"); i.add_argument("--out", required=True, type=Path); i.add_argument("--from", dest="answers", type=Path)
+    i.add_argument("--full", action="store_true", help="Include the advanced settings; the default is a small starter profile.")
     v = sub.add_parser("validate"); v.add_argument("--profile", required=True, type=Path)
     e = sub.add_parser("explain"); e.add_argument("--key", required=True)
     a = ap.parse_args(argv)
     if a.cmd == "init":
-        return init(a.out, a.answers)
+        return init(a.out, a.answers, a.full)
     if a.cmd == "validate":
         return validate(a.profile)
     return explain(a.key)

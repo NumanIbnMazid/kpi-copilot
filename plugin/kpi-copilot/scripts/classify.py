@@ -139,6 +139,14 @@ class Classifier:
                                   if kept["by"] == "human" and kept.get("fingerprint") not in (None, fp) else ""),
                             evidence=kept.get("evidence"))
         if prop["confidence"] < SURE or prop["flag"]:
+            deferred = self.ledger.usable(item["id"], "deferred:" + field, fp) if self.ledger else None
+            if deferred:
+                self.questions.append({"id": f"judge:{item['id']}:{field}", "about": item.get("key") or item["title"],
+                                       "question": f"{item.get('key') or item['title']}: {question} "
+                                                   f"Missing context: {deferred['why']}", "options": options,
+                                       "proposal": prop["value"]})
+                prop["flag"] = "Waiting for a person: " + deferred["why"]
+                return prop
             before = self.ledger.stale(item["id"], field, fp) if self.ledger else None
             self.queue.append({
                 "item_id": item["id"], "field": field, "question": question, "options": options,
@@ -776,7 +784,8 @@ def to_kif(board: dict, profile: dict, project_cfg: dict, facts: dict, ledger, t
             "pms_project_id": project_cfg.get("pms_project_id"),
             "period_type": project_cfg.get("period_model") or (profile.get("periods") or {}).get("model")
             or "Delivery cycle",
-            "velocity_unit": project_cfg.get("velocity_unit") or "Estimated Hours",
+            "velocity_unit": project_cfg.get("velocity_unit") or (profile.get("periods") or {}).get("velocity_unit")
+                             or "Estimated Hours",
             "client_date": proj.get("client_date"), "commit_date": proj.get("commit_date"),
             "client_check": proj.get("client_check") or (profile.get("periods") or {}).get("client_check_default")
             or "Handover",
@@ -785,8 +794,8 @@ def to_kif(board: dict, profile: dict, project_cfg: dict, facts: dict, ledger, t
         "periods": [{k: v for k, v in p.items() if not k.startswith("_")} for p in c.periods],
         "tasks": rows["tasks"], "defects": rows["defects"], "review": c.review[:40],
     }
-    for p in kif["periods"]:
-        p["name"] = (p.get("name") or "")[:25]
+    # Period names are join keys. Truncating only the period loses every attached task.
+    # PMS limits are checked at the delivery boundary instead.
     work = {"queue": c.queue, "questions": c.questions, "grain": c.grain,
             "counts": {"cards": len(board.get("items") or []), "tasks": len(rows["tasks"]),
                        "defects": len(rows["defects"]), "to_judge": len(c.queue)}}
