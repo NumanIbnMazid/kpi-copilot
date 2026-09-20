@@ -196,6 +196,9 @@ def publish(tabs: list[M.Tab], out_cfg: dict, name: str, known_id: str | None = 
         ex = have.get(tab.name)
         sid = ex["properties"]["sheetId"] if ex else sheet_id_for(tab.name)
         reqs += tab_requests(tab, sid, i, ex)
+    # Sheets resolves references when a formula is entered. Create every tab first;
+    # otherwise an early Dashboard formula can retain #REF! for a later Config tab.
+    reqs = [r for r in reqs if "addSheet" in r] + [r for r in reqs if "addSheet" not in r]
     locale = (meta.get("properties") or {}).get("locale") or "en_US"
     warn = ""
     if created:

@@ -81,6 +81,11 @@ items:
 ```
 
 A card that matches a row here is a change request even when nobody tagged it `[CR]`.
+When several separately estimated deliverables share one delivery card, give each its own
+title and the same `board_key`. Each counts once, with its own effort and review inputs;
+the delivery history is shared. Do not also enter an aggregate estimate for that card.
+Titles must distinguish those deliverables within a period, so their review edits remain
+attached to the right row when the source is reordered.
 An estimates *sheet* is normally read through a column mapping instead, with no file to
 write:
 
@@ -94,6 +99,18 @@ sources:
       columns: {board_key: Ticket, title: Item, dev_hours: "Dev (h)", qa_hours: "QA (h)",
                 approved_on: Approved, period: Period}
 ```
+
+If the source mixes draft and approved work, map its status column and filter it with
+`where: {approval: [Approved]}`. If it uses batch codes instead of period names, map that
+column to `period` and add `values: {period: {10: Initial Scope, 20: Additional Requests}}`.
+Filters apply before translations. An approved row with an unknown code stops the mapping
+and asks for a correction, instead of silently assigning its hours to the wrong period.
+
+An explicit correction can target one source row or batch without accepting every pending
+request: `overrides: [{match: {period: 20}, set: {approval: Approved}, why: "Lead confirmed approval"}]`.
+Overrides run before filters; a match and a reason are required. The same mechanism can set
+`board_key` for a row whose source title differs from its tracker title. Save only a confirmed
+mapping with its reason.
 
 ## facts/reasons.yaml - the "why" of each note
 

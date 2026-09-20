@@ -149,18 +149,27 @@ def _section(task: dict, project_gid: str) -> str | None:
     return None
 
 
-def item_from_task(task: dict, project_gid: str, key_pattern: str | None) -> dict:
+def item_from_task(task: dict, project_gid: str, key_pattern: str | None,
+                   key_field: str | None = None, linked: bool = False) -> dict:
     title = task.get("name") or ""
     key = None
     if key_pattern:
         m = re.search(key_pattern, title)
         key = m.group(0) if m else None
     fields = {f.get("name"): _field_value(f) for f in (task.get("custom_fields") or []) if f.get("name")}
+    if key_field and fields.get(key_field) not in (None, ""):
+        key = str(fields[key_field]).strip()
+    section = _section(task, project_gid)
+    if linked and not section:
+        other_sections = {m['section']['name'] for m in task.get('memberships') or []
+                          if (m.get('section') or {}).get('name')}
+        if len(other_sections) == 1:
+            section = next(iter(other_sections))
     return {
         "id": task.get("gid"), "key": key,
         "url": task.get("permalink_url") or f"https://app.asana.com/0/{project_gid}/{task.get('gid')}",
         "title": title, "description": (task.get("notes") or "")[:4000],
-        "section": _section(task, project_gid), "completed": bool(task.get("completed")),
+        "section": section, "completed": bool(task.get("completed")),
         "created_at": task.get("created_at"), "created_by": (task.get("created_by") or {}).get("name"),
         "completed_at": task.get("completed_at"), "modified_at": task.get("modified_at"),
         "due_on": task.get("due_on"), "start_on": task.get("start_on"),
@@ -205,8 +214,9 @@ def history_from_stories(stories: list[dict], task_gid: str, project_gid: str,
 
 
 def snapshot(project_gid: str, token: str, cache: dict | None = None, *, key_pattern: str | None = None,
+             key_field: str | None = None,
              comments: str = "on-demand", touched_since: str | None = None, workers: int = 8,
-             progress=None) -> dict:
+             progress=None, include_subtasks: bool = False, linked_tasks: list[str] | None = None) -> dict:
     """Read the board. `cache` is the previous snapshot; an item whose modified_at has not
     moved keeps the history already read for it, which is what makes the second run fast."""
     say = progress or (lambda *_: None)
@@ -214,6 +224,9 @@ def snapshot(project_gid: str, token: str, cache: dict | None = None, *, key_pat
     project = c.get(f"/projects/{project_gid}", {"opt_fields": "name,permalink_url"}).get("data") or {}
     sections = [s.get("name") for s in c.pages(f"/projects/{project_gid}/sections", {"opt_fields": "name"})]
     tasks = c.pages("/tasks", {"project": project_gid, "opt_fields": TASK_FIELDS})
+    if include_subtasks:
+        tasks = expand_subtasks(c, tasks, workers)
+    tasks = add_linked_tasks(c, tasks, linked_tasks or [], workers)
     say(f"{len(tasks)} cards listed")
 
     old = {i["id"]: i for i in ((cache or {}).get("items") or [])
@@ -221,7 +234,8 @@ def snapshot(project_gid: str, token: str, cache: dict | None = None, *, key_pat
            and (comments == "never" or "comments" in (cache or {}).get("capabilities", []))}
     items, stale = [], []
     for t in tasks:
-        it = item_from_task(t, project_gid, key_pattern)
+        it = item_from_task(t, project_gid, key_pattern, key_field,
+                            linked=str(t.get("gid")) in {str(gid) for gid in linked_tasks or []})
         prev = old.get(it["id"])
         if prev and prev.get("history_at") and prev.get("modified_at") == it["modified_at"]:
             it["events"], it["comments"], it["history_at"] = prev["events"], prev["comments"], prev["history_at"]
@@ -251,9 +265,48 @@ def snapshot(project_gid: str, token: str, cache: dict | None = None, *, key_pat
         "project_name": project.get("name") or "", "url": project.get("permalink_url")
         or f"https://app.asana.com/0/{project_gid}", "fetched_at": B.now_iso(),
         "capabilities": CAPABILITIES if keep_comments else [x for x in CAPABILITIES if x != "comments"],
-        "sections": sections, "items": items,
+        "sections": sections, "items": items, "subtasks_expanded": include_subtasks,
         "stats": {"requests": c.requests, "refreshed": len(stale), "reused": len(items) - len(stale)},
     }
+
+
+def add_linked_tasks(client, tasks: list[dict], linked: list[str], workers: int = 8) -> list[dict]:
+    """Read only explicitly configured tasks elsewhere; never scan their other projects."""
+    if not isinstance(linked, list) or any(not re.fullmatch(r"[0-9]+", str(gid)) for gid in linked):
+        raise AsanaError("tracker.options.linked_tasks must be a list of Asana task IDs.")
+    seen = {t["gid"]: t for t in tasks}
+    missing = sorted({str(gid) for gid in linked} - set(seen))
+    def read_one(gid):
+        task = client.get(f"/tasks/{gid}", {"opt_fields": TASK_FIELDS}).get("data") or {}
+        if str(task.get("gid")) != gid:
+            raise AsanaError("The linked task response did not match the requested task.")
+        return task
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        for task in pool.map(read_one, missing):
+            seen[task["gid"]] = task
+    return list(seen.values())
+
+
+def expand_subtasks(client, tasks: list[dict], workers: int = 8) -> list[dict]:
+    """Subtasks need not belong directly to their parent's project. Read each once."""
+    seen = {t["gid"]: t for t in tasks}
+    pending = [t for t in tasks if t.get("num_subtasks")]
+    visited = set()
+    while pending:
+        batch = [t for t in pending if t["gid"] not in visited]
+        visited.update(t["gid"] for t in batch)
+        pending = []
+        with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+            children = list(pool.map(lambda t: client.pages(f"/tasks/{t['gid']}/subtasks",
+                                                           {"opt_fields": TASK_FIELDS}), batch))
+        for rows in children:
+            for child in rows:
+                seen[child["gid"]] = child
+                if child.get("num_subtasks") and child["gid"] not in visited:
+                    pending.append(child)
+        if len(seen) > 10000:
+            raise AsanaError("Subtask expansion exceeds 10000 cards; narrow the project scope before retrying.")
+    return list(seen.values())
 
 
 def read(project: dict, profile: dict, cache: dict | None, progress=None) -> dict:
@@ -266,22 +319,29 @@ def read(project: dict, profile: dict, cache: dict | None, progress=None) -> dic
     if not token:
         raise B.ReaderError(NO_TOKEN)
     try:
-        return snapshot(gid, token, cache, key_pattern=conv.get("key_pattern"),
+        return snapshot(gid, token, cache, key_pattern=conv.get("key_pattern"), key_field=trk.get("key_field"),
                         comments=scan.get("comments") or "on-demand",
+                        include_subtasks=bool((trk.get("options") or {}).get("include_subtasks")),
+                        linked_tasks=(trk.get("options") or {}).get("linked_tasks") or [],
                         touched_since=project.get("_touched_since"), progress=progress)
     except AsanaError as e:
         raise B.ReaderError(str(e)) from e
 
 
-def from_raw(raw: dict, key_pattern: str | None = None, comments: str = "on-demand") -> dict:
+def from_raw(raw: dict, key_pattern: str | None = None, comments: str = "on-demand",
+             key_field: str | None = None, linked_tasks: list[str] | None = None) -> dict:
     """The same snapshot from a file of raw API responses - what browser_snapshot.js downloads,
     or anything else that saved {project, sections, tasks, stories:{gid:[...]}}."""
     gid = str((raw.get("project") or {}).get("gid") or raw.get("project_gid") or "")
     sections = [s.get("name") for s in raw.get("sections") or []]
     items = []
     for t in raw.get("tasks") or []:
-        it = item_from_task(t, gid, key_pattern)
+        it = item_from_task(t, gid, key_pattern, key_field,
+                            linked=str(t.get("gid")) in {str(gid) for gid in linked_tasks or []})
         stories = (raw.get("stories") or {}).get(it["id"])
+        if not isinstance(stories, list):
+            raise B.ReaderError("The Asana export is missing task history. Export the complete board again "
+                                "with browser_snapshot.js; incomplete history cannot prove KPI values.")
         if stories is not None:
             it["events"], it["comments"] = history_from_stories(stories, it["id"], gid, set(sections),
                                                                 comments != "never")
@@ -292,8 +352,10 @@ def from_raw(raw: dict, key_pattern: str | None = None, comments: str = "on-dema
         "adapter_version": VERSION, "project_ref": gid,
         "project_name": (raw.get("project") or {}).get("name") or "",
         "url": (raw.get("project") or {}).get("permalink_url") or f"https://app.asana.com/0/{gid}",
-        "fetched_at": raw.get("fetched_at") or B.now_iso(), "capabilities": CAPABILITIES,
-        "sections": sections, "items": items, "stats": {"requests": 0, "refreshed": len(items), "reused": 0},
+        "fetched_at": raw.get("fetched_at") or B.now_iso(),
+        "capabilities": CAPABILITIES if comments != "never" else [x for x in CAPABILITIES if x != "comments"],
+        "sections": sections, "items": items, "subtasks_expanded": bool(raw.get("subtasks_expanded")),
+        "stats": {"requests": 0, "refreshed": len(items), "reused": 0},
     }
 
 
@@ -303,6 +365,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--from-raw", type=Path, help="Raw responses saved by browser_snapshot.js.")
     ap.add_argument("--cache", type=Path, help="Previous snapshot, to reuse unchanged history.")
     ap.add_argument("--key-pattern", help="Regex that finds the ticket key in a title.")
+    ap.add_argument("--key-field", help="Custom field containing the ticket key; takes precedence over the title.")
+    ap.add_argument("--include-subtasks", action="store_true", help="Read descendant tasks, including those not directly on the project.")
+    ap.add_argument("--linked-task", action="append", default=[], help="An explicitly selected task from another board; repeat for each task.")
     ap.add_argument("--comments", default="on-demand", choices=["always", "on-demand", "never"])
     ap.add_argument("--token-env", help="Environment variable holding the token.")
     ap.add_argument("--out", required=True, type=Path)
@@ -311,7 +376,8 @@ def main(argv: list[str] | None = None) -> int:
     started = time.time()
     try:
         if a.from_raw:
-            snap = from_raw(json.loads(a.from_raw.read_text(encoding="utf-8")), a.key_pattern, a.comments)
+            snap = from_raw(json.loads(a.from_raw.read_text(encoding="utf-8")), a.key_pattern, a.comments,
+                            a.key_field, a.linked_task)
         else:
             if not a.project:
                 print("Need --project <gid> or --from-raw <file>.", file=sys.stderr)
@@ -321,8 +387,10 @@ def main(argv: list[str] | None = None) -> int:
                 print(NO_TOKEN, file=sys.stderr)
                 return 3
             snap = snapshot(a.project, token, B.load(a.cache or a.out), key_pattern=a.key_pattern,
-                            comments=a.comments, progress=lambda m: print(f"  {m}"))
-    except AsanaError as e:
+                            key_field=a.key_field, comments=a.comments, include_subtasks=a.include_subtasks,
+                            linked_tasks=a.linked_task,
+                            progress=lambda m: print(f"  {m}"))
+    except (AsanaError, B.ReaderError) as e:
         print(str(e), file=sys.stderr)
         return 1
     B.save(a.out, snap)

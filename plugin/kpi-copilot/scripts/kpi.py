@@ -254,8 +254,22 @@ def get_board(ws: Workspace, args, say) -> dict | None:
             raw = json.loads(Path(args.from_raw).expanduser().read_text(encoding="utf-8"))
             if not hasattr(api, "from_raw"):
                 raise SystemExit(f"The {adapter} reader has no signed-in-tab route, so --from-raw does not apply.")
-            snap = (api.from_raw(raw, conv.get("key_pattern"), scan.get("comments") or "on-demand")
+            snap = (api.from_raw(raw, conv.get("key_pattern"), scan.get("comments") or "on-demand", trk.get("key_field"),
+                                 (trk.get("options") or {}).get("linked_tasks") or [])
                     if adapter == "asana" else api.from_raw(raw, ws.profile, ws.project))
+            expected = str(ws.project.get("tracker_ref") or trk.get("project_ref") or "")
+            if expected and str(snap.get("project_ref") or "") != expected:
+                raise B.ReaderError("This export belongs to a different tracker project. Export the configured "
+                                    "project before running; the previous snapshot has been preserved.")
+            if adapter == "asana" and (trk.get("options") or {}).get("include_subtasks") and not snap.get("subtasks_expanded"):
+                raise B.ReaderError("This profile includes subtasks, but the export did not expand them. "
+                                    "Run kpiSnapshot(projectId, {includeSubtasks: true}) and import the new export.")
+            if adapter == "asana":
+                wanted = {str(gid) for gid in (trk.get("options") or {}).get("linked_tasks") or []}
+                present = {str(item.get("id")) for item in snap.get("items") or []}
+                if wanted - present:
+                    raise B.ReaderError("The export omits configured linked tasks. Include tracker.options.linked_tasks "
+                                        "as linkedTaskIds in kpiSnapshot and import the complete export.")
         else:
             project = dict(ws.project)
             if scan.get("tracker_scope") == "touched-since":
@@ -349,8 +363,8 @@ def publish(ws: Workspace, kif: dict, results: dict, ctx: dict, args) -> tuple[d
                     or out_cfg.get("workbook_location")) and out_cfg.get("workbook") != "xlsx"
     if wants_google and not args.no_publish and not args.offline and not ws.preserve_sheet:
         if not G.how_signed_in():
-            said.append("Google Sheet not updated: " + G.NOT_SIGNED_IN + " Until then: open the Google Sheet, "
-                        "File > Import > Upload the .xlsx above > Replace spreadsheet. The link stays the same.")
+            said.append("Google Sheet not updated: " + G.NOT_SIGNED_IN +
+                        " The local workbook is ready for review. Connect Google or choose local workbook output.")
         else:
             try:
                 import sheet_google
@@ -518,6 +532,9 @@ def report(ws, results, kif, work, queue, qpath, questions, edits, notes, said, 
             mark = {"Met": "ok  ", "Not met": "MISS", "Not measured": "  ? "}.get(st, "    ")
             print(f"  {mark} {per['period'][:22]:<22} {m['name'][:24]:<24} {_show(m.get('value')):>12}")
     c = work.get("counts") or {}
+    if c.get("skipped_subtasks"):
+        notes.append(f"{c['skipped_subtasks']} subtasks were excluded by tracker.options.include_subtasks. "
+                     "Enable it if those cards are deliverables or defect reports.")
     print(f"\n  {met} met · {notmet} not met · {unmeasured} not measured"
           + (f"   ({c.get('cards')} cards -> {c.get('tasks')} task rows, {c.get('defects')} reports)" if c else ""))
 
@@ -536,7 +553,14 @@ def report(ws, results, kif, work, queue, qpath, questions, edits, notes, said, 
     print("  " + clock.line())
 
     open_q = [q for q in questions if not q["answer"]]
+    output = ws.profile.get("output") or {}
+    wants_google = (output.get("workbook") == "google-sheets" or output.get("workbook_file")
+                    or output.get("workbook_location")) and output.get("workbook") != "xlsx"
+    sheet_pending = ws.preserve_sheet or (bool(wants_google) and dest.get("kind") != "google")
     print("\nNEXT")
+    if sheet_pending:
+        print("  Publishing: the local workbook is ready, but the configured Google Sheet has not been updated. "
+              "Resolve the connection or explicitly choose local workbook output, then rerun.")
     for problem in getattr(ws, "source_blockers", []):
         print(f"  Source needs attention: {problem}")
     if qpath:
@@ -555,7 +579,7 @@ def report(ws, results, kif, work, queue, qpath, questions, edits, notes, said, 
         ch = ", ".join((ws.profile.get("sources") or {}).get("evidence_channels") or [])
         print(f"  Deep run asked for: the open questions above may also be looked up in {ch} - those, and only for "
               f"those questions. Record what you find with `answer`, with the link.")
-    if not qpath and not open_q and not getattr(ws, "source_blockers", []):
+    if not qpath and not open_q and not getattr(ws, "source_blockers", []) and not sheet_pending:
         print("  Nothing. The sheet is up to date." + ("" if (ws.profile.get("output") or {}).get("mode") in (None, "review-only")
                                                        else f"  To send it:  python3 {Path(__file__).name} push --profile {ws.profile_path} --project {ws.pid}"))
     (ws.dir / "next.json").write_text(json.dumps({
@@ -563,8 +587,7 @@ def report(ws, results, kif, work, queue, qpath, questions, edits, notes, said, 
         "to_judge": len(queue["items"]), "notes_needed": len(queue["notes"]),
         "questions": [{"id": q["id"], "question": q["question"]} for q in open_q],
         "source_blockers": getattr(ws, "source_blockers", []),
-        "sheet_pending": ws.preserve_sheet or ((ws.previous_sheet_state or {}).get("destination", {}).get("kind") == "google"
-                                                and dest.get("kind") != "google"),
+        "sheet_pending": sheet_pending,
         "payloads": str(ws.run_dir / "payloads.json"),
         "input_digest": input_digest(ws),
         "payload_digest": hashlib.sha256((ws.run_dir / "payloads.json").read_bytes()).hexdigest(),

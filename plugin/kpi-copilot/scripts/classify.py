@@ -28,6 +28,7 @@ Nothing here counts anything. Counting is the engine's job, and it is the same f
 from __future__ import annotations
 
 import re
+import hashlib
 from difflib import SequenceMatcher
 from typing import Any
 
@@ -50,6 +51,9 @@ PRE_EXISTING_CUES = ("already in production", "exists in production", "existing 
 CLARIFY_CUES = ("clarif", "please confirm", "can you confirm", "could you confirm", "what should",
                 "should it", "should we", "expected behaviour", "expected behavior", "need your input",
                 "waiting for your", "requirement is not clear", "not clear", "which one")
+REJECTION_CUES = ("non-issue", "non issue", "not a bug", "not a defect", "working as designed",
+                  "by design", "cannot reproduce", "could not reproduce", "unable to reproduce",
+                  "not reproducible", "duplicate report")
 
 
 def on_time(done: str | None, due: str | None, today: str) -> str | None:
@@ -68,6 +72,11 @@ def _later(a: str | None, b: str | None) -> str | None:
 
 
 def _similar(a: str, b: str) -> float:
+    numbered = re.compile(r"\b(bug|observation|improvement|obs)\s?#?(\d+)", re.I)
+    na, nb = numbered.search(a or ""), numbered.search(b or "")
+    if na and nb and (na.group(1).lower().replace("observation", "obs"), int(na.group(2))) != (
+            nb.group(1).lower().replace("observation", "obs"), int(nb.group(2))):
+        return 0.0
     a, b = B.norm(B.strip_tags(a)), B.norm(B.strip_tags(b))
     if not a or not b:
         return 0.0
@@ -164,8 +173,8 @@ class Classifier:
         for idx, row in enumerate(self.plan_rows + self.est_rows):
             rk = (row.get("board_key") or row.get("key") or "").strip()
             s = 0.0
-            if rk and (rk == (item.get("key") or "") or rk == item["id"]):
-                s = 1.0
+            if rk:
+                s = 1.0 if rk in (item.get("key"), item.get("id")) else 0.0
             elif row.get("title"):
                 s = _similar(item["title"], row["title"])
             if s > score:
@@ -176,6 +185,13 @@ class Classifier:
 
     def nature(self, item: dict) -> tuple[Proposal, dict | None]:
         title = item.get("title") or ""
+        for rule in (self.profile.get("custom_instructions") or {}).get("rule_overrides") or []:
+            if rule.get("rule") != "include_key":
+                continue
+            key, sep, kind = str(rule.get("value") or "").partition("=")
+            if sep and key.strip() == item.get("key") and kind.strip() in ("Task", "CR", "Scope"):
+                row, _ = self.match_scope(item)
+                return Proposal(kind.strip(), rule.get("why") or "explicit include_key rule", 1.0), row
         if item.get("kind") in ("milestone", "approval", "section"):
             return Proposal("Excluded", f"an Asana {item['kind']} marker, not a deliverable", 0.95), None
         for pat in self.conv.get("exclude_patterns") or []:
@@ -183,11 +199,14 @@ class Classifier:
             if rx and rx.search(title):
                 return Proposal("Excluded", f"title matches the exclude pattern {pat}", 0.95), None
 
+        row, score = self.match_scope(item)
+        if row and row.get("_src") == "estimates":
+            return Proposal("CR", f"matches the approved addition '{row.get('title') or row.get('board_key')}'",
+                            0.95 if score >= 0.9 else 0.6), row
         kind = self._defect_kind(item)
         if kind:
             return kind, None
 
-        row, score = self.match_scope(item)
         marker = _rx(self.conv.get("cr_marker"))
         cr_tag, how, raw = B.find_tag(title, self.tags["cr"])
         if not cr_tag:
@@ -201,10 +220,6 @@ class Classifier:
         if cr_tag:
             return Proposal("CR", f"title tag [{raw}] read as {cr_tag}", 0.95 if how == "exact" else 0.8,
                             flag="" if how == "exact" else f"read [{raw}] as {cr_tag}"), row
-        if row and row["_src"] == "estimates":
-            sure = score >= 0.85
-            return Proposal("CR", f"matches the approved addition '{row.get('title')}'",
-                            0.9 if sure else 0.6, flag="" if sure else "loose title match to the estimates"), row
         if row and row["_src"] == "plan":
             sure = score >= 0.85
             return Proposal("Task", f"matches the plan item '{row.get('title')}'",
@@ -491,6 +506,8 @@ class Classifier:
         elif rej_word:
             rej = Proposal("Yes", f"title tag [{rraw}] read as {rej_word}", 0.9 if rhow == "exact" else 0.75,
                            flag="" if rhow == "exact" else f"read [{rraw}] as {rej_word}")
+        elif any(cue in text for cue in REJECTION_CUES):
+            rej = Proposal("Yes", "its discussion may describe a rejected report; check the final outcome", 0.55)
         else:
             rej = Proposal("No", "nothing marks it as rejected", 0.9)
         rej = self.settle(item, "rejected", rej,
@@ -558,12 +575,33 @@ class Classifier:
                     row["against_task"] = by_id[item["parent"]].get("key")
                 defects.append(row)
             else:
-                tasks.append(self.task_row(item, nat, scope_row))
+                # A delivery card can implement several separately estimated additions.
+                # Keep each approved estimate as one deliverable, sharing only card evidence.
+                additions = [dict(r, _idx=len(self.plan_rows) + idx) for idx, r in enumerate(self.est_rows)
+                             if (r.get("board_key") or r.get("key")) in (item.get("key"), item.get("id"))
+                             and (r.get("board_key") or r.get("key"))]
+                if nat["value"] == "CR" and len(additions) > 1:
+                    identities = set()
+                    for i, addition in enumerate(additions, 1):
+                        self._matched.add(addition["_idx"])
+                        row = self.task_row(item, nat, addition)
+                        identity = "\0".join(str(addition.get(k) or "") for k in ("title", "period"))
+                        if identity in identities:
+                            raise ValueError("Separately estimated deliverables on one card need distinct titles "
+                                             "within a period; duplicate rows cannot keep separate review edits.")
+                        identities.add(identity)
+                        suffix = hashlib.sha256(identity.encode()).hexdigest()[:16]
+                        row.update(title=addition.get("title") or row["title"],
+                                   key=f"{row['key']} / {i}", _row=f"{item['id']}#estimate-{suffix}")
+                        row["remarks"] = "Separately estimated deliverable; delivery history shared with the linked card"
+                        tasks.append(row)
+                else:
+                    tasks.append(self.task_row(item, nat, scope_row))
 
         for row in tasks + defects:
             self._overlay(row)
         for row in tasks + defects:
-            row["_row"] = row["_item"]
+            row.setdefault("_row", row["_item"])
         tasks = self._plan_only_rows(tasks)
         extra = self.facts.get("extra_rows") or {}
         for kind, rows in (("tasks", tasks), ("defects", defects)):
@@ -581,6 +619,9 @@ class Classifier:
         if not self.ledger or not row.get("_item"):
             return
         mine = ((self.ledger.data["items"].get(row["_item"]) or {}).get("judgements") or {})
+        if "#estimate-" in (row.get("_row") or ""):
+            specific = ((self.ledger.data["items"].get(row["_row"]) or {}).get("judgements") or {})
+            mine = {**mine, **specific}
         sets = {f[4:]: j["value"] for f, j in mine.items() if f.startswith("set:")}
         if not sets:
             return
@@ -634,7 +675,7 @@ class Classifier:
         so the denominators match the plan, and a question, because nobody can see from the
         board whether it was done."""
         for idx, r in enumerate(self.plan_rows + self.est_rows):
-            if idx in self._matched or r.get("board_key") or not r.get("title"):
+            if idx in self._matched or not r.get("title"):
                 continue
             qid = f"scope:{B.norm(r['title'])[:40]}"
             ans = (self.ledger.answer(qid) if self.ledger else None) or {}
@@ -703,16 +744,35 @@ class Classifier:
             want = q.pop("_context", "comments")
             q["item"] = {"key": it.get("key"), "title": it.get("title"), "url": it.get("url"),
                          "column": it.get("section"), "created": B.day(it.get("created_at")),
-                         "created_by": it.get("created_by"), "tags": B.tags_of(it.get("title") or "")}
+                         "created_by": it.get("created_by"), "tags": B.tags_of(it.get("title") or ""),
+                         "parent": it.get("parent"), "subtasks": it.get("subtasks", 0)}
+            parent = by_id.get(it.get("parent"))
+            if parent:
+                scope, _ = self.match_scope(parent)
+                q["item"]["parent_context"] = {"key": parent.get("key"), "title": parent.get("title"),
+                    "url": parent.get("url"), "plan_modules": (scope or {}).get("modules") or [],
+                    "counting_grain": self.grain}
             if want in ("description", "comments"):
                 q["item"]["description"] = (it.get("description") or "")[:600]
             if want in ("events", "comments"):
                 q["item"]["history"] = " -> ".join(
                     f"{e.get('to') or e.get('kind')} {_md(B.day(e.get('at')))}" for e in B.moves(it)[-10:])
             if want == "comments":
+                comments = it.get("comments") or []
+                clarification_states = (self.wf.get("clarification_when") or {}).get("values") or []
+                anchors = [B.day(e.get("at")) for e in B.moves(it)
+                           if B._in(e.get("to"), clarification_states)]
+                relevant = [i for i, c in enumerate(comments)
+                            if any(cue in str(c.get("text") or "").lower()
+                                   for cue in CLARIFY_CUES + PRE_EXISTING_CUES + REJECTION_CUES)
+                            or any(abs(_days(B.day(c.get("at")), day)) <= 2 for day in anchors if day)]
+                # The original question may be months older than the last six replies.
+                selected = sorted(set(relevant[:12] + list(range(max(0, len(comments) - 6), len(comments)))))
                 q["item"]["comments"] = [
-                    {"at": B.day(c.get("at")), "by": c.get("by"), "text": (c.get("text") or "")[:400],
-                     "url": c.get("url")} for c in (it.get("comments") or [])[-6:]]
+                    {"at": B.day(comments[i].get("at")), "by": comments[i].get("by"),
+                     "text": comments[i].get("text") or "", "url": comments[i].get("url")}
+                    for i in selected]
+                q["item"]["comments_omitted"] = len(comments) - len(selected)
 
     def _period_questions(self, defects: list[dict]) -> None:
         for p in self.periods:
@@ -798,5 +858,7 @@ def to_kif(board: dict, profile: dict, project_cfg: dict, facts: dict, ledger, t
     # PMS limits are checked at the delivery boundary instead.
     work = {"queue": c.queue, "questions": c.questions, "grain": c.grain,
             "counts": {"cards": len(board.get("items") or []), "tasks": len(rows["tasks"]),
-                       "defects": len(rows["defects"]), "to_judge": len(c.queue)}}
+                       "defects": len(rows["defects"]), "to_judge": len(c.queue),
+                       "skipped_subtasks": sum(bool(i.get("parent")) for i in board.get("items") or [])
+                       if not ((profile.get("tracker") or {}).get("options") or {}).get("include_subtasks") else 0}}
     return kif, work
