@@ -31,6 +31,7 @@ from __future__ import annotations
 import datetime as dt
 import re
 from typing import Any
+from kpi_registry import NAME_TO_KEY
 
 MODEL_VERSION = "2.0"
 LAST = 999            # formulas look down to here, so a row added by hand is still counted
@@ -40,6 +41,12 @@ KPI_ORDER = ["Velocity", "Task Comprehension", "Client Expectation", "Delivery C
              "Escaped Defect Rate", "Defect Rejection Rate", "Rework Rate", "CR Rate"]
 KPI_KEYS = ["velocity", "task_comprehension", "client_expectation", "delivery_commitment", "defect_rate",
             "escaped_defect_rate", "rejection_rate", "rework_rate", "cr_rate"]
+
+
+def metric_name(name: str) -> str:
+    """Formula identity follows the same registry aliases as the engine; labels stay intact."""
+    key = NAME_TO_KEY.get(name.lower().strip())
+    return dict(zip(KPI_KEYS, KPI_ORDER)).get(key, name)
 
 NAVY, BAND, SOFT, YELLOW, GREY, WHITE = "1F3864", "2F5597", "D9E2F3", "FFF2CC", "F2F2F2", "FFFFFF"
 LINE, MUTED, REDFILL, AMBER, TOTAL = "D9D9D9", "666666", "F8CBAD", "FFE599", "D9E1F2"
@@ -255,6 +262,9 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     project = kif.get("project") or {}
     periods = kif.get("periods") or []
     pnames = [p.get("name") for p in periods]
+    display_names = {metric_name(m["name"]): m["name"] for p in results.get("periods") or []
+                     for m in p.get("measures") or []}
+    display_order = [display_names.get(name, name) for name in KPI_ORDER]
     by_handover = "handover" in str(((profile.get("workflow") or {}).get("commitment") or {}).get("met_when") or "").lower()
     hours_basis = (profile.get("sources") or {}).get("hours_basis") or "dev"
     cr_den = ctx.get("cr_denominator") or "period"
@@ -337,7 +347,7 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         cfg.put(r, 5, "Min" if m.get("direction") == "higher-is-better" else "Max", "data_c")
         cfg.put(r, 6, m.get("threshold"), "data_c")
         cfg.put(r, 7, g.get("formula_pms") or g.get("formula") or g.get("definition") or "", "data")
-        cfg.put(r, 8, HOW_COUNTED.get(name, ""), "data")
+        cfg.put(r, 8, HOW_COUNTED.get(metric_name(name), ""), "data")
         cfg.put(r, 9, m.get("threshold_source") or "", "data")
     ref["kpi_last"] = r
     k1, k2 = ref["kpi_first"], ref["kpi_last"]
@@ -563,17 +573,17 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     r = 3
     summary_rows = []
     for perres in results.get("periods") or []:
-        for m in sorted(perres.get("measures") or [], key=lambda x: KPI_ORDER.index(x["name"]) if x["name"] in KPI_ORDER else 99):
+        for m in sorted(perres.get("measures") or [], key=lambda x: display_order.index(x["name"]) if x["name"] in display_order else 99):
             r += 1
             name, pn = m["name"], perres["period"]
             sm.heights[r] = 45
             sm.put(r, 1, pn, "data")
-            sm.put(r, 2, KPI_ORDER.index(name) + 1 if name in KPI_ORDER else None, "calc_c")
+            sm.put(r, 2, display_order.index(name) + 1 if name in display_order else None, "calc_c")
             sm.put(r, 3, name, "kpi")
             sm.put(r, 4, None, "calc_c", f=f'=IFERROR(INDEX({ref["kpi_ids"]},MATCH($C{r},{ref["kpi_names"]},0)),"")')
-            sm.put(r, 5, None, "calc_r", f=num.get(name, "").format(r=r) or None)
-            sm.put(r, 6, None, "calc_r", f=(den.get(name) or "").format(r=r) or None)
-            sm.put(r, 7, None, "calc_r", f=val.get(name, ratio).format(r=r))
+            sm.put(r, 5, None, "calc_r", f=num.get(metric_name(name), "").format(r=r) or None)
+            sm.put(r, 6, None, "calc_r", f=(den.get(metric_name(name)) or "").format(r=r) or None)
+            sm.put(r, 7, None, "calc_r", f=val.get(metric_name(name), ratio).format(r=r))
             sm.put(r, 8, None, "calc_r", f=f'=IFERROR(INDEX({ref["kpi_targets"]},MATCH($C{r},{ref["kpi_names"]},0)),"")')
             sm.put(r, 9, None, "calc_c", f=f'=IFERROR(INDEX({ref["kpi_types"]},MATCH($C{r},{ref["kpi_names"]},0)),"")')
             sm.put(r, 10, None, "calc_c", f=f'=IF(G{r}="","Not measured",IF(H{r}="","Measured",IF(I{r}="Min",'
@@ -666,7 +676,7 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         db.put(k0 + 1, bc, None, "head")
     S = "'KPI Summary'!"
     sA, sC, sG, sJ = (f"{S}${x}$4:${x}${LAST}" for x in "ACGJ")
-    for j, name in enumerate(KPI_ORDER):
+    for j, name in enumerate(display_order):
         rr = k0 + 2 + j
         db.put(rr, 2, name, "kpi")
         db.put(rr, 3, None, "calc", f=f'=IFERROR(IF(INDEX({ref["kpi_types"]},MATCH($B{rr},{ref["kpi_names"]},0))="Min","at least ","at most ")'

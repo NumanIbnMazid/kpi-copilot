@@ -69,14 +69,32 @@ validation and conditional colors remain part of both output models.
 | PMS payloads could be applied to the wrong selected scope | Check project/period ownership, reviewed input/payload digests, unresolved work and current sheet edits |
 | An incomplete replacement payload could erase unmeasured KPIs | Refuse incomplete sets pending live endpoint-contract acceptance |
 | Documentation advertised unattended approval bypasses and universal host support | One explicit approval rule and an honest runtime capability matrix |
+| Asana keys stored in a custom field were ignored | Honor the configured key field in API and signed-in export routes |
+| A raw export could belong to another project or lack history | Reject it before replacing the last board snapshot |
+| Explicit included-ticket exceptions were ignored | Apply configured inclusion exceptions before broad administrative exclusions |
+| Older clarification evidence disappeared from the review queue | Include relevant earlier comments, recent replies and omitted-comment counts |
+| Draft estimates and batch codes needed manual reshaping | Filter mapped rows by approval state and translate configured period codes; fail on unknown codes |
+| Subtask exclusions were invisible in the run summary | Report the skipped count and the setting that controls it |
+| Descendants outside direct project membership were missing | Expand configured Asana subtasks recursively, deduplicate them, and refuse incomplete raw exports |
+| Similar titles could match different numbered reports | Explicit keys are authoritative; conflicting report numbers cannot fuzzy-match |
+| Approved, estimated fixes were classified only as defects | Match approved additions before applying report categories |
+| Rejection decisions recorded only in comments were missed | Queue possible rejection language with its discussion for assistant review |
+| Several approved estimates shared one delivery card | Count each linked estimate separately and keep its review edits isolated |
+| Missing cards with explicit source keys disappeared from scope | Keep the planned row and ask for delivery evidence |
+| Child-card review omitted its parent's planned breakdown | Include parent context so duplicate implementation work can be judged in the same batch |
+| A delivery recorded on another board was absent from scope | Read explicitly configured linked tasks without scanning their other projects |
+| A local workbook could be reported as a completed Google update | Keep publishing visibly pending until the configured destination is updated |
+| First Google publication left dashboard references unresolved | Create all tabs before entering formulas that reference them |
+| A supported PMS name alias had no live workbook formula | Resolve formula identity through registry aliases while retaining the PMS display name |
 
 The eight-tool MCP bridge delegates to the existing CLI. It does not duplicate the engine,
 host credentials remotely, or introduce a second source of calculation truth.
 
 ## Verification
 
-- Required selftest: **268 checks passed**, including the nested **34-test audit regression
-  suite**. The nested suite is one of the 268 checks, not 34 additional independent checks.
+- Required selftest: **268 checks passed**, including the nested **51-test audit regression
+  suite** after the follow-up reader and mapping fixes.
+  The nested suite is one of the 268 checks, not additional independent checks.
   Formula evaluation is required; missing dependencies fail rather than silently skip.
 - Formula parity is checked against engine results, including an unresolved plan item and
   a historical calculation date. Both missing and zero effort are covered.
@@ -91,6 +109,11 @@ host credentials remotely, or introduce a second source of calculation truth.
   unknown-delivery mismatch; after repair, the dashboard showed the engine's 10 met,
   6 not met and 2 not measured outcomes. Error-marker wrappers were subsequently removed
   and covered by the required native-formula check.
+- A live Google Sheet was updated in place using the shipped writer's requests through
+  the host connector. Native cell read-back matched the generated inputs and engine KPI
+  values, with no formula errors after the first-publication and name-alias fixes. The
+  dashboard and long notes were inspected in the browser; an unrelated tab was retained.
+  This validates the writer and native calculation, not runtime OAuth or unattended access.
 - Setup/run skill metadata validates. Both release manifests move together to 2.1.0.
 - CI is configured for the full suite and MCP smoke test on Python 3.10 and 3.12.
   [Run 35528696666](https://github.com/NumanIbnMazid/kpi-copilot/actions/runs/35528696666)
@@ -100,11 +123,21 @@ host credentials remotely, or introduce a second source of calculation truth.
 
 ## Acceptance still outstanding
 
-[Live-provider acceptance](https://github.com/NumanIbnMazid/kpi-copilot/issues/9) is blocked
-on private runtime connections and designated disposable test destinations. Live Asana/Jira,
-OAuth refresh, Google write/read-back and PMS approved write behavior are not certified by
-mock tests or read-only interface inspection. PMS period ownership and replacement/concurrency
-contracts must be verified against the deployment. No production test write was attempted.
+[Live-provider acceptance](https://github.com/NumanIbnMazid/kpi-copilot/issues/9) has resumed
+within a privately authorized scope. The shipped Asana signed-in export and local import
+worked; connector-based source exports were read locally. Follow-up tests exposed and fixed
+the reader/configuration defects listed above. Private records and evidence stay outside
+the repository and its public discussions.
+
+Source approval and counting conventions have been clarified privately. The expanded
+signed-in export was saved and imported, and the assistant's batch decisions were retained
+on recomputation. Explicitly supplied task links resolved delivery records on another board
+without broadening the scan to that whole board. The end-to-end run is not yet accepted.
+Live Jira, OAuth refresh, unattended Google access, human-edit round trips through the
+runtime connection, and PMS approved write behavior remain outstanding. Browser/connector access does not
+automatically configure the Python runtime's Google/PMS credentials. PMS period ownership
+and replacement/concurrency contracts remain unverified. No production test write has been
+attempted; authorization alone is not delivery evidence.
 
 [Host acceptance and browser deployment](https://github.com/NumanIbnMazid/kpi-copilot/issues/10)
 tracks installation checks in individual AI clients. A browser code workspace can use exports;
@@ -115,6 +148,19 @@ Additional practical limits: do not run multiple writers on one profile; same-da
 a run folder unless a distinct label is supplied; source tables need explicit mappings; a
 PDF still needs one assistant digest after each change. User approval of a known completed
 period remains the final onboarding check.
+
+## Usability and speed follow-up
+
+[Start here](02-Start-Here.md) now follows the user's first session: choosing an assistant,
+checking logins, describing a workflow, reviewing the profile, preparing a workbook and
+deciding how to deliver. Installation commands live in [Technical setup](03-Prerequisites.md);
+the longer setup document is a short collection of prompts instead of a second field manual.
+
+[End-to-end performance](https://github.com/NumanIbnMazid/kpi-copilot/issues/12) is tracked
+separately from calculation speed. Normal refreshes should take minutes rather than a
+half-hour of card-by-card reading. First-time source reconciliation, assistant review and
+publishing must be measured as well as the command's processing time. No complete live
+workflow timing is certified yet.
 
 ## Research used
 

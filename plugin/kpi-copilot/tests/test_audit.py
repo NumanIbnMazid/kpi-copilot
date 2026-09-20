@@ -43,6 +43,214 @@ class AuditTests(unittest.TestCase):
     def ws(self):
         return kpi.Workspace(self.args)
 
+    def test_google_creates_all_tabs_before_writing_cross_tab_formulas(self):
+        dashboard, config = sheet_model.Tab('Dashboard'), sheet_model.Tab('Config')
+        dashboard.put(1, 1, f="='Config'!A1")
+        config.put(1, 1, 'Demo')
+        sent = []
+        class Session:
+            identity = 'test'
+            def call(self, method, url, body=None, params=None):
+                if method == 'GET':
+                    return {'properties': {'locale': 'en_US'}, 'sheets': []}
+                sent.extend(body['requests'])
+                return {}
+        sheet_google.publish([dashboard, config], {}, 'Demo', known_id='fictional-sheet', session=Session())
+        created = [i for i, r in enumerate(sent) if 'addSheet' in r]
+        writes = [i for i, r in enumerate(sent) if 'updateCells' in r]
+        self.assertEqual(len(created), 2)
+        self.assertLess(max(created), min(writes))
+
+    def test_asana_custom_key_matches_plan_and_overrides_title_reference(self):
+        api = adapter('asana')
+        task = {'gid': '1', 'name': 'Related to DEMO-9',
+                'custom_fields': [{'name': 'Ticket', 'display_value': 'DEMO-42'}]}
+        raw = {'project': {'gid': '77'}, 'tasks': [task], 'stories': {'1': []}}
+        snap = api.from_raw(raw, r'DEMO-\d+', key_field='Ticket')
+        self.assertEqual(snap['items'][0]['key'], 'DEMO-42')
+        self.assertEqual(api.item_from_task(task, '77', r'DEMO-\d+')['key'], 'DEMO-9')
+        c = classify.Classifier(snap, {}, {}, {'plan': {'items': [
+            {'board_key': 'DEMO-42', 'title': 'A different planning title', 'dev_hours': 4}
+        ]}}, None, '2026-09-18')
+        row, score = c.match_scope(snap['items'][0])
+        self.assertEqual((row['dev_hours'], score), (4, 1.0))
+
+    def test_asana_incomplete_history_is_refused_and_disabled_comments_not_claimed(self):
+        api = adapter('asana')
+        raw = {'project': {'gid': '77'}, 'tasks': [{'gid': '1', 'name': 'Demo'}]}
+        with self.assertRaisesRegex(board.ReaderError, 'missing task history'):
+            api.from_raw(raw)
+        raw['stories'] = {'1': []}
+        self.assertNotIn('comments', api.from_raw(raw, comments='never')['capabilities'])
+
+    def test_wrong_project_export_preserves_previous_board(self):
+        ws = self.ws()
+        ws.profile['tracker'] = {'adapter': 'asana'}
+        ws.project['tracker_ref'] = '77'
+        cache = ws.dir / 'cache' / 'board.json'
+        board.save(cache, self.snap)
+        before = cache.read_bytes()
+        raw = self.base / 'other-board.json'
+        raw.write_text(json.dumps({'project': {'gid': '88'}, 'tasks': [], 'stories': {}}))
+        args = SimpleNamespace(board=None, adapter=None, offline=False, from_raw=str(raw))
+        with self.assertRaisesRegex(SystemExit, 'different tracker project'):
+            kpi.get_board(ws, args, lambda *_: None)
+        self.assertEqual(cache.read_bytes(), before)
+
+    def test_source_mapping_filters_unapproved_rows_and_translates_periods(self):
+        self.assertEqual(str(sources._cell(10.0)), '10')
+        path = self.base / 'estimates.csv'
+        path.write_text('Item,Hours,Approval,Batch\nLogin,5,Approved,10\nSearch,8,Draft,99\n')
+        spec = {'columns': {'title': 'Item', 'dev_hours': 'Hours', 'approval': 'Approval', 'period': 'Batch'},
+                'where': {'approval': ['Approved']}, 'values': {'period': {10: 'Cycle A'}}}
+        rows, problem = sources.table(path, spec)
+        self.assertFalse(problem)
+        self.assertEqual([(r['title'], r['period']) for r in rows], [('Login', 'Cycle A')])
+        path.write_text(path.read_text() + 'Export,3,Approved,20\n')
+        rows, problem = sources.table(path, spec)
+        self.assertEqual(rows, [])
+        self.assertIn('unmapped value', problem)
+        spec['where']['missing_column'] = 'Yes'
+        self.assertIn('needs a column mapping', sources.table(path, spec)[1])
+
+    def test_explicit_included_key_overrides_admin_pattern_without_including_others(self):
+        profile = {'conventions': {'exclude_patterns': [r'^\[QA\]']},
+                   'custom_instructions': {'rule_overrides': [
+                       {'rule': 'include_key', 'value': 'DEMO-42 = CR', 'why': 'Approved testing deliverable'}]}}
+        c = classify.Classifier({}, profile, {}, {}, None, '2026-09-18')
+        self.assertEqual(c.nature({'title': '[QA] Release testing', 'key': 'DEMO-42'})[0]['value'], 'CR')
+        self.assertEqual(c.nature({'title': '[QA] Routine checklist', 'key': 'DEMO-43'})[0]['value'], 'Excluded')
+
+    def test_judge_context_keeps_early_clarification_and_recent_replies(self):
+        comments = [{'at': '2026-07-01', 'text': 'Please confirm which account type is intended.', 'url': 'demo:1'}]
+        comments += [{'at': '2026-09-01', 'text': 'Progress update', 'url': f'demo:{i}'} for i in range(2, 12)]
+        item = {'id': 'a', 'title': 'Demo', 'comments': comments, 'subtasks': 3}
+        c = classify.Classifier({'items': [item]}, {}, {}, {}, None, '2026-09-18')
+        c.queue = [{'item_id': 'a', 'field': 'understood', '_context': 'comments'}]
+        c._attach_context()
+        ctx = c.queue[0]['item']
+        self.assertEqual(ctx['comments'][0]['url'], 'demo:1')
+        self.assertEqual(ctx['comments'][-1]['url'], 'demo:11')
+        self.assertEqual(ctx['comments_omitted'], 4)
+        self.assertEqual(ctx['subtasks'], 3)
+
+    def test_approved_estimated_bug_fix_is_an_addition_with_its_hours(self):
+        c = classify.Classifier({}, {'conventions': {'defect_pattern': r'Bug \d+'}}, {},
+                                {'estimates': {'items': [{'board_key': 'DEMO-2', 'dev_hours': 5}]}},
+                                None, '2026-09-18')
+        nature, row = c.nature({'title': 'Bug 2: approved additional fix', 'key': 'DEMO-2'})
+        self.assertEqual(nature['value'], 'CR')
+        self.assertEqual(row['dev_hours'], 5)
+
+    def test_rejection_discussion_requires_judgement_and_retains_early_evidence(self):
+        for text in ('Closed as a non-issue.', 'This is not a non-issue; the bug needs fixing.'):
+            item = {'id': 'a', 'title': 'Bug 4: Missing result', 'created_at': '2026-09-01',
+                    'comments': [{'at': '2026-09-02', 'text': text, 'url': 'demo:decision'}] +
+                                [{'at': '2026-09-15', 'text': 'Update'} for _ in range(8)]}
+            c = classify.Classifier({'items': [item]}, {}, {},
+                                    {'periods': {'periods': [{'name': 'Cycle A'}]}}, None, '2026-09-18')
+            c.defect_row(item, classify.Proposal('Bug', 'Report', 1))
+            c._attach_context()
+            question = next(q for q in c.queue if q['field'] == 'rejected')
+            self.assertLess(question['confidence'], classify.SURE)
+            self.assertEqual(question['item']['comments'][0]['url'], 'demo:decision')
+
+    def test_scope_matching_never_fuzzes_conflicting_identifiers(self):
+        self.assertEqual(classify._similar('Bug 9: Login validation fails', 'Bug 19: Login validation fails'), 0)
+        c = classify.Classifier({}, {}, {}, {'plan': {'items': [
+            {'board_key': 'DEMO-1', 'title': 'Identical title', 'dev_hours': 5}]}}, None, '2026-09-18')
+        self.assertIsNone(c.match_scope({'id': '2', 'key': 'DEMO-2', 'title': 'Identical title'})[0])
+
+    def test_separate_estimates_on_one_delivery_card_are_counted_once_each(self):
+        item = {'id': 'a', 'key': 'DEMO-2', 'title': 'Combined delivery', 'created_at': '2026-09-01'}
+        facts = {'periods': {'periods': [{'name': 'Cycle A', 'start': '2026-09-01', 'end': '2026-09-30'}]},
+                 'estimates': {'items': [
+                     {'board_key': 'DEMO-2', 'title': 'Login', 'dev_hours': 3, 'period': 'Cycle A'},
+                     {'board_key': 'DEMO-2', 'title': 'Search', 'dev_hours': 7, 'period': 'Cycle A'}]}}
+        c = classify.Classifier({'items': [item]}, {}, {}, facts, None, '2026-09-18')
+        work = c.run()
+        self.assertEqual([(r['title'], r['hours_dev']) for r in work['tasks']], [('Login', 3), ('Search', 7)])
+        self.assertEqual(len({r['_row'] for r in work['tasks']}), 2)
+        self.assertFalse(any(q['id'].startswith('scope:') for q in c.questions))
+        stored = ledger.Ledger(self.base / 'estimate-ledger.json')
+        rows = {r['_row']: {'key': r['key'], 'title': r['title'], 'hours_dev': r['hours_dev'],
+                           'item': r['_row'], 'understood': r['understood']} for r in work['tasks']}
+        first, second = work['tasks']
+        fields = [(1, 'key', 'in'), (2, 'title', 'in'), (3, 'hours_dev', 'in'),
+                  (4, 'item', 'meta'), (5, 'understood', 'in')]
+        state = {'spec': {'Task Register': {'kind': 'rows', 'key': 'key', 'first': 1, 'fields': fields}},
+                 'values': {'Task Register': {'rows': rows}}}
+        cells = [[first['key'], first['title'], 9, first['_row'], 'No'],
+                 [second['key'], second['title'], 7, second['_row'], None]]
+        def grid(tab, r, col):
+            return cells[r - 1][col - 1]
+        grid.rows = lambda tab: 2
+        sheet_readback.fold(state, grid, stored, facts, {}, {'a': item})
+        facts['estimates']['items'].reverse()
+        refreshed = classify.Classifier({'items': [item]}, {}, {}, facts, stored, '2026-09-18').run()['tasks']
+        self.assertEqual({r['title']: r['hours_dev'] for r in refreshed}, {'Login': 9, 'Search': 7})
+        self.assertEqual(next(r for r in refreshed if r['title'] == 'Login')['understood'], 'No')
+        self.assertIsNone(next(r for r in refreshed if r['title'] == 'Search')['understood'])
+        facts['estimates']['items'].append(copy.deepcopy(facts['estimates']['items'][0]))
+        with self.assertRaisesRegex(ValueError, 'distinct titles'):
+            classify.Classifier({'items': [item]}, {}, {}, facts, stored, '2026-09-18').run()
+
+    def test_missing_explicit_source_key_stays_in_scope_and_asks_for_delivery(self):
+        facts = {'plan': {'items': [{'board_key': 'DEMO-404', 'title': 'Missing card', 'dev_hours': 4}]}}
+        c = classify.Classifier({'items': []}, {}, {}, facts, None, '2026-09-18')
+        work = c.run()
+        self.assertEqual(len(work['tasks']), 1)
+        self.assertEqual(work['tasks'][0]['hours_dev'], 4)
+        self.assertIsNone(work['tasks'][0]['delivered'])
+        self.assertTrue(any(q['id'].startswith('scope:') for q in c.questions))
+
+    def test_asana_expands_descendants_once_even_when_already_on_project(self):
+        api = adapter('asana')
+        rows = {'a': [{'gid': 'b', 'parent': {'gid': 'a'}, 'num_subtasks': 1}],
+                'b': [{'gid': 'c', 'parent': {'gid': 'b'}, 'num_subtasks': 0}]}
+        calls = []
+        class Client:
+            def pages(self, path, params):
+                calls.append(path)
+                return rows[path.split('/')[2]]
+        got = api.expand_subtasks(Client(), [{'gid': 'a', 'num_subtasks': 1},
+                                             {'gid': 'b', 'num_subtasks': 1}], workers=1)
+        self.assertEqual({t['gid'] for t in got}, {'a', 'b', 'c'})
+        self.assertEqual(sorted(calls), ['/tasks/a/subtasks', '/tasks/b/subtasks'])
+
+    def test_asana_linked_tasks_are_explicit_deduplicated_and_bounded(self):
+        api = adapter('asana')
+        calls = []
+        class Client:
+            def get(self, path, params):
+                calls.append(path)
+                return {'data': {'gid': path.rsplit('/', 1)[1], 'name': 'External deliverable'}}
+        got = api.add_linked_tasks(Client(), [{'gid': '1'}], ['1', '2', '2'])
+        self.assertEqual(calls, ['/tasks/2'])
+        self.assertEqual({t['gid'] for t in got}, {'1', '2'})
+        with self.assertRaises(api.AsanaError):
+            api.add_linked_tasks(Client(), [], ['../projects/other'])
+        task = {'gid': '2', 'memberships': [{'project': {'gid': '88'}, 'section': {'name': 'Closed'}}]}
+        self.assertIsNone(api.item_from_task(task, '77', None)['section'])
+        self.assertEqual(api.item_from_task(task, '77', None, linked=True)['section'], 'Closed')
+        task['memberships'].append({'project': {'gid': '99'}, 'section': {'name': 'In Progress'}})
+        self.assertIsNone(api.item_from_task(task, '77', None, linked=True)['section'])
+
+    def test_source_override_is_scoped_and_requires_a_reason(self):
+        path = self.base / 'estimates.csv'
+        path.write_text('Item,Approval,Batch\nLogin,Pending,10\nSearch,Pending,20\n')
+        spec = {'columns': {'title': 'Item', 'approval': 'Approval', 'period': 'Batch'},
+                'where': {'approval': ['Approved']},
+                'overrides': [{'match': {'period': 10}, 'set': {'approval': 'Approved', 'board_key': 'DEMO-2'},
+                               'why': 'Lead confirmed this batch'}]}
+        rows, problem = sources.table(path, spec)
+        self.assertFalse(problem)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual((rows[0]['title'], rows[0]['board_key']), ('Login', 'DEMO-2'))
+        self.assertEqual(rows[0]['mapping_reason'], 'Lead confirmed this batch')
+        spec['overrides'][0].pop('why')
+        self.assertIn('needs match fields and a reason', sources.table(path, spec)[1])
+
     def test_configured_registry_is_used_by_engine_and_sheet(self):
         reg = json.loads(kpi_registry.DEFAULT.read_text())
         reg['source'] = 'pms'
@@ -349,6 +557,22 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(actual,None if expected is None else round(expected,2),f'{period}: {name}')
         self.assertFalse(any('TODAY()' in str(c.value) for sh in load_workbook(book) for row in sh for c in row))
 
+    def test_registry_name_aliases_keep_live_formulas_and_dashboard_labels(self):
+        registry = json.loads(kpi_registry.DEFAULT.read_text())
+        aliases = {'Defect Rejection Rate': 'Rejection Rate', 'CR Rate': 'Change Request Rate'}
+        for metric in registry['kpis']:
+            metric['name'] = aliases.get(metric['name'], metric['name'])
+        (self.profile.parent / 'aliases.json').write_text(json.dumps(registry))
+        self.profile_data['organization']['kpi_registry'] = 'aliases.json'
+        self.profile.write_text(yaml.safe_dump(self.profile_data))
+        self.test_unresolved_plan_workbook_matches_engine_including_future_dates()
+        book = load_workbook(next((self.profile.parent / 'northwind-q3').glob('KPI Tracker*.xlsx')))
+        names = [c.value for row in book['Dashboard'] for c in row if c.column == 2]
+        for name in aliases.values():
+            self.assertIn(name, names)
+            row = next(row for row in book['Config'] if row[1].value == name)
+            self.assertTrue(row[7].value)
+
     def test_rerun_without_period_facts_preserves_missing_period_question(self):
         (self.profile.parent/'northwind-q3/facts/periods.yaml').unlink(missing_ok=True)
         args=['run','--profile',str(self.profile),'--project','northwind-q3','--board',str(self.profile.parent/'board.json'),'--offline']
@@ -357,6 +581,19 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(kpi.main(args),0)
         nxt=json.loads((self.profile.parent/'northwind-q3/next.json').read_text())
         self.assertTrue(any(q['id']=='periods' for q in nxt['questions']))
+
+    def test_first_google_run_cannot_claim_published_when_only_local_file_exists(self):
+        self.profile_data['output']['workbook'] = 'google-sheets'
+        self.profile_data['output']['workbook_file'] = 'fictional-sheet-id'
+        self.profile.write_text(yaml.safe_dump(self.profile_data))
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(kpi.main(['run', '--profile', str(self.profile), '--project', 'northwind-q3',
+                                      '--board', str(self.profile.parent/'board.json'), '--offline']), 0)
+        nxt = json.loads((self.profile.parent/'northwind-q3/next.json').read_text())
+        self.assertTrue(nxt['sheet_pending'])
+        self.assertIn('configured Google Sheet has not been updated', output.getvalue())
+        self.assertNotIn('Nothing. The sheet is up to date.', output.getvalue())
 
     def test_pms_readback_mismatch_is_a_failure(self):
         import os

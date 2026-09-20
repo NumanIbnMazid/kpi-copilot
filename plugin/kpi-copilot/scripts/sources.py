@@ -136,6 +136,8 @@ def pull(profile: dict, project_dir: Path, base_dir: Path, offline: bool = False
 def _cell(v: Any) -> Any:
     if isinstance(v, (datetime, date)):
         return v.isoformat()[:10]
+    if isinstance(v, float) and v.is_integer():
+        return int(v)  # Sheet exports often store identifier 10 as 10.0.
     if isinstance(v, str):
         return v.strip()
     return v
@@ -177,6 +179,14 @@ def table(path: Path, spec: dict) -> tuple[list[dict], str]:
     cols: dict[str, str] = spec.get("columns") or {}
     if not cols:
         return [], "the mapping names no columns"
+    rule_fields = set(spec.get("where") or {}) | set(spec.get("values") or {})
+    for override in spec.get("overrides") or []:
+        if not override.get("match") or not override.get("why"):
+            return [], "a row override needs match fields and a reason"
+        rule_fields |= set(override["match"])
+    for field in rule_fields:
+        if field not in cols:
+            return [], f"mapping rule for '{field}' needs a column mapping first"
     tabs = read_tables(path)
     if not tabs:
         return [], f"{Path(path).name} is not a spreadsheet, so it has no tables to map"
@@ -188,13 +198,31 @@ def table(path: Path, spec: dict) -> tuple[list[dict], str]:
         if not found:
             continue
         hrow, idx = found
+        missing = [h for h in cols.values() if h not in idx]
+        if missing:
+            return [], f"column(s) not found in '{name}': {', '.join(missing)}"
         out = []
         for row in tabs[name][hrow + 1:]:
             rec = {f: (row[idx[h]] if h in idx and idx[h] < len(row) else None) for f, h in cols.items()}
-            if any(v not in (None, "") for v in rec.values()):
-                out.append(rec)
-        missing = [h for h in cols.values() if h not in idx]
-        return out, (f"column(s) not found in '{name}': {', '.join(missing)}" if missing else "")
+            if not any(v not in (None, "") for v in rec.values()):
+                continue
+            for override in spec.get("overrides") or []:
+                if all(B.norm(str(rec.get(field) if rec.get(field) is not None else "")) == B.norm(str(value))
+                       for field, value in override["match"].items()):
+                    rec.update(override.get("set") or {})
+                    rec["mapping_reason"] = override["why"]
+            if any(B.norm(str(rec.get(field) if rec.get(field) is not None else "")) not in
+                   {B.norm(str(v)) for v in (allowed if isinstance(allowed, list) else [allowed])}
+                   for field, allowed in (spec.get("where") or {}).items()):
+                continue
+            for field, choices in (spec.get("values") or {}).items():
+                lookup = {B.norm(str(k)): v for k, v in choices.items()}
+                key = B.norm(str(rec.get(field) if rec.get(field) is not None else ""))
+                if key not in lookup:
+                    return [], f"'{name}' has an unmapped value for '{field}'; add it to map.values before running"
+                rec[field] = lookup[key]
+            out.append(rec)
+        return out, ""
     return [], f"no tab has the headers {', '.join(list(cols.values())[:4])}..."
 
 

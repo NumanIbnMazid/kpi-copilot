@@ -1,4 +1,7 @@
-# Prerequisites and assistant connections
+# Technical setup and assistant connections
+
+For the user journey and prompts, start with [Your first KPI run](02-Start-Here.md).
+This document is for the assistant or administrator installing and operating the runner.
 
 An assistant needs a runtime that can execute the shared pipeline. A browser login alone
 is not an execution environment. No specific AI subscription is required by this project.
@@ -96,3 +99,41 @@ Never test write permission by changing production KPIs.
 
 Schedules may prepare drafts. They do not supply the conversation approval needed to push.
 Legacy `auto-push` and `unattended` settings never waive that requirement.
+
+## Operator reference: create a profile and run the pipeline
+
+This section is for the assistant or administrator carrying out the conversation in
+[Your first KPI run](02-Start-Here.md). Run commands from the repository root using the
+installed environment. Replace the example private path and project ID.
+
+Create the short profile, then fill it from the setup conversation and observed sources:
+
+```bash
+.venv/bin/python plugin/kpi-copilot/scripts/profile_tool.py init --out /private/kpi/profile.yaml
+```
+
+Use the full template only when advanced settings are needed. Shared settings can be
+inherited by multiple projects; put only differences on individual projects. Record the
+counting unit, approved additions, parent/subtask treatment, delivery and closure events,
+and expected versus actual dates before accepting a known-period result.
+
+For source tables, map columns once; use approval filters and period translations where
+needed. For documents, digest once and retain the source fingerprint. See the
+[facts reference](../plugin/kpi-copilot/skills/kpi-run/references/facts.md).
+
+```bash
+.venv/bin/python plugin/kpi-copilot/scripts/kpi.py run --profile /private/kpi/profile.yaml --project my-project
+.venv/bin/python plugin/kpi-copilot/scripts/kpi.py judge --profile /private/kpi/profile.yaml --project my-project
+.venv/bin/python plugin/kpi-copilot/scripts/kpi.py push --profile /private/kpi/profile.yaml --project my-project
+```
+
+Run `judge` only after writing the one batch answer file requested by NEXT. `push` previews;
+`--apply` is a separate, explicitly approved operation. Do not refetch the tracker just to
+apply a judgement: `judge` recomputes from the existing snapshot. Keep a draft with unresolved
+questions visibly distinct from approved results.
+
+Measure the whole interaction: initial acquisition, assistant review, source correction,
+workbook publication and verified delivery. The printed pipeline timings cover only the
+command's work. Separate waiting for a person's answer from processing time, and disclose
+both. Record cold-read and unchanged-rerun measurements; a seconds-long synthetic calculation
+cannot establish a minutes-long live experience.

@@ -1070,8 +1070,9 @@ def pipeline_tests(tmp: Path) -> None:
     r = run(base + ["--board", str(ws / "board.json")], env=env)
     check("asked for a Google Sheet with Google not connected: the local sheet is still written",
           r.returncode == 0 and next(proj.glob("KPI Tracker - *.xlsx")).exists())
-    check("...and the run says exactly what to do about it, including the no-credential route",
-          "Google Sheet not updated" in r.stdout and "kpi.py auth google" in r.stdout and "Replace spreadsheet" in r.stdout, r.stdout[-900:])
+    check("...and offers connection or local review without replacing unrelated spreadsheet tabs",
+          "Google Sheet not updated" in r.stdout and "kpi.py auth google" in r.stdout
+          and "choose local workbook output" in r.stdout and "Replace spreadsheet" not in r.stdout, r.stdout[-900:])
 
     print("\nSources: those on the list, and no others")
     import sources as S
