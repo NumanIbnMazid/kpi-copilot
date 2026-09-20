@@ -71,7 +71,7 @@ class Client:
         self.base = self.site
         if cred.get("cloud"):                          # a browser sign-in talks to Atlassian's gateway
             sites = self._call("GET", "https://api.atlassian.com/oauth/token/accessible-resources")
-            hit = next((s for s in sites if s.get("url", "").rstrip("/") == self.site), sites[0] if sites else None)
+            hit = next((s for s in sites if s.get("url", "").rstrip("/") == self.site), None)
             if not hit:
                 raise B.ReaderError("The browser sign-in did not grant access to any Jira site. Sign in again and pick the site.")
             self.base = f"https://api.atlassian.com/ex/jira/{hit['id']}"
@@ -163,7 +163,7 @@ def _who(node: dict | None) -> str | None:
 
 def item_from_issue(issue: dict, site: str, sp_field: str | None, sp_name: str, est_name: str) -> dict:
     f = issue.get("fields") or {}
-    histories = (issue.get("changelog") or {}).get("histories") or issue.get("_histories") or []
+    histories = issue.get("_histories") if "_histories" in issue else (issue.get("changelog") or {}).get("histories") or []
     events = []
     for h in histories:
         for ch in h.get("items") or []:
@@ -227,10 +227,8 @@ def read(project: dict, profile: dict, cache: dict | None, progress=None) -> dic
     sp_field = client.field_id(sp_name)
 
     old = {i["id"]: i for i in (cache or {}).get("items") or []} if (cache or {}).get("project_ref") == (opts.get("jql") or ref) else {}
-    if old and (cache or {}).get("fetched_at"):
-        # A day's margin, because JQL reads this in the account's time zone, not UTC.
-        since = (datetime.fromisoformat(cache["fetched_at"]) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M")
-        jql = f'({jql}) AND updated >= "{since}"'
+    # Reconcile current membership: a deleted issue or an issue moved out of the JQL result
+    # cannot be removed from a cache by a modified-since query alone.
     issues = client.search(jql + " ORDER BY updated DESC", FIELDS + ([sp_field] if sp_field else []))
     fresh = {}
     for issue in issues:
@@ -242,7 +240,7 @@ def read(project: dict, profile: dict, cache: dict | None, progress=None) -> dic
             issue["_comments"] = client.rest(issue["key"], "comment")
         it = item_from_issue(issue, site, sp_field, sp_name, est_name)
         fresh[it["id"]] = it
-    items = list({**old, **fresh}.values())
+    items = list(fresh.values())
     say(f"{len(items)} issues; {len(fresh)} read now, {len(items) - len(fresh)} unchanged and reused")
     return _board(items, opts.get("jql") or ref, site, project.get("name") or ref,
                   {"requests": client.requests, "refreshed": len(fresh), "reused": len(items) - len(fresh)})

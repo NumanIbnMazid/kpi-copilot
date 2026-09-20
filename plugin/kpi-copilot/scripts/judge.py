@@ -90,7 +90,8 @@ def build_queue(work: dict, results: dict | None, facts: dict, project_dir: Path
             g["item"].setdefault(k, v)
         g["asks"].append({k: q[k] for k in ("field", "question", "options", "proposal", "because",
                                             "confidence", "previously") if q.get(k) is not None})
-    notes = _notes_needed(results, facts) if results else []
+    notes = [n for n in _notes_needed(results, facts)
+             if f"{n['period']}|{n['kpi']}" not in ((facts.get("reasons") or {}).get("_questions") or {})] if results else []
     used = sorted({a["field"] for g in grouped.values() for a in g["asks"]} | ({"reasons"} if notes else set()))
     answers = project_dir / "judge" / "answers.json"
     return {
@@ -107,7 +108,8 @@ def build_queue(work: dict, results: dict | None, facts: dict, project_dir: Path
         "answer_shape": {
             "answers": [{"item_id": "<from items[]>", "field": "<from asks[]>", "value": "<one of options>",
                          "why": "<one sentence>", "evidence": "<url from the context, or null>"}],
-            "reasons": [{"period": "<period>", "kpi": "<kpi name>", "why": "<the note's why, 1-3 sentences>"}]},
+            "reasons": [{"period": "<period>", "kpi": "<kpi name>", "why": "<1-3 sentences, or null>",
+                         "missing": "<when why is null, what the person needs to explain>"}]},
         "items": list(grouped.values()),
         "notes": notes,
     }
@@ -164,7 +166,13 @@ def apply_answers(answers_path: Path, board: dict, ledger, facts: dict, period_n
             refused.append(f"{label}: '{field}' is not a field that can be judged")
             continue
         if value is None:
-            unsure.append(f"{label} · {field}: {a.get('why') or 'not enough to decide'}")
+            why = (a.get("why") or "").strip()
+            if not why:
+                refused.append(f"{label} · {field}: an undecidable answer also needs a 'why'")
+                continue
+            ledger.set(iid, "deferred:" + field, why, by, why, fingerprint=B.fingerprint(it),
+                       key=it.get("key"), title=it.get("title"))
+            unsure.append(f"{label} · {field}: {why}")
             continue
         allowed = period_names if field == "period" else FIELDS[field]
         if value not in allowed:
@@ -175,6 +183,8 @@ def apply_answers(answers_path: Path, board: dict, ledger, facts: dict, period_n
             continue
         ok = ledger.set(iid, field, value, by, a["why"].strip(), evidence=a.get("evidence"),
                         fingerprint=B.fingerprint(it), key=it.get("key"), title=it.get("title"), who=who)
+        if ok:
+            ledger.forget(iid, "deferred:" + field)
         (applied if ok else refused).append(
             f"{label} · {field} = {value}" if ok else f"{label} · {field}: a person already answered this; left alone")
 
@@ -183,6 +193,10 @@ def apply_answers(answers_path: Path, board: dict, ledger, facts: dict, period_n
     n = 0
     for r in doc.get("reasons") or []:
         per, kpi, why = r.get("period"), r.get("kpi"), (r.get("why") or "").strip()
+        if per in period_names and kpi and r.get("why") is None and r.get("missing"):
+            reasons.setdefault("_questions", {})[f"{per}|{kpi}"] = str(r['missing']).strip()
+            unsure.append(f"{per} · {kpi}: {r['missing']}")
+            continue
         if per not in period_names or not kpi or not why:
             refused.append(f"reason for {per} · {kpi}: needs a known period, a KPI name and some text")
             continue
@@ -191,6 +205,7 @@ def apply_answers(answers_path: Path, board: dict, ledger, facts: dict, period_n
             refused.append(f"reason for {per} · {kpi}: a person wrote this one; left alone")
             continue
         reasons.setdefault(per, {})[kpi] = why
+        reasons.setdefault("_questions", {}).pop(tag, None)
         authors[tag] = by
         n += 1
     return {"applied": applied, "refused": refused, "reasons": n, "unsure": unsure}

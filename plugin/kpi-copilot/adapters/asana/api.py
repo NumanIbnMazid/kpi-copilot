@@ -217,7 +217,8 @@ def snapshot(project_gid: str, token: str, cache: dict | None = None, *, key_pat
     say(f"{len(tasks)} cards listed")
 
     old = {i["id"]: i for i in ((cache or {}).get("items") or [])
-           if (cache or {}).get("project_ref") == project_gid}
+           if (cache or {}).get("project_ref") == project_gid
+           and (comments == "never" or "comments" in (cache or {}).get("capabilities", []))}
     items, stale = [], []
     for t in tasks:
         it = item_from_task(t, project_gid, key_pattern)

@@ -50,22 +50,15 @@ No. Adapters are read-only. Not a label, not a comment.
 
 ### Will it push to PMS without asking?
 
-Only if you deliberately set `mode: auto-push` **and** `unattended: true`, which is meant for
-scheduled runs. The shipped default shows you a diff and asks. Approval is per run — a yes for
-one period never carries to the next.
+No. An explicit yes in the current conversation is required for the reviewed payload.
+Schedules may prepare drafts. Legacy automatic settings do not supply approval.
 
-### Why did a run take half an hour? It should be seconds.
+### Why did a run take half an hour?
 
-It should, and now it is. The arithmetic was always a fraction of a second. The time went on
-an assistant doing by hand what no script did: reading the board card by card in a browser,
-carrying the plan and two spreadsheets through the conversation, judging every card from
-scratch, then building a sheet. The tool now does all of that itself - the board through its
-API straight to disk (only changed cards on a rerun), sources fetched only when they change,
-one batch of calls for the assistant, the sheet written directly.
-
-The last line of every run shows where the time went. If those numbers are small and the run
-still felt slow, the assistant went wandering: tell it to "just run the command and read
-NEXT". `AGENTS.md` says the same thing to it.
+The pipeline avoids manual card-by-card reading: it fetches data to disk, caches evidence,
+and batches unresolved judgements. Every run prints timings. First reads, provider rate
+limits, source digestion and review still take time. Use those measurements to identify the
+bottleneck; do not assume a slow run is the user's or assistant's fault.
 
 ### It counted a bug as ours because somebody typed "[Exisiting]". Seriously?
 
@@ -147,22 +140,9 @@ Full list with symptoms: `skills/kpi-run/references/troubleshooting.md`.
 
 ### Can I change a threshold? Our integration project cannot hit 15% defect rate.
 
-Yes — in PMS, where thresholds are configurable per project. That is the right place for it,
-and a legitimate thing to want: an integration over a legacy surface should not be held to a
-greenfield defect rate.
-
-Set it on the project in PMS. The next run reads it, scores against it, marks it with an
-asterisk and prints "Target set in PMS for project 101, not the PMS default", so anyone
-comparing two projects can see the bar differed and that PMS is what made it differ.
-
-What the profile will not do is hold a second copy of the target. That is the one thing
-refused, and not out of purism: a target in a config file is how a workbook ends up saying
-"Met" while PMS says "Not met" for the same number, and you are the one who has to explain the
-gap. The refusal says exactly where to set it instead.
-
-What genuinely does not vary is the **counting** — what delivered, defect and rework mean.
-PMS does not define those; we do, and they are the reason two projects' numbers can be
-compared at all.
+Yes. Use project targets in PMS for official reporting, or explicit local review targets
+with a reason in the profile. Local targets are labelled and prevent PMS submission until
+reconciled. See [project targets](05-Adapting-To-Your-Workflow.md#project-targets).
 
 ### But I do have project facts the defaults get wrong.
 
@@ -252,14 +232,14 @@ cleanly; rerun it later against the same payload file.
 
 ### Can I run it on a schedule?
 
-Yes. `/schedule create "Prepare KPIs for Acme every second Friday at 9am"`. In
-`assisted-push` it prepares everything and waits for you. Only `auto-push` with `unattended`
-writes on its own, and it still logs every change and reads back every value.
+Yes, using your assistant or operating system scheduler to prepare drafts. Scheduling
+support varies by host. Review and approve a fresh preview before any PMS submission.
 
 ### How do I know what it did three months ago?
 
-`<project>/runs/<date>/` keeps the extract, the results, the payload and the push log for every run.
-When two runs disagree, diff the two extracts — the change is in the input, not in the engine.
+`<project>/runs/<date>/` stores the extract, results, payload and push log. Same-day reruns
+reuse that folder; use distinct `--date` labels for separate snapshots. It is a working
+record, not an immutable audit archive. Preserve reviewed snapshots under your retention policy.
 
 ### Someone questions a number in a review. What do I show them?
 

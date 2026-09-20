@@ -156,8 +156,8 @@
         "properties": {
           "name": {
             "type": "string",
-            "maxLength": 25,
-            "description": "PMS enforces 25 characters."
+            "minLength": 1,
+            "description": "Stable period name. PMS length limits are checked before delivery, never by truncating join keys."
           },
           "old_name": {
             "type": [

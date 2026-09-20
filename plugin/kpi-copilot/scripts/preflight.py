@@ -19,7 +19,7 @@ need to know who to ask.
 Usage:
     python3 preflight.py --profile profile.yaml [--state preflight.json]
                          [--markdown checklist.md] [--json] [--strict]
-    python3 preflight.py --profile profile.yaml --confirm browser-signed-in --by "Numan"
+    python3 preflight.py --profile profile.yaml --confirm browser-signed-in --by "Project Lead"
     python3 preflight.py --profile profile.yaml --fail pms-api-reachable --why "403 from /api"
 """
 
@@ -247,8 +247,9 @@ def build_checks(profile: dict | None, profile_path: Path | None,
         _now(),
     ))
 
-    reg_path = PLUGIN_ROOT / "schemas" / (org.get("kpi_registry") or "kpi_registry.json")
-    reg_fresh = reg_path.exists()
+    from kpi_registry import resolve_path, DEFAULT
+    reg_path = resolve_path(profile_path, p)
+    reg_fresh = reg_path != DEFAULT and reg_path.exists()
     reg_detail = "synced from PMS" if reg_fresh else "using the bundled fallback from Sept 2026"
     add(Check(
         "kpi-registry", "Configuration", "KPI definitions synced from PMS",

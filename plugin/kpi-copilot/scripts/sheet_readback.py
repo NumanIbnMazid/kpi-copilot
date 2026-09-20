@@ -119,8 +119,8 @@ def save_state(path: Path, state: dict) -> None:
 def load_state(path: Path) -> dict | None:
     try:
         return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
-    except (OSError, json.JSONDecodeError):
-        return None
+    except (OSError, json.JSONDecodeError) as e:
+        raise SystemExit(f"Cannot read sheet baseline {path}. Restore it before refreshing the review sheet: {e}") from e
 
 
 def _same(a: Any, b: Any) -> bool:
@@ -164,12 +164,14 @@ def fold(state: dict, grid: Grid, ledger, facts: dict, manual: dict, board_items
             s["rules"] = {k: tuple(v) for k, v in (s.get("rules") or {}).items()}
         return s
 
+    # Read every tab before accepting any edit. A partial read must not become a new baseline.
+    current = {}
+    for tab in state.get("values") or {}:
+        if getattr(grid, "rows", lambda _: 1)(tab) == 0:
+            raise ValueError(f"Review tab '{tab}' is missing or empty; restore it before refreshing")
+        current[tab] = _read(tab, spec_of(tab), grid)
     for tab, before in (state.get("values") or {}).items():
-        try:
-            now = _read(tab, spec_of(tab), grid)
-        except Exception as e:  # noqa: BLE001 - one unreadable tab must not lose the others' edits
-            said.append(f"{tab}: could not be read back ({e})")
-            continue
+        now = current[tab]
 
         if tab == "Config":
             proj = facts.setdefault("periods", {}).setdefault("project", {})
@@ -214,11 +216,23 @@ def fold(state: dict, grid: Grid, ledger, facts: dict, manual: dict, board_items
 
         if tab == "Periods":
             plist = facts.setdefault("periods", {}).setdefault("periods", [])
+            prior_by_name = {v.get("name"): v for v in before["rows"].values() if v.get("name")}
+            names_now = [v.get("name") for v in now["rows"].values()]
+            if len(names_now) != len(set(names_now)) or any(not n for n in names_now):
+                raise ValueError("Periods need unique, non-empty names before refreshing")
             for rid, rec in now["rows"].items():
-                old = before["rows"].get(rid) or {}
-                i = int(rid[1:]) - 1
-                while len(plist) <= i:
-                    plist.append({})
+                old = prior_by_name.get(rec.get("name")) or before["rows"].get(rid) or {}
+                changed = {k: v for k, v in rec.items() if not _same(v, old.get(k))}
+                if not changed:
+                    continue
+                target = next((p for p in plist if p.get("name") == rec.get("name")), None)
+                if target is None and old.get("name") not in names_now:
+                    target = next((p for p in plist if p.get("name") == old.get("name")), None)
+                if target is None:
+                    target = {k: _iso(v) for k, v in old.items() if v is not None}
+                    target["name"] = rec["name"]
+                    plist.append(target)
+                i = next(j for j, p in enumerate(plist) if p is target)
                 for k, v in rec.items():
                     if k in ("key", "title", "item") or _same(v, old.get(k)):
                         continue
@@ -270,6 +284,23 @@ def fold(state: dict, grid: Grid, ledger, facts: dict, manual: dict, board_items
 def _file_answer(qid: str, answer: Any, ledger, facts: dict) -> None:
     """An answer on the Open Questions tab goes where that fact lives."""
     iso = _iso(answer)
+    if qid.startswith("reason:"):
+        per, name = qid[7:].split("|", 1)
+        reasons = facts.setdefault("reasons", {})
+        reasons.setdefault(per, {})[name] = str(answer).strip()
+        reasons.setdefault("_authors", {})[qid[7:]] = "human"
+        reasons.setdefault("_questions", {}).pop(qid[7:], None)
+        return
+    if qid.startswith("judge:"):
+        import judge
+        item_id, field = qid[6:].rsplit(":", 1)
+        allowed = ([p["name"] for p in (facts.get("periods") or {}).get("periods") or []]
+                   if field == "period" else judge.FIELDS.get(field))
+        if not allowed or answer not in allowed:
+            raise ValueError(f"{qid}: choose one of {', '.join(allowed or [])}")
+        ledger.set(item_id, field, answer, "human", "Answered the open question")
+        ledger.forget(item_id, "deferred:" + field)
+        return
     is_date = isinstance(iso, str) and len(iso) == 10 and iso[4] == "-" and iso[7] == "-"
     if qid.startswith("handover:") and is_date:
         for p in (facts.get("periods") or {}).get("periods") or []:

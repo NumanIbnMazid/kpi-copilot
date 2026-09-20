@@ -36,6 +36,7 @@ import argparse
 import contextlib
 import datetime as dt
 import getpass
+import hashlib
 import importlib.util
 import io
 import json
@@ -113,9 +114,17 @@ class Workspace:
             raise SystemExit(f"No profile at {self.profile_path}. Pass --profile, or set KPI_PROFILE. "
                              f"No profile yet? The kpi-setup skill (or docs/02-Start-Here.md) makes one.")
         self.raw = load_profile(self.profile_path)
+        from profile_tool import validate
+        code, validation = _quiet(validate, self.profile_path)
+        if code:
+            raise SystemExit("Profile needs correction before running:\n" + validation)
         self.profile, self.project = resolve(self.raw, args.project)
         self.pid = self.project.get("id") or args.project or "project"
         self.base = self.profile_path.parent
+        from kpi_registry import resolve_path
+        self.registry_path = resolve_path(self.profile_path, self.profile)
+        if Path(self.pid).name != self.pid or self.pid in (".", ".."):
+            raise SystemExit("Project id must be a single folder name, not a path.")
         self.dir = self.base / self.pid
         self.dir.mkdir(parents=True, exist_ok=True)
         self.ledger = Ledger(self.dir / "ledger.json")
@@ -124,7 +133,12 @@ class Workspace:
         self.manual = _yaml_load(self.dir / "manual.yaml")
         self._adopt_old_reasons()
         self.today = getattr(args, "today", None) or dt.date.today().isoformat()
-        self.run_dir = self.dir / "runs" / (getattr(args, "date", None) or self.today)
+        run_label = getattr(args, "date", None) or self.today
+        if Path(run_label).name != run_label or run_label in (".", ".."):
+            raise SystemExit("Run date must be a single folder label, not a path.")
+        self.run_dir = self.dir / "runs" / run_label
+        self.preserve_sheet = False
+        self.previous_sheet_state = None
 
     def _adopt_old_reasons(self) -> None:
         """Earlier versions kept reasons, and sometimes a hand-made plan breakdown, beside the
@@ -181,21 +195,27 @@ def read_back(ws: Workspace, board_items: dict, args) -> list[str]:
     """Whatever a person typed into the last sheet, filed before anything is rebuilt."""
     import sheet_readback as R
     state = R.load_state(ws.dir / "sheet_state.json")
+    ws.previous_sheet_state = state
     if not state:
         return []
     dest = state.get("destination") or {}
     try:
-        if dest.get("kind") == "google" and not args.offline and G.how_signed_in():
+        if dest.get("kind") == "google":
+            if args.offline or not G.how_signed_in():
+                ws.preserve_sheet = True
+                return ["The Google review sheet could not be read. Its link and edit baseline are preserved; "
+                        "this run writes a separate local preview. Reconnect Google and run again to merge edits."]
             import sheet_google
             grid = sheet_google.read_grid(dest["id"], list(state["values"]))
         elif dest.get("path") and Path(dest["path"]).exists():
             import sheet_xlsx
             grid = sheet_xlsx.read_grid(Path(dest["path"]))
         else:
-            return []
+            raise ValueError("the previous review workbook is missing")
         return R.fold(state, grid, ws.ledger, ws.facts, ws.manual, board_items, who=args.by or "")
-    except Exception as e:  # noqa: BLE001 - never lose a run because the old sheet is unreadable
-        return [f"The previous sheet could not be read back ({e}). Edits made in it were not picked up."]
+    except Exception as e:
+        raise SystemExit(f"The review sheet could not be read ({e}). Nothing will overwrite it. "
+                         "Restore access or repair the workbook, then run again.") from e
 
 
 def reader_for(adapter: str):
@@ -273,6 +293,7 @@ def compute(ws: Workspace, kif_path: Path) -> dict:
     argv = ["--kif", str(kif_path), "--profile", str(ws.profile_path), "--project", ws.pid,
             "--out", str(ws.run_dir / "results.json"), "--markdown", str(ws.run_dir / "report.md"),
             "--payloads", str(ws.run_dir / "payloads.json"), "--reasons", str(reasons_path)]
+    argv += ["--registry", str(ws.registry_path)]
     if ws.manual:
         _yaml_dump(ws.dir / "manual.yaml", ws.manual)
         argv += ["--manual", str(ws.dir / "manual.yaml")]
@@ -312,6 +333,8 @@ def publish(ws: Workspace, kif: dict, results: dict, ctx: dict, args) -> tuple[d
     safe = "".join(ch if ch.isalnum() or ch in " -_()[]" else " " for ch in ws.name).strip()
     title = (out_cfg.get("workbook_name") or "[KPI Tracker] {project}").replace("{project}", ws.name)
     local = ws.dir / f"KPI Tracker - {safe}.xlsx"
+    if ws.preserve_sheet:
+        local = ws.run_dir / f"Preview - {safe}.xlsx"
     try:
         sheet_xlsx.write(tabs, local)
     except PermissionError:
@@ -324,14 +347,14 @@ def publish(ws: Workspace, kif: dict, results: dict, ctx: dict, args) -> tuple[d
 
     wants_google = (out_cfg.get("workbook") == "google-sheets" or out_cfg.get("workbook_file")
                     or out_cfg.get("workbook_location")) and out_cfg.get("workbook") != "xlsx"
-    if wants_google and not args.no_publish and not args.offline:
+    if wants_google and not args.no_publish and not args.offline and not ws.preserve_sheet:
         if not G.how_signed_in():
             said.append("Google Sheet not updated: " + G.NOT_SIGNED_IN + " Until then: open the Google Sheet, "
                         "File > Import > Upload the .xlsx above > Replace spreadsheet. The link stays the same.")
         else:
             try:
                 import sheet_google
-                prev = (R.load_state(ws.dir / "sheet_state.json") or {}).get("destination") or {}
+                prev = (ws.previous_sheet_state or {}).get("destination") or {}
                 g = sheet_google.publish(tabs, out_cfg, title, prev.get("id") if prev.get("kind") == "google" else None)
                 dest = {**g, "path": str(local)}
                 said.append(("Created" if g["created"] else "Updated") + f" the Google Sheet as {g['as']}: {g['url']}")
@@ -339,7 +362,9 @@ def publish(ws: Workspace, kif: dict, results: dict, ctx: dict, args) -> tuple[d
                     said.append(g["warning"])
             except G.GoogleError as e:
                 said.append(f"Google Sheet not updated: {e}")
-    R.save_state(ws.dir / "sheet_state.json", R.snapshot(tabs, dest))
+    previous_dest = (ws.previous_sheet_state or {}).get("destination") or {}
+    if not ws.preserve_sheet and not (previous_dest.get("kind") == "google" and dest.get("kind") != "google"):
+        R.save_state(ws.dir / "sheet_state.json", R.snapshot(tabs, dest))
     return dest, said
 
 
@@ -350,14 +375,15 @@ def push_history(ws: Workspace) -> tuple[list[dict], dict]:
             doc = json.loads(p.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        for e in doc if isinstance(doc, list) else doc.get("entries") or []:
+        log_at = doc.get("at") or "" if isinstance(doc, dict) else ""
+        for e in doc if isinstance(doc, list) else doc.get("entries") or doc.get("results") or []:
             if e.get("dry_run"):
                 continue
-            log.append({"at": (e.get("at") or "")[:16].replace("T", " "), "period": e.get("period"),
-                        "pms_period_id": e.get("pms_period_id"), "action": e.get("action"),
+            log.append({"at": (e.get("at") or log_at)[:16].replace("T", " "), "period": e.get("period"),
+                        "pms_period_id": e.get("pms_period_id") or e.get("periodId"), "action": e.get("action") or "PMS update",
                         "changed": e.get("changed") or e.get("summary"), "by": e.get("by"), "result": e.get("result")})
-            if e.get("period"):
-                pushed[e["period"]] = (e.get("at") or "")[:10]
+            if e.get("period") and e.get("result") == "verified":
+                pushed[e["period"]] = (e.get("at") or log_at)[:10]
     return log, pushed
 
 
@@ -397,6 +423,7 @@ def cmd_run(args) -> int:
         notes += S.staleness(statuses, ws.facts)
         notes += [f"{st['role']}: {st['note']}" for st in statuses if st["state"] == "missing"]
     clock.lap("sources")
+    active_facts, ws.source_blockers = S.usable_facts(statuses, ws.facts)
 
     # 4. judge what the rules can, queue what they cannot ------------------------------------
     ws.run_dir.mkdir(parents=True, exist_ok=True)
@@ -407,12 +434,18 @@ def cmd_run(args) -> int:
             return 1
         kif = json.loads(kif_path.read_text(encoding="utf-8"))
     else:
-        kif, work = classify.to_kif(snap, ws.profile, ws.project, ws.facts, ws.ledger, ws.today)
+        kif, work = classify.to_kif(snap, ws.profile, ws.project, active_facts, ws.ledger, ws.today)
         kif_path.write_text(json.dumps(kif, indent=1, ensure_ascii=False), encoding="utf-8")
     clock.lap("classify")
 
     # 5. count -------------------------------------------------------------------------------
     results = compute(ws, kif_path)
+    for note in J._notes_needed(results, ws.facts):
+        tag = f"{note['period']}|{note['kpi']}"
+        missing = ((ws.facts.get("reasons") or {}).get("_questions") or {}).get(tag)
+        if missing:
+            work["questions"].append({"id": "reason:" + tag, "about": note["period"],
+                                      "question": f"{note['period']} · {note['kpi']}: {missing}"})
     moved, values = what_moved(ws, results)
     clock.lap("compute")
 
@@ -424,7 +457,7 @@ def cmd_run(args) -> int:
         "profile": ws.profile, "registry": registry, "reasons": ws.facts.get("reasons") or {}, "manual": ws.manual,
         "questions": [q for q in questions if not q["answer"]] + [q for q in questions if q["answer"]],
         "changes": moved, "push_log": log, "pushed_on": pushed, "grain": work.get("grain"),
-        "refreshed": (snap or {}).get("fetched_at") or B.now_iso(), "tool_version": _version(),
+        "as_of": ws.today, "refreshed": (snap or {}).get("fetched_at") or B.now_iso(), "tool_version": _version(),
         "prepared_by": (ws.raw.get("owner") or {}).get("name") or args.by or "",
         "client": (ws.project.get("client") or (ws.profile.get("account") or {}).get("name") or ""),
         "sources_text": ", ".join(["Issue tracker"] + [s["role"].title() for s in statuses if s["state"] != "missing"]),
@@ -472,13 +505,7 @@ def _board_note(snap: dict | None) -> str:
 
 
 def _registry(ws: Workspace) -> dict:
-    for p in (ws.base / "kpi_registry.json", PLUGIN_ROOT / "schemas" / "kpi_registry.default.json"):
-        if p.exists():
-            try:
-                return json.loads(p.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                continue
-    return {}
+    return json.loads(ws.registry_path.read_text(encoding="utf-8"))
 
 
 def report(ws, results, kif, work, queue, qpath, questions, edits, notes, said, moved, dest, clock, args) -> None:
@@ -510,6 +537,8 @@ def report(ws, results, kif, work, queue, qpath, questions, edits, notes, said, 
 
     open_q = [q for q in questions if not q["answer"]]
     print("\nNEXT")
+    for problem in getattr(ws, "source_blockers", []):
+        print(f"  Source needs attention: {problem}")
     if qpath:
         n_i, n_n = len(queue["items"]), len(queue["notes"])
         what = " and ".join(x for x in (f"{n_i} card{'s' if n_i != 1 else ''} to judge" if n_i else "",
@@ -526,13 +555,19 @@ def report(ws, results, kif, work, queue, qpath, questions, edits, notes, said, 
         ch = ", ".join((ws.profile.get("sources") or {}).get("evidence_channels") or [])
         print(f"  Deep run asked for: the open questions above may also be looked up in {ch} - those, and only for "
               f"those questions. Record what you find with `answer`, with the link.")
-    if not qpath and not open_q:
+    if not qpath and not open_q and not getattr(ws, "source_blockers", []):
         print("  Nothing. The sheet is up to date." + ("" if (ws.profile.get("output") or {}).get("mode") in (None, "review-only")
                                                        else f"  To send it:  python3 {Path(__file__).name} push --profile {ws.profile_path} --project {ws.pid}"))
     (ws.dir / "next.json").write_text(json.dumps({
         "sheet": dest.get("url") or dest.get("path"), "queue": str(qpath) if qpath else None,
         "to_judge": len(queue["items"]), "notes_needed": len(queue["notes"]),
         "questions": [{"id": q["id"], "question": q["question"]} for q in open_q],
+        "source_blockers": getattr(ws, "source_blockers", []),
+        "sheet_pending": ws.preserve_sheet or ((ws.previous_sheet_state or {}).get("destination", {}).get("kind") == "google"
+                                                and dest.get("kind") != "google"),
+        "payloads": str(ws.run_dir / "payloads.json"),
+        "input_digest": input_digest(ws),
+        "payload_digest": hashlib.sha256((ws.run_dir / "payloads.json").read_bytes()).hexdigest(),
         "met": met, "not_met": notmet, "not_measured": unmeasured}, indent=1), encoding="utf-8")
 
 
@@ -685,6 +720,16 @@ def cmd_doctor(args) -> int:
     return 0 if ok else 1
 
 
+def input_digest(ws: Workspace) -> str:
+    paths = [ws.profile_path, ws.registry_path, ws.dir / "ledger.json", ws.dir / "manual.yaml",
+             ws.dir / "cache" / "board.json", *sorted((ws.dir / "facts").glob("*.yaml"))]
+    h = hashlib.sha256()
+    for path in paths:
+        h.update(str(path).encode())
+        h.update(path.read_bytes() if path.exists() else b"<missing>")
+    return h.hexdigest()
+
+
 def cmd_push(args) -> int:
     ws = Workspace(args)
     runs = sorted((ws.dir / "runs").glob("*/payloads.json"))
@@ -692,15 +737,25 @@ def cmd_push(args) -> int:
         print("Nothing to push yet. Run first.", file=sys.stderr)
         return 2
     nxt = ws.dir / "next.json"
-    if args.apply and nxt.exists():
-        n = json.loads(nxt.read_text(encoding="utf-8"))
-        if n.get("notes_needed"):
-            print(f"{n['notes_needed']} missed KPI(s) still have no reason. PMS will not accept a missed KPI without "
-                  f"one. Write them (KPI Summary, or judge/queue.json) and run again, then push.", file=sys.stderr)
-            return 2
+    n = json.loads(nxt.read_text(encoding="utf-8")) if nxt.exists() else {}
+    payload = Path(n.get("payloads") or runs[-1])
+    if args.apply:
+        if args.offline:
+            raise SystemExit("Cannot send to PMS with --offline. Prepare a dry run, review it and explicitly approve online delivery.")
+        if not n.get("input_digest") or n["input_digest"] != input_digest(ws):
+            raise SystemExit("Inputs changed or the run predates review checks. Run again and review the refreshed sheet before sending.")
+        if n.get("payload_digest") != hashlib.sha256(payload.read_bytes()).hexdigest():
+            raise SystemExit("The payload changed after the run. Recompute and review before sending.")
+        if any(n.get(k) for k in ("notes_needed", "to_judge", "questions", "source_blockers", "sheet_pending")):
+            raise SystemExit("This run still needs review: resolve NEXT, refresh the sheet, then approve sending to PMS.")
+        snap = B.load(ws.dir / "cache" / "board.json") or {}
+        edits = read_back(ws, {i["id"]: i for i in snap.get("items") or []}, args)
+        if edits or ws.preserve_sheet:
+            ws.save()
+            raise SystemExit("The review sheet changed or cannot be read. Run again, review the updated values, then approve sending.")
     push = _module(HERE / "pms_push.py", "kpic_push")
-    argv = ["--payloads", str(runs[-1]), "--profile", str(ws.profile_path), "--project", ws.pid,
-            "--log", str(runs[-1].parent / "push_log.json"), "--apply" if args.apply else "--dry-run"]
+    argv = ["--payloads", str(payload), "--profile", str(ws.profile_path), "--project", ws.pid,
+            "--log", str(payload.parent / "push_log.json"), "--apply" if args.apply else "--dry-run"]
     return push.main(argv)
 
 

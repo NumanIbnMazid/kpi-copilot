@@ -174,6 +174,7 @@ How this team slices a project for PMS.
 | `by_section` | list of objects |  |  | Optional. Board columns that decide the period on their own: [{section: '^Sprint 14', period: 'Sprint 14'}]. 'section' is a regular expression on the column name. |
 | &nbsp;&nbsp;`by_section[].section` | string |  |  |  |
 | &nbsp;&nbsp;`by_section[].period` | string |  |  |  |
+| `velocity_unit` | one of: `Estimated Hours`, `Story Points` |  |  | Default estimation unit; a project can override it. |
 
 ## `policy`
 
@@ -193,8 +194,8 @@ What the run produces and how far it is allowed to go on its own. This is the se
 
 | Field | Type | Default | Required | What it is |
 |---|---|---|---|---|
-| `mode` | one of: `review-only`, `dry-run`, `assisted-push`, `auto-push` | `assisted-push` | yes | review-only = build the workbook and a copy-paste block; never touch PMS. dry-run = also compute the PMS payload and show the diff, but never write. assisted-push = dry run, then push after an explicit yes in chat. auto-push = push without asking; only honoured when unattended is true, and every push is still logged. |
-| `unattended` | boolean | `no` |  | Only meaningful with auto-push. Leave No unless you have run this for a while. |
+| `mode` | one of: `review-only`, `dry-run`, `assisted-push`, `auto-push` | `assisted-push` | yes | review-only produces a review workbook; dry-run also previews PMS changes; assisted-push allows an explicitly approved write. Legacy auto-push still requires explicit per-run approval; a schedule only prepares drafts. |
+| `unattended` | boolean | `no` |  | Legacy scheduling compatibility flag. It never grants permission to send values to PMS. |
 | `workbook` | one of: `google-sheets`, `xlsx`, `none` | `xlsx` |  | Where the KPI tracker lives. xlsx (the default) writes it locally, in the project's folder. google-sheets also keeps one live Google Sheet that every run updates in place - same link every time. The local copy is always written, whichever is chosen. |
 | `workbook_location` | string |  |  | A Drive folder (link or id). The first run creates the Google Sheet there; later runs find it by name and update it. |
 | `workbook_template` | string |  |  | Sheet id or path. Blank = build a fresh one. |
@@ -239,6 +240,7 @@ Your client accounts. Most of what varies between two projects actually varies b
 | &nbsp;&nbsp;`overrides.policy` | object |  |  | Different counting choices, where the company allows them. |
 | &nbsp;&nbsp;`overrides.output` | object |  |  | A different output mode or working-file location. |
 | &nbsp;&nbsp;`overrides.custom_instructions` | object |  |  | House style or rule overrides for this scope only. |
+| &nbsp;&nbsp;`overrides.targets` | object |  |  | Local review targets for this scope, with value and why for each KPI. |
 
 ## `projects`
 
@@ -265,6 +267,7 @@ The projects this profile covers - one row per PMS project. Everything above is 
 | &nbsp;&nbsp;`overrides.policy` | object |  |  | Different counting choices, where the company allows them. |
 | &nbsp;&nbsp;`overrides.output` | object |  |  | A different output mode or working-file location. |
 | &nbsp;&nbsp;`overrides.custom_instructions` | object |  |  | House style or rule overrides for this scope only. |
+| &nbsp;&nbsp;`overrides.targets` | object |  |  | Local review targets for this scope, with value and why for each KPI. |
 | `account` | string |  |  | The account this project belongs to, by id. It inherits that account's overrides. |
 | `deliverable_grain` | one of: `board-cards`, `plan-items` |  |  | What one deliverable is. board-cards (default): one card, one deliverable. plan-items: a card the plan breaks into modules counts once per module, so denominators follow the plan's own breakdown. It is printed on the Config tab, because it changes every ratio. |
 
@@ -281,4 +284,38 @@ Settings captured from conversation, each with the sentence it came from. Writte
 | `after` |  |  |  | What it became. |
 | `why` | string |  |  | The sentence it came from. |
 | `by` | string |  |  | Who asked. |
+
+## `targets`
+
+Optional local review targets. Each needs a value and reason; source is printed beside the result. Remove these and refresh PMS targets before sending.
+
+| Field | Type | Default | Required | What it is |
+|---|---|---|---|---|
+| `velocity` | object |  |  |  |
+| &nbsp;&nbsp;`velocity.value` | number |  | yes |  |
+| &nbsp;&nbsp;`velocity.why` | string |  | yes |  |
+| `task_comprehension` | object |  |  |  |
+| &nbsp;&nbsp;`task_comprehension.value` | number |  | yes |  |
+| &nbsp;&nbsp;`task_comprehension.why` | string |  | yes |  |
+| `client_expectation` | object |  |  |  |
+| &nbsp;&nbsp;`client_expectation.value` | number |  | yes |  |
+| &nbsp;&nbsp;`client_expectation.why` | string |  | yes |  |
+| `delivery_commitment` | object |  |  |  |
+| &nbsp;&nbsp;`delivery_commitment.value` | number |  | yes |  |
+| &nbsp;&nbsp;`delivery_commitment.why` | string |  | yes |  |
+| `defect_rate` | object |  |  |  |
+| &nbsp;&nbsp;`defect_rate.value` | number |  | yes |  |
+| &nbsp;&nbsp;`defect_rate.why` | string |  | yes |  |
+| `escaped_defect_rate` | object |  |  |  |
+| &nbsp;&nbsp;`escaped_defect_rate.value` | number |  | yes |  |
+| &nbsp;&nbsp;`escaped_defect_rate.why` | string |  | yes |  |
+| `rejection_rate` | object |  |  |  |
+| &nbsp;&nbsp;`rejection_rate.value` | number |  | yes |  |
+| &nbsp;&nbsp;`rejection_rate.why` | string |  | yes |  |
+| `rework_rate` | object |  |  |  |
+| &nbsp;&nbsp;`rework_rate.value` | number |  | yes |  |
+| &nbsp;&nbsp;`rework_rate.why` | string |  | yes |  |
+| `cr_rate` | object |  |  |  |
+| &nbsp;&nbsp;`cr_rate.value` | number |  | yes |  |
+| &nbsp;&nbsp;`cr_rate.why` | string |  | yes |  |
 

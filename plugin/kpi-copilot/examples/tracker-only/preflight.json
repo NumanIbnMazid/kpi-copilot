@@ -73,7 +73,7 @@
       "fix": "claude plugin marketplace add \"<the KPI Copilot folder>\" then claude plugin install kpi-copilot@pm-tools. Or skip installing: start Claude with --plugin-dir pointing at this folder.",
       "severity": "blocking",
       "state": "pass",
-      "detail": "plugin root /Users/numan/Workspace/Personal/Projects/kpi-copilot/plugin/kpi-copilot",
+      "detail": "plugin root /path/to/kpi-copilot/plugin/kpi-copilot",
       "checked_at": "2026-09-19T15:08:30+00:00",
       "checked_by": null,
       "owner": "you"
@@ -86,7 +86,7 @@
       "fix": "Run /kpi-copilot:kpi-setup and answer the interview.",
       "severity": "blocking",
       "state": "pass",
-      "detail": "/Users/numan/Workspace/Personal/Projects/kpi-copilot/plugin/kpi-copilot/examples/tracker-only/profile.yaml",
+      "detail": "/path/to/kpi-copilot/plugin/kpi-copilot/examples/tracker-only/profile.yaml",
       "checked_at": "2026-09-19T15:08:30+00:00",
       "checked_by": null,
       "owner": "you"
@@ -255,7 +255,7 @@
       "fix": "Pick a folder you own in the profile's output.run_folder.",
       "severity": "blocking",
       "state": "pass",
-      "detail": "/Users/numan/Workspace/Personal/Projects/kpi-copilot/plugin/kpi-copilot/examples/tracker-only/runs",
+      "detail": "/path/to/kpi-copilot/plugin/kpi-copilot/examples/tracker-only/runs",
       "checked_at": "2026-09-19T15:08:30+00:00",
       "checked_by": null,
       "owner": "you"

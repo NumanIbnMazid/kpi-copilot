@@ -38,7 +38,7 @@ shipped default asks before writing to PMS.
 | 1b | Who may set a project's targets in PMS? | Already a PMS setting. Worth agreeing who signs off a non-default target, and that it is visible on the report |
 | 2 | Who owns a rule change? | You, or a named person. It changes every project's numbers at once |
 | 3 | Default output mode for the org | `assisted-push`. Nothing reaches PMS without a person |
-| 4 | Is unattended pushing allowed at all? | Not in the pilot. Revisit after two clean cycles |
+| 4 | Is unattended pushing allowed at all? | No. Schedules prepare drafts; submissions need conversation approval |
 | 5 | Who gets Claude Code seats? | Every project lead who prepares KPIs |
 | 6 | Who grants PMS project access and edit rights? | Name them now — this is the slowest step |
 | 7 | Where does the plugin live? | A private marketplace repo, so updates reach everyone |
@@ -92,7 +92,7 @@ Measure adoption by *runs*, not installs.
 | **PMS access takes weeks** | Blocks the pilot | Start it on day one. The readiness check names the owner for exactly this reason |
 | **It becomes one person's tool** | Only the author ever runs it | Name an owner who is not the author. Profiles live where the team can read them |
 | **Drift from PMS** | Thresholds change and nobody notices | The registry syncs from PMS on every run, and the fallback announces itself |
-| **Too much trust** | Numbers pushed without review | The default mode asks. Keep unattended off until there is a track record |
+| **Too much trust** | Numbers pushed without review | Every submission requires explicit conversation approval |
 
 The two most likely to actually happen are the first and the fifth. Plan for both.
 

@@ -252,6 +252,10 @@ class Engine:
                 threshold = hit["threshold"]
                 direction = hit.get("direction", direction)
                 source = f"set in PMS for project {pid}"
+            local = (self.profile.get("targets") or {}).get(key)
+            if local:
+                threshold = local["value"]
+                source = f"Local review target (PMS unchanged): {local['why']}"
             out[key] = (threshold, direction, source)
         return out
 
@@ -436,6 +440,19 @@ class Engine:
         by_points = unit == "Story Points"
         delivered = self.delivered_in(name)
         basis = (self.sources.get("hours_basis") or "dev")
+
+        missing = [t for t in delivered if
+                   (t.get("story_points") is None if by_points else
+                    t.get("hours_dev") is None or
+                    (basis == "dev+qa" and t.get("closed") and t.get("hours_qa") is None))]
+        if missing:
+            why = (f"Velocity is not measured in {'story points' if by_points else 'hours'}: "
+                   f"{len(missing)} of {len(delivered)} delivered items lack the required estimate. "
+                   "Fill the missing estimates; blank does not mean zero.")
+            m = self._measure("velocity", value=None, unit=unit, numerator=None, denominator=None, gaps=[why])
+            m.note_parts = [self._heading("velocity", period), why, ""]
+            m._say = {"kpi": "velocity", "empty": why}
+            return m
 
         def effort(t: dict) -> float:
             if by_points:
@@ -1280,7 +1297,8 @@ def main(argv: list[str] | None = None) -> int:
     profile = resolve_profile(load_profile(args.profile), args.project)[0] if args.profile else {}
     reasons = _load_any(args.reasons) if args.reasons else {}
     manual = _load_any(args.manual) if (args.manual and args.manual.exists()) else {}
-    reg_path = args.registry or (PLUGIN_ROOT / "schemas" / "kpi_registry.default.json")
+    from kpi_registry import resolve_path
+    reg_path = resolve_path(args.profile, profile, args.registry)
     registry = _load_any(reg_path)
 
     engine = Engine(kif, profile, registry, reasons, manual)

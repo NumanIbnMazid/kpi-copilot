@@ -52,7 +52,7 @@ def check(kif: dict) -> tuple[list[str], list[str]]:
     for p in kif["periods"]:
         name = p.get("name", "")
         if len(name) > 25:
-            err(f"Period name '{name}' is {len(name)} characters; PMS allows 25.")
+            warn(f"Period name '{name}' is {len(name)} characters; shorten it to 25 before sending to PMS.")
         for f in ("start", "end", "client_date", "commit_date", "handover_date"):
             if p.get(f) and not DATE.match(str(p[f])):
                 err(f"Period '{name}' has {f}='{p[f]}', which is not YYYY-MM-DD.")
