@@ -133,9 +133,9 @@ def main() -> int:
     check("an item with no commitment is out of the denominator", m["denominator"] == 5,
           f"got {m['denominator']}, expected 5 of 7 deliverables")
     check("...and the note says how many were left out",
-          "made no commitment on" in m["note"], m["note"])
+          "No commitment date is recorded for 2 other items" in m["note"], m["note"])
     check("the heading is about commitments, not about QA",
-          "commitments it made" in m["note"] and "QA" not in m["note"], m["note"])
+          "recorded commitment dates" in m["note"] and "QA" not in m["note"], m["note"])
 
     none_committed = json.loads((EX / "northwind-q3" / "run.kif.json").read_text())
     for t in none_committed["tasks"]:
@@ -167,7 +167,7 @@ def main() -> int:
     m = measure(sav, "Initial Scope", "Escaped Defect Rate")
     check("the denominator is valid defects, not delivered items",
           m["denominator"] == 5, f"got {m['denominator']}, expected 5 non-rejected reports of 6")
-    check("rejected reports are in neither half", "rejected report is in neither half" in m["note"], m["note"])
+    check("rejected reports are excluded from both counts", "rejected report is excluded from both counts" in m["note"], m["note"])
     m2 = measure(sav, "Additional Requests 1", "Escaped Defect Rate")
     check("no handover still means Not measured", m2["status"] == "Not measured", m2["status"])
 
@@ -221,7 +221,7 @@ def main() -> int:
           all(part.strip().endswith(".") for n in notes if n for part in n.split(" || ")),
           next((part for n in notes for part in n.split(" || ") if not part.strip().endswith(".")), ""))
     check("no note opens with a heading: the first part says the number", all(any(ch.isdigit() for ch in n.split(" || ")[0])
-          or "othing" in n or "No " in n or "None " in n or "not been handed over" in n or "Everything" in n for n in notes if n),
+          or "othing" in n or "No " in n or "None " in n or "handover has not been recorded" in n or "not been handed over" in n or "Everything" in n for n in notes if n),
           next((n for n in notes if n and not any(ch.isdigit() for ch in n.split(" || ")[0])), ""))
     import yaml as _y
     fp = _y.safe_load((EX / "northwind-q3" / "profile.yaml").read_text())
@@ -896,6 +896,15 @@ def pipeline_tests(tmp: Path) -> None:
           kif["periods"][0]["handover_date"] == "2026-08-12", str(kif["periods"][0].get("handover_date")))
     rework = next(t for t in kif["tasks"] if t["key"] == "NW-104")
     check("closed and then reopened is rework", rework["reopened"] == "Yes")
+    historical = classify.Classifier.__new__(classify.Classifier)
+    historical.wf = {"closed_when": {"values": ["Ready for QA"]}}
+    check("a reopened card keeps its historical close even while it is back in progress",
+          historical._closed({"section": "Testing Failed", "events": [
+              {"kind": "section", "from": "In Progress", "to": "Ready for QA",
+               "at": "2026-09-10T09:00:00Z"},
+              {"kind": "section", "from": "Ready for QA", "to": "Testing Failed",
+               "at": "2026-09-17T09:00:00Z"},
+          ]}) == "2026-09-10")
     first = next(t for t in kif["tasks"] if t["key"] == "NW-103")
     check("a QA failure during the first round is not", first["reopened"] == "No" and "first time" in (first["rework_evidence"] or ""))
 

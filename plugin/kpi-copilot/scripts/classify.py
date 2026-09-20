@@ -33,6 +33,7 @@ from difflib import SequenceMatcher
 from typing import Any
 
 import board as B
+import scope_groups
 
 SURE = 0.75          # below this a proposal is put to the assistant rather than accepted
 
@@ -135,6 +136,7 @@ class Classifier:
         self.grain = ((self.facts.get("plan") or {}).get("grain") or self.project_cfg.get("deliverable_grain")
                       or "board-cards")
         self._matched: set[int] = set()
+        self.group_parents, self.group_members = scope_groups.resolve(self)
 
     # -- the ledger outranks the rules ----------------------------------------------------
 
@@ -194,6 +196,12 @@ class Classifier:
                 return Proposal(kind.strip(), rule.get("why") or "explicit include_key rule", 1.0), row
         if item.get("kind") in ("milestone", "approval", "section"):
             return Proposal("Excluded", f"an Asana {item['kind']} marker, not a deliverable", 0.95), None
+        row, score = self.match_scope(item)
+        # An explicit approved scope match is stronger evidence than an administrative
+        # title convention. A QA service may itself be paid, approved delivery work.
+        if row and score >= .85:
+            kind = "CR" if row["_src"] == "estimates" else "Task"
+            return Proposal(kind, f"matches the {row['_src']} item '{row.get('title')}'", .95), row
         for pat in self.conv.get("exclude_patterns") or []:
             rx = _rx(pat)
             if rx and rx.search(title):
@@ -404,9 +412,16 @@ class Classifier:
         states = (self.wf.get("closed_when") or {}).get("values") or []
         if not states:
             return B.day(item.get("completed_at")) if item.get("completed") else None
+        # A reopened item is no longer sitting in its closed state, but it still crossed
+        # the project's close boundary. Rework needs that historical close in its
+        # denominator; requiring the current state to be closed makes every active reopen
+        # disappear from the KPI.
+        entered = B.last_entered(item, states)
+        if entered:
+            return entered
         if not B._in(item.get("section"), states):
             return None
-        return B.last_entered(item, states) or B.day(item.get("completed_at")) or B.day(item.get("modified_at"))
+        return B.day(item.get("completed_at")) or B.day(item.get("modified_at"))
 
     def _reopened(self, item: dict, row: dict) -> Proposal:
         cfg = self.wf.get("reopened_when") or {}
@@ -560,6 +575,49 @@ class Classifier:
         for item in self.board.get("items") or []:
             if item.get("parent") and not include_sub:
                 continue
+            group = self.group_parents.get(item["id"]) or self.group_members.get(item["id"])
+            if group:
+                source = group["source"]
+                self._matched.add(source["_idx"])
+                kind = "Task" if source["_src"] == "plan" else "CR"
+                parent = group["parent"]
+                if item["id"] == parent["id"]:
+                    row = self.task_row(item, Proposal(kind, "approved group estimate", 1), source)
+                    row.update(type="Excluded", planned=None, effort_only=True,
+                               exclude_reason="Grouping card; its member tickets are counted individually.")
+                    row["remarks"] = (f"Grouping card for {len(group['members'])} delivery tickets. "
+                                      "The group estimate is counted once here; the parent adds no ticket to any ratio.")
+                else:
+                    member_source = {k: v for k, v in source.items() if k not in ("dev_hours", "qa_hours")}
+                    row = self.task_row(item, Proposal(kind, f"member of approved group {parent.get('key')}", 1),
+                                        member_source)
+                    row.update(hours_dev=None, hours_qa=None, effort_group=parent["id"],
+                               hours_source=f"Included in the group estimate on {parent.get('key')}")
+                    own_close = self._closed(item)
+                    if group["inherit_delivery"] and not row.get("delivered"):
+                        row["delivered"] = self._delivered(parent)
+                        row["closed"] = self._closed(parent)
+                        row["delivery_evidence"] = parent.get("url")
+                    if not own_close and (row.get("basis", {}).get("reopened", {}).get("by") or "rule") == "rule":
+                        # A group failure does not establish which child required changes.
+                        row["reopened"], row["rework_evidence"] = None, None
+                    if not item.get("comments") and (row.get("basis", {}).get("understood", {}).get("by") or "rule") == "rule":
+                        row["understood"] = None
+                    row["remarks"] = (f"Counted separately under {parent.get('key')}. Effort is held once on "
+                                      "the group row. " + ("Delivery follows the group handoff where no separate "
+                                      "child handoff is recorded. " if row.get("delivery_evidence") else "") +
+                                      ("Individual rework history is unavailable." if row.get("reopened") is None else ""))
+                    self._refresh_dates(row)
+                    # An approved defect fix can be a delivery ticket and a defect report.
+                    # These are different registers, each with one stable review identity.
+                    defect = self._defect_kind(item)
+                    if defect:
+                        drow = self.defect_row(item, defect)
+                        drow["_row"] = item["id"] + "#defect"
+                        drow["against_task"] = parent.get("key")
+                        defects.append(drow)
+                tasks.append(row)
+                continue
             nat, scope_row = self.nature(item)
             nat = self.settle(item, "nature", nat,
                               "What is this card? Task = in the agreed plan. CR = an approved addition. Scope = "
@@ -600,6 +658,14 @@ class Classifier:
 
         for row in tasks + defects:
             self._overlay(row)
+        # A grouped budget becomes delivered only when all its members are delivered.
+        # Never invent a per-child allocation of an indivisible approved estimate.
+        for row in tasks:
+            if not row.get("effort_only"):
+                continue
+            children = [t for t in tasks if t.get("effort_group") == row["_item"]]
+            for field in ("delivered", "closed"):
+                row[field] = max(t[field] for t in children) if children and all(t.get(field) for t in children) else None
         for row in tasks + defects:
             row.setdefault("_row", row["_item"])
         tasks = self._plan_only_rows(tasks)
@@ -619,7 +685,7 @@ class Classifier:
         if not self.ledger or not row.get("_item"):
             return
         mine = ((self.ledger.data["items"].get(row["_item"]) or {}).get("judgements") or {})
-        if "#estimate-" in (row.get("_row") or ""):
+        if "#" in (row.get("_row") or ""):
             specific = ((self.ledger.data["items"].get(row["_row"]) or {}).get("judgements") or {})
             mine = {**mine, **specific}
         sets = {f[4:]: j["value"] for f, j in mine.items() if f.startswith("set:")}
@@ -647,6 +713,14 @@ class Classifier:
             row["met_commitment"] = on_time(_later(dl, ho) if by_handover else dl, row.get("commit_date"), self.today)
         note = "set by hand in the sheet: " + ", ".join(k.replace("_", " ") for k in sets)
         row["check"] = "; ".join(x for x in (row.get("check"), note) if x)
+
+    def _refresh_dates(self, row: dict) -> None:
+        per = next(p for p in self.periods if p["name"] == row["period"])
+        check = per.get("client_check") or self.project_dates.get("client_check") or "Handover"
+        dl, ho = row.get("delivered"), per.get("handover_date")
+        by_handover = "handover" in str((self.wf.get("commitment") or {}).get("met_when") or "").lower()
+        row["met_client_date"] = on_time(dl if check == "Delivery" else _later(dl, ho), row.get("client_date"), self.today)
+        row["met_commitment"] = on_time(_later(dl, ho) if by_handover else dl, row.get("commit_date"), self.today)
 
     def _hand_row(self, kind: str, x: dict) -> dict:
         per = x.get("period") if x.get("period") in self.period_names else self.period_names[-1]

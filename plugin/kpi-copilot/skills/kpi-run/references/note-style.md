@@ -3,6 +3,19 @@
 Management reads the notes, not the spreadsheet. A number without a note is a number nobody
 can act on, and a note that reads like machine output gets skimmed and then distrusted.
 
+**Must have: write for a decision maker who has no project background.** A reader must be
+able to understand the result, what work is involved, what happened, and how it affects the
+delivery or decision without asking the project team to translate it. Describe work before
+using ticket references. Explain local terms such as a QA handoff counting as closure.
+Never turn an estimate row into a claimed ticket count, or a high defect ratio into a
+percentage of faulty features. Use the client's configured name for additional work.
+
+The queue requests review of every KPI note, including Met and Not measured. Read the
+complete generated note with its evidence and earlier explanation, rewrite the explanation
+where needed, and return its `review_signature`. An empty explanation is acceptable when
+the generated text already answers the reader's questions. An unknown cause stays unknown.
+The review is reused only while the evidence, generated wording and explanation still match.
+
 ## The format
 
 ```

@@ -269,9 +269,10 @@ def fold(state: dict, grid: Grid, ledger, facts: dict, manual: dict, board_items
                     for x in extra:
                         if x.get("key") == rec.get("key") and x.get("title") == rec.get("title"):
                             x[k] = _iso(v)
-                elif "#estimate-" in rid:
+                elif "#estimate-" in rid or rid.endswith("#defect"):
                     # Separately estimated deliverables may share a card, not their review edits.
-                    ledger.set(rid, f"set:{k}", _iso(v), "human", why,
+                    val = PHASE_IN.get(v, v) if k == "phase" else FINAL_IN.get(v, v) if k == "final_status" else _iso(v)
+                    ledger.set(rid, f"set:{k}", val, "human", why,
                                key=key, title=rec.get("title"), who=who)
                 elif k in judged:
                     val = PHASE_IN.get(v, v) if k == "phase" else v

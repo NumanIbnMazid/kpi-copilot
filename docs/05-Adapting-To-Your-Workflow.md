@@ -348,3 +348,27 @@ python3 scripts/profile_tool.py explain  --key workflow.delivered_when
 `validate` checks more than the schema: a tool id referenced from Sources that does not exist
 in Tools, an output mode that contradicts itself, a regex that does not compile, a
 `delivered_when` with no states in it. Each one is reported as a sentence, not a stack trace.
+# Grouped delivery tickets and client vocabulary
+
+Configure `conventions.grouping.split_source_children: true` for a client that counts the
+individual tickets inside an approved plan or estimate group. The parent is excluded from
+ticket counts. Its approved hours are held once on an effort-only row, rather than copied
+or arbitrarily divided across its members. The group budget reaches Velocity once every
+member has delivery evidence. Incomplete groups retain their budget without claiming partial
+completion hours that the source does not provide.
+
+`exclude_member_patterns` omits specification/admin cards from that expansion. Description
+links are ambiguous, so non-subtask membership must be recorded explicitly as
+`linked_members: {DEMO-10: [DEMO-11, DEMO-12]}` at the project level. Missing members and
+overlapping budgets stop the run with a repair instruction. An approved defect-fix ticket
+can occur once in the delivery register and once in the defect register; defect policy still
+decides whether it contributes to Defect Rate.
+
+Set `inherit_parent_delivery: true` only when the parent's handoff covers all member work.
+The child keeps its own handoff when available. A parent QA failure does not automatically
+mark every child as reworked; missing individual history remains an explicit evidence gap.
+
+`conventions.additional_request_label: Additional Request` controls the vocabulary in notes.
+Internal `CR` types and PMS KPI identifiers stay stable. Workflow settings can supply a
+`delivered_when.label` and `reopened_when.note` so the generated notes explain the configured
+delivery and rework boundaries in ordinary language.

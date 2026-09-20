@@ -307,6 +307,24 @@
         "title": "How your team names things"
       },
       "properties": {
+        "additional_request_label": {
+          "type": "string",
+          "description": "Client wording for approved added work in notes, for example Additional Request. Internal types and PMS identifiers do not change."
+        },
+        "grouping": {
+          "type": "object",
+          "description": "Count member tickets of approved source groups individually while retaining the group's estimate once.",
+          "properties": {
+            "split_source_children": {"type": "boolean", "default": false},
+            "inherit_parent_delivery": {"type": "boolean", "default": false},
+            "exclude_member_patterns": {"type": "array", "items": {"type": "string"}},
+            "linked_members": {
+              "type": "object",
+              "additionalProperties": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"type": "string"}}
+            }
+          },
+          "additionalProperties": false
+        },
         "key_pattern": {
           "type": "string",
           "x-workbook": {

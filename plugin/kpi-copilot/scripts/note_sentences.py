@@ -23,6 +23,16 @@ The rules the sentences keep, because they are what a reader notices first:
 from __future__ import annotations
 
 from typing import Any
+import re
+
+
+def terminology(text: str, profile: dict) -> str:
+    """Apply the client's public vocabulary without changing internal KPI IDs or types."""
+    label = (profile.get("conventions") or {}).get("additional_request_label")
+    if not label:
+        return text
+    return re.sub(r"\b(?:(?:additional|change)\s+)?requests?\b|\bCRs?\b",
+                  lambda m: label + ("s" if m.group().lower().endswith("s") else ""), text, flags=re.I)
 
 
 def n(value: Any) -> str:
@@ -87,14 +97,14 @@ def sentences(say: dict) -> list[str]:
 
 def _velocity(s: dict) -> list[str]:
     if s.get("none"):
-        return ["Nothing has been delivered in this cycle yet." if s.get("rows")
+        return ["No completed delivery is recorded for this cycle yet." if s.get("rows")
                 else "Nothing has been logged against this cycle yet."]
-    unit = "story points" if s["points"] else "hours of work"
+    unit = "story points" if s["points"] else "estimated hours"
     mix = [f"{s['plan']} from the plan" if s["plan"] else "",
            f"{s['cr']} additional {w(s['cr'], 'request')}" if s["cr"] else "",
            f"{s['scope']} in-scope {w(s['scope'], 'item')}" if s["scope"] else ""]
     many = sum(1 for m in mix if m) > 1
-    out = [f"The team completed {n(s['total'])} {unit} in this cycle, across {s['n']} delivered "
+    out = [f"Delivered work represents {n(s['total'])} {unit} in this cycle, across {s['n']} delivered "
            f"{w(s['n'], 'item')}{': ' + listed(mix) if many else ''}."]
     if not s["points"]:
         team = (f"{n(s['team'])} hours of shared work such as bug fixing, QA checks and regression" if s["team"] else "")
@@ -107,6 +117,8 @@ def _velocity(s: dict) -> list[str]:
             out.append(f"That is {team}.")
     if s["open"]:
         out.append(f"{s['open']} more {w(s['open'], 'item is', 'items are')} still in progress.")
+    if s.get("grouped"):
+        out.append("Tickets inside a grouped feature are counted separately. Each group's estimate is included once.")
     return out
 
 
@@ -132,8 +144,11 @@ def _comprehension(s: dict) -> list[str]:
     else:
         first = f"The team understood {yes} of the {den} items {tail}."
     b = s.get("blank") or 0
-    blank = (f"{b} more {w(b, 'item has', 'items have')} no history of {w(b, 'its', 'their')} own, so "
-             f"{w(b, 'it is', 'they are')} not counted.") if b else ""
+    if b:
+        first = first.replace("in this cycle", "with enough evidence to assess").replace(
+            f"of the {den} items", f"of the {den} assessed items")
+    blank = (f"{b} other {w(b, 'item could', 'items could')} not be assessed because individual discussion "
+             "history was unavailable.") if b else ""
     return [first, blank]
 
 
@@ -141,10 +156,10 @@ def _client(s: dict) -> list[str]:
     yes, den, pct = s["yes"], s["den"], n(s["value"])
     by_delivery = s.get("check") == "Delivery"
     when = span(s.get("dates") or [])
-    basis = ("each delivered by " if by_delivery else "handed over by ") + when if when else \
+    basis = ((s.get("delivery_label") or "each delivered") + " by " if by_delivery else "handed over by ") + when if when else \
         ("counted on each item's delivery date" if by_delivery else "counted on the handover date")
     if yes == den:
-        first = f"Everything the client expected arrived on time: {_items(den)}, {basis} ({pct}%)."
+        first = f"All {_items(den)} met the client's agreed deadline, {basis} ({pct}%)."
     elif yes == 0:
         first = (f"Nothing arrived by the date the client expected: 0 of {_items(den)}"
                  + (f", due {when}" if when else "") + f" ({pct}%).")
@@ -166,27 +181,29 @@ def _commitment(s: dict) -> list[str]:
     when = span(s.get("dates") or [], "their own dates")
     by = (f" by {when}" if when else "") + f", {s['phrase']}"
     if den == 1:
-        first = (f"The team met the one commitment it made, on time{by} ({pct}%)." if yes else
-                 f"The team missed the one commitment it made; it was due{by.replace(' by', '', 1)} ({pct}%).")
+        first = (f"The one assessed item met its recorded commitment date{by} ({pct}%)." if yes else
+                 f"The one assessed item missed its recorded commitment date{by.replace(' by', '', 1)} ({pct}%).")
     elif yes == den:
-        first = f"The team met every commitment it made: {_items(den)} on time{by} ({pct}%)."
+        first = f"All {den} assessed items met their recorded commitment dates{by} ({pct}%)."
     elif yes == 0:
-        first = f"The team met none of the {den} commitments it made; they were due{by.replace(' by', '', 1)} ({pct}%)."
+        first = f"None of the {den} assessed items met their recorded commitment dates{by} ({pct}%)."
     else:
-        first = f"The team met {yes} of the {den} commitments it made on time{by} ({pct}%)."
+        first = f"{yes} of the {den} assessed items met their recorded commitment dates{by} ({pct}%)."
     u = s.get("uncommitted") or 0
-    left = (f"The team made no commitment on {u} other {w(u, 'item')}, so {w(u, 'it is', 'they are')} left out."
+    left = (f"No commitment date is recorded for {u} other {w(u, 'item')}, so {w(u, 'it is', 'they are')} left out."
             if u else "")
     return [first, _pending(s, ("commitment", "commitments")), left]
 
 
 def _defects(s: dict) -> list[str]:
     if s.get("none"):
-        return ["Nothing has been delivered in this cycle yet, so there is nothing to measure." if s.get("rows")
+        return ["No completed delivery is recorded for this cycle yet, so this rate cannot be measured." if s.get("rows")
                 else "Nothing has been logged against this cycle yet."]
     c, den = s["counted"], s["den"]
-    first = (f"No bugs were found in the {_items(den)} delivered in this cycle." if not c else
-             f"{c} {w(c, 'bug was', 'bugs were')} found in the {_items(den)} delivered in this cycle ({n(s['value'])}%).")
+    first = (f"No qualifying defects were reported against the {_items(den)} delivered in this cycle." if not c else
+             f"{c} {w(c, 'defect was', 'defects were')} reported against {den} delivered {w(den, 'ticket')}. "
+             f"That is {n(s['value'])} defects per 100 delivered tickets ({n(s['value'])}%). "
+             "One ticket can have several defects, so this is not the percentage of tickets with a problem.")
     left = [(r, k) for r, k in (s.get("left") or []) if k]
     other = sum(k for _, k in left)
     if not left:
@@ -202,17 +219,15 @@ def _defects(s: dict) -> list[str]:
 def _escaped(s: dict) -> list[str]:
     den = s.get("den") or 0
     if s.get("no_handover"):
-        return [f"The cycle has not been handed over yet, so none of the {den} valid {w(den, 'issue')} could have "
-                f"come from the client." if den else
-                "The cycle has not been handed over to the client yet, so there is nothing to measure."]
+        return ["A client handover has not been recorded, so defects found after handover cannot be measured yet."]
     if s.get("no_issues"):
         return ["No valid issues have been reported in this cycle yet."]
     e = s["escaped"]
-    first = (f"The client found none of the {den} valid {w(den, 'issue')} after handover." if not e else
+    first = (f"No issues found by the client after handover are recorded among the {den} valid {w(den, 'issue')}." if not e else
              f"The client found {e} of the {den} valid {w(den, 'issue')} after handover ({n(s['value'])}%).")
     r = s.get("rejected") or 0
-    rej = (f"{r} rejected {w(r, 'report is', 'reports are')} in neither half, because "
-           f"{w(r, 'it was', 'they were')} never a defect.") if r else ""
+    rej = (f"{r} rejected {w(r, 'report is', 'reports are')} excluded from both counts because "
+           f"{w(r, 'it was', 'they were')} not accepted as a defect.") if r else ""
     return [first, f"The cycle was handed over on {s['handover']}.", rej]
 
 
@@ -224,13 +239,13 @@ def _rejection(s: dict) -> list[str]:
         return [f"None of the {den} {w(den, 'report was', 'reports were')} rejected."]
     why = [k for k in (s.get("why") or {})]
     second = (f"{w(r, 'It was', 'They were')} closed as {listed(why)}." if why else
-              f"{w(r, 'It was', 'They were')} closed as invalid, working as designed, duplicate or not reproducible.")
+              "Rejected reports are excluded from defect counts.")
     return [f"{r} of the {den} {w(den, 'report')} turned out not to be {w(r, 'a bug', 'bugs')} ({n(s['value'])}%).", second]
 
 
 def _rework(s: dict) -> list[str]:
     if s.get("nothing_completed"):
-        return ["Nothing has been completed in this cycle yet."]
+        return ["No completed work is recorded for this cycle yet."]
     if s.get("unjudged_all"):
         k = s["unjudged_all"]
         return [f"None of the {k} completed {w(k, 'task')} records whether it was reopened after closing, so there "
@@ -244,7 +259,8 @@ def _rework(s: dict) -> list[str]:
     u = s.get("unjudged") or 0
     gap = (f"{u} completed {w(u, 'task was', 'tasks were')} left out because the history needed to judge "
            f"{w(u, 'it', 'them')} was not available.") if u else ""
-    return [first, near, gap]
+    return [first, s.get("close_explanation") or "", near, gap,
+            "Each affected ticket counts once, even if it returned for changes several times."]
 
 
 def _cr(s: dict) -> list[str]:

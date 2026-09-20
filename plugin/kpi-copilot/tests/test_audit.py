@@ -29,6 +29,153 @@ def adapter(name):
 
 
 class AuditTests(unittest.TestCase):
+    def grouped_example(self):
+        def item(key, title, parent=None, count=0, history=True):
+            return {"id": key, "key": key, "title": title, "url": f"https://tracker.example/items/{key}",
+                    "parent": parent, "subtasks": count, "section": "Done" if history else None,
+                    "created_at": "2025-03-01", "events": [
+                        {"kind": "section", "at": "2025-03-03", "from": "Doing", "to": "QA"},
+                        {"kind": "section", "at": "2025-03-04", "from": "QA", "to": "Done"}
+                    ] if history else [], "comments": [], "fields": {}}
+        snap = {"capabilities": ["status_history", "comments"], "items": [
+            item("BASE", "Original feature", count=2),
+            item("BASE-A", "API component", "BASE", history=False),
+            item("BASE-B", "Mobile component", "BASE", history=False),
+            item("EXTRA", "[QA] Approved service"),
+            item("EXTRA-A", "[Existing] Bug 1: repair old validation"),
+            item("EXTRA-B", "[Existing] Bug 2: repair old rendering"),
+        ]}
+        profile = {"tracker": {"options": {"include_subtasks": True}},
+                   "conventions": {"exclude_patterns": [r"^\[QA\]"], "defect_pattern": r"Bug \d+",
+                       "additional_request_label": "Additional Request",
+                       "grouping": {"split_source_children": True, "inherit_parent_delivery": True,
+                                    "linked_members": {"EXTRA": ["EXTRA-A", "EXTRA-B"]}}},
+                   "workflow": {"delivered_when": {"values": ["QA"]},
+                                "closed_when": {"values": ["Done"]}, "reopened_when": {"values": ["Doing"]}},
+                   "sources": {"hours_basis": "dev+qa"}}
+        facts = {"periods": {"periods": [{"name": "Cycle", "handover_date": "2025-03-05"}]},
+                 "plan": {"items": [{"board_key": "BASE", "title": "Original feature", "dev_hours": 12, "qa_hours": 4}]},
+                 "estimates": {"items": [{"board_key": "EXTRA", "title": "[QA] Approved service", "dev_hours": 8, "qa_hours": 4}]}}
+        return snap, profile, facts
+
+    def test_group_members_count_once_and_keep_aggregate_hours_once(self):
+        snap, profile, facts = self.grouped_example()
+        kif, work = classify.to_kif(snap, profile, {"name": "Example"}, facts, None, "2025-03-08")
+        engine = kpi_engine.Engine(kif, profile, kpi._registry(self.ws()))
+        self.assertEqual([t['key'] for t in engine.deliverables_in('Cycle')], ['BASE-A', 'BASE-B', 'EXTRA-A', 'EXTRA-B'])
+        self.assertEqual(engine.velocity(kif['periods'][0]).value, 28)
+        self.assertEqual(len(kif['defects']), 2)
+        self.assertEqual(len({d['_row'] for d in kif['defects']}), 2)
+        self.assertEqual(engine.counted_defects('Cycle')[0], [])
+        self.assertFalse(any(q['id'].startswith('scope:') for q in work['questions']))
+        members = [t for t in kif['tasks'] if t.get('effort_group') == 'BASE']
+        self.assertTrue(all(t['delivered'] == '2025-03-03' and t['hours_dev'] is None for t in members))
+        self.assertTrue(all(t['reopened'] is None for t in members))
+
+    def test_grouped_workbook_formulas_match_engine_and_preserve_defect_identity(self):
+        snap, profile, facts = self.grouped_example()
+        kif, _ = classify.to_kif(snap, profile, {"name": "Example"}, facts, None, "2025-03-08")
+        self.assert_grouped_formulas(kif, profile)
+
+    def assert_grouped_formulas(self, kif, profile):
+        import formulas
+        registry = kpi._registry(self.ws())
+        results = {'periods': [p.as_dict() for p in kpi_engine.Engine(kif, profile, registry).run()]}
+        tabs = sheet_model.build(kif, results, {'profile': profile, 'registry': registry, 'as_of': '2025-03-08'})
+        path = self.base / 'groups.xlsx'
+        sheet_xlsx.write(tabs, path)
+        sol = formulas.ExcelModel().loads(str(path)).finish().calculate()
+        live = {str(k).split('!')[-1].strip("'"): v.value[0][0] for k,v in sol.items() if 'KPI SUMMARY' in str(k).upper()}
+        sheet = load_workbook(path)['KPI Summary']
+        for row in range(4, sheet.max_row + 1):
+            name = sheet.cell(row,3).value
+            if not name: continue
+            expected = next(m['value'] for m in results['periods'][0]['measures'] if m['name']==name)
+            actual = live[f'G{row}']
+            self.assertEqual(None if actual in ('',None) else round(float(actual),2), expected, name)
+
+    def test_partial_group_delivery_does_not_invent_a_per_ticket_estimate(self):
+        snap, profile, facts = self.grouped_example()
+        profile['conventions']['grouping']['inherit_parent_delivery'] = False
+        snap['items'][1]['events'] = copy.deepcopy(snap['items'][0]['events'])
+        snap['items'][1]['section'] = 'Done'
+        kif, _ = classify.to_kif(snap, profile, {}, facts, None, '2025-03-08')
+        engine = kpi_engine.Engine(kif, profile, kpi._registry(self.ws()))
+        self.assertIsNone(engine.velocity(kif['periods'][0]).value)
+        self.assert_grouped_formulas(kif, profile)
+
+    def test_pending_delivery_check_cannot_turn_a_blank_handoff_into_on_time(self):
+        snap, profile, facts = self.grouped_example()
+        for item in snap['items']:
+            item['events'], item['section'] = [], None
+        facts['periods']['periods'][0].update(client_date='2025-03-30', client_check='Delivery')
+        kif, _ = classify.to_kif(snap, profile, {}, facts, None, '2025-03-08')
+        result = kpi_engine.Engine(kif, profile, kpi._registry(self.ws())).client_expectation(kif['periods'][0])
+        self.assertIsNone(result.value)
+        self.assert_grouped_formulas(kif, profile)
+
+    def test_explicit_member_answers_survive_missing_individual_history(self):
+        snap, profile, facts = self.grouped_example()
+        stored = ledger.Ledger(self.base / 'member-answers.json')
+        stored.set('BASE-A', 'understood', 'No', 'human', 'The client clarified the required behavior.')
+        stored.set('BASE-A', 'reopened', 'Yes', 'human', 'The individual item was returned from QA.')
+        kif, _ = classify.to_kif(snap, profile, {}, facts, stored, '2025-03-08')
+        member = next(t for t in kif['tasks'] if t['key'] == 'BASE-A')
+        self.assertEqual((member['understood'], member['reopened']), ('No', 'Yes'))
+
+    def test_group_member_defect_edits_do_not_change_its_delivery_classification(self):
+        snap, profile, facts = self.grouped_example()
+        kif, _ = classify.to_kif(snap, profile, {}, facts, None, '2025-03-08')
+        registry = kpi._registry(self.ws())
+        results = {'periods': [p.as_dict() for p in kpi_engine.Engine(kif, profile, registry).run()]}
+        tabs = sheet_model.build(kif, results, {'profile': profile, 'registry': registry})
+        state = sheet_readback.snapshot(tabs, {})
+        defect_tab = next(t for t in tabs if t.name == 'Defect Register')
+        col = next(i for i, key, _ in state['spec']['Defect Register']['fields'] if key == 'kind')
+        defect_tab.cells[(state['spec']['Defect Register']['first'], col)]['v'] = 'Observation'
+        grids = {t.name: sheet_readback._model_grid(t) for t in tabs}
+        def grid(tab, row, col):
+            return grids[tab](tab, row, col)
+        grid.rows = lambda tab: grids[tab].rows(tab)
+        stored = ledger.Ledger(self.base / 'dual-row-ledger.json')
+        sheet_readback.fold(state, grid, stored, facts, {}, {i['id']: i for i in snap['items']})
+        refreshed, _ = classify.to_kif(snap, profile, {}, facts, stored, '2025-03-08')
+        self.assertEqual(next(t['type'] for t in refreshed['tasks'] if t['key'] == 'EXTRA-A'), 'CR')
+        self.assertEqual(next(d['kind'] for d in refreshed['defects'] if d['key'] == 'EXTRA-A'), 'Observation')
+        self.assertEqual(next(d['kind'] for d in refreshed['defects'] if d['key'] == 'EXTRA-B'), 'Bug')
+
+    def test_group_missing_or_overlapping_members_are_not_silently_undercounted(self):
+        snap, profile, facts = self.grouped_example()
+        profile['conventions']['grouping']['linked_members']['EXTRA'].append('UNREAD')
+        with self.assertRaisesRegex(ValueError, 'missing configured members'):
+            classify.to_kif(snap, profile, {}, facts, None, '2025-03-08')
+        profile['conventions']['grouping']['linked_members']['EXTRA'] = ['BASE-A', 'EXTRA-A']
+        with self.assertRaisesRegex(ValueError, 'more than one'):
+            classify.to_kif(snap, profile, {}, facts, None, '2025-03-08')
+
+    def test_approved_source_overrides_generic_qa_exclusion(self):
+        snap, profile, facts = self.grouped_example()
+        profile['conventions']['grouping'] = {}
+        kif, work = classify.to_kif(snap, profile, {}, facts, None, '2025-03-08')
+        self.assertEqual(next(t['type'] for t in kif['tasks'] if t['key']=='EXTRA'), 'CR')
+        self.assertFalse(any(q['id'].startswith('scope:') for q in work['questions']))
+
+    def test_all_notes_require_review_and_changed_evidence_invalidates_it(self):
+        snap, profile, facts = self.grouped_example()
+        kif, work = classify.to_kif(snap, profile, {'name':'Example'}, facts, None, '2025-03-08')
+        results = {'periods':[p.as_dict() for p in kpi_engine.Engine(kif,profile,kpi._registry(self.ws())).run()]}
+        q = judge.build_queue(work, results, facts, self.base, ['Cycle'], kif, profile)
+        self.assertEqual(len(q['notes']), 9)
+        judge.write_queue(q, self.base)
+        answers = self.base/'judge'/'answers.json'
+        answers.write_text(json.dumps({'reasons':[{'period':n['period'], 'kpi':n['kpi'], 'why':'',
+            'review_signature':n['review_signature']} for n in q['notes']]}))
+        output = judge.apply_answers(answers, snap, ledger.Ledger(self.base/'review-ledger.json'), facts, ['Cycle'])
+        self.assertEqual(output['refused'], [])
+        self.assertEqual(judge.build_queue(work,results,facts,self.base,['Cycle'],kif,profile)['notes'], [])
+        results['periods'][0]['measures'][0]['note_parts'].append('A newly recorded delivery changes the result.')
+        self.assertEqual(len(judge.build_queue(work,results,facts,self.base,['Cycle'],kif,profile)['notes']), 1)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

@@ -439,16 +439,23 @@ class Engine:
         unit = (self.kif["project"].get("velocity_unit") or "Estimated Hours")
         by_points = unit == "Story Points"
         delivered = self.delivered_in(name)
+        # Group members count as separate tickets, but their approved budget lives once
+        # on the excluded parent. It is not a zero-hour estimate for each child.
+        effort_rows = ([t for t in delivered if not t.get("effort_group")] +
+                       [t for t in self.tasks_in(name) if t.get("effort_only") and t.get("delivered")])
         basis = (self.sources.get("hours_basis") or "dev")
 
-        missing = [t for t in delivered if
+        missing = [t for t in (delivered if by_points else effort_rows) if
                    (t.get("story_points") is None if by_points else
                     t.get("hours_dev") is None or
                     (basis == "dev+qa" and t.get("closed") and t.get("hours_qa") is None))]
+        if not by_points:
+            eligible_groups = {t.get("_item") for t in effort_rows if t.get("effort_only")}
+            missing.extend(t for t in delivered if t.get("effort_group") and t["effort_group"] not in eligible_groups)
         if missing:
             why = (f"Velocity is not measured in {'story points' if by_points else 'hours'}: "
                    f"{len(missing)} of {len(delivered)} delivered items lack the required estimate. "
-                   "Fill the missing estimates; blank does not mean zero.")
+                   "Record the missing estimate or finish the group whose estimate cannot be split; blank does not mean zero.")
             m = self._measure("velocity", value=None, unit=unit, numerator=None, denominator=None, gaps=[why])
             m.note_parts = [self._heading("velocity", period), why, ""]
             m._say = {"kpi": "velocity", "empty": why}
@@ -461,16 +468,11 @@ class Engine:
             qa = float(t.get("hours_qa") or 0) if basis == "dev+qa" and t.get("closed") else 0.0
             return dev + qa
 
-        item_total = sum(effort(t) for t in delivered)
+        item_total = sum(effort(t) for t in (delivered if by_points else effort_rows))
         team_hours = float(period.get("team_hours") or 0) if not by_points else 0.0
         total = item_total + team_hours
 
         gaps: list[str] = []
-        if not by_points and not any(t.get("hours_dev") for t in delivered) and delivered:
-            gaps.append(
-                "No effort figures were available for the delivered items, so Velocity counts only team-level effort."
-            )
-
         if not delivered:
             numbers = self._nothing_yet(period, name)
             m = self._measure("velocity", value=None, unit=unit, numerator=0, denominator=0, gaps=gaps)
@@ -495,8 +497,8 @@ class Engine:
 
         detail = []
         if not by_points and basis == "dev+qa":
-            dev = sum(float(t.get("hours_dev") or 0) for t in delivered)
-            qa = sum(float(t.get("hours_qa") or 0) for t in delivered if t.get("closed"))
+            dev = sum(float(t.get("hours_dev") or 0) for t in effort_rows)
+            qa = sum(float(t.get("hours_qa") or 0) for t in effort_rows if t.get("closed"))
             if dev or qa:
                 detail.append(f"{_n(dev)} h of development and {_n(qa)} h of QA")
         if team_hours:
@@ -519,8 +521,9 @@ class Engine:
         m.note_parts = [self._heading("velocity", period), numbers, ", ".join(detail)]
         m._say = {"kpi": "velocity", "total": total, "points": by_points, "n": len(delivered), "plan": n_plan,
                   "cr": n_cr, "scope": n_scope, "basis": basis, "team": team_hours, "open": len(not_yet),
-                  "dev": sum(float(t.get("hours_dev") or 0) for t in delivered),
-                  "qa": sum(float(t.get("hours_qa") or 0) for t in delivered if t.get("closed"))}
+                  "dev": sum(float(t.get("hours_dev") or 0) for t in effort_rows),
+                  "qa": sum(float(t.get("hours_qa") or 0) for t in effort_rows if t.get("closed")),
+                  "grouped": sum(bool(t.get("effort_only")) for t in effort_rows)}
         return m
 
     def _ratio_measure(
@@ -754,16 +757,16 @@ class Engine:
         escaped = [d for d in valid if d.get("phase") == "Post-release"]
         den = len(valid)
 
-        # Nothing can escape from a cycle the client has never seen. Reporting 0% here would
-        # be a green "Met" bought by the absence of exposure.
+        # A missing handover date does not establish client exposure. It must not create
+        # a green zero, or claim that an unrecorded handover never happened.
         if not period.get("handover_date"):
             m = self._measure(
                 "escaped_defect_rate", value=None, numerator=0, denominator=den,
-                gaps=["Not handed over to the client yet, so nothing can have escaped."],
+                gaps=["A client handover date is not recorded, so escaped defects cannot be assessed yet."],
             )
             m.note_parts = [
                 self._heading("escaped_defect_rate", period),
-                "Not handed over to the client yet, so there is nothing to measure",
+                "A client handover date is not recorded, so escaped defects cannot be assessed yet",
                 "",
             ]
             m._say = {"kpi": "escaped_defect_rate", "no_handover": True, "den": den}
@@ -1004,14 +1007,14 @@ class Engine:
             due = sorted({_md(t.get("client_date") or t.get("commit_date")) for t in pending})
             due = [d for d in due if d]
             subject = "the only item is" if n == 1 else f"all {n} items are"
-            when = f" still ahead of {due[0]}" if due else " not due yet"
-            tail = " and the handover has not happened" if not period.get("handover_date") else ""
+            when = f" due on {due[0]}" if len(due) == 1 else (f" due between {due[0]} and {due[-1]}" if due else " not due yet")
+            tail = ", and no delivery is recorded yet"
             return f"Nothing to measure yet: {subject}{when}{tail}"
         return f"Nothing to measure yet across {_items_word(len(rows))}"
 
     def _reason_for(self, period_name: str, kpi_name: str) -> str:
         block = (self.reasons.get(period_name) or {})
-        return (block.get(kpi_name) or block.get(kpi_name.lower()) or "").strip()
+        return note_sentences.terminology((block.get(kpi_name) or block.get(kpi_name.lower()) or "").strip(), self.profile)
 
     def finish_note(self, m: Measure, period_name: str) -> None:
         """Glue the parts. The reason is the only part a human writes, and its job is to add
@@ -1022,7 +1025,14 @@ class Engine:
         The counting is identical - only the wording differs (note_sentences.py)."""
         sentences = self.note_style == "sentences" and getattr(m, "_say", None)
         if sentences:
+            wf = self.profile.get("workflow") or {}
+            m._say["close_explanation"] = (wf.get("reopened_when") or {}).get("note")
+            m._say["delivery_label"] = (wf.get("delivered_when") or {}).get("label")
             m.note_parts = note_sentences.sentences(m._say)
+        m.note_parts = [note_sentences.terminology(p, self.profile) for p in m.note_parts]
+        if m.clamped and m.value is not None:
+            m.note_parts.append(f"PMS limits the numeric field to {_n(m.pms_value)}; the calculated result "
+                                f"is {_n(m.value)}{m.unit}.")
         parts = [p for p in (m.note_parts + [self._reason_for(period_name, m.name)]) if p and p.strip()]
         cleaned: list[str] = []
         for p in parts:
@@ -1035,10 +1045,6 @@ class Engine:
                 continue
             cleaned.append(p + ("." if sentences else ""))
         m.note = " || ".join(cleaned)
-        if m.clamped and m.value is not None:
-            m.note += (f" || There is more here than PMS can hold: it stores {_n(m.pms_value)}, and the real figure "
-                       f"is {_n(m.value)}." if sentences else
-                       f" || PMS accepts up to {_n(m.pms_value)}; the real figure is {_n(m.value)}")
 
     def apply_manual(self, m: Measure, period_name: str) -> None:
         """Let a person state a different value or note than the data supports.
@@ -1129,7 +1135,7 @@ class Engine:
             bits.append(" + ".join(mix))
         if period.get("handover_date"):
             bits.append(f"handed over {_md(period['handover_date'])}")
-        return ", ".join(bits)
+        return note_sentences.terminology(", ".join(bits), self.profile)
 
     # -- run ---------------------------------------------------------------------------
 

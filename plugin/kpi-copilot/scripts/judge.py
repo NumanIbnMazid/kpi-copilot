@@ -23,12 +23,13 @@ live here, in one place, and travel inside every queue file.
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 from typing import Any
 
 import board as B
 
-RUBRIC_VERSION = "1.0"
+RUBRIC_VERSION = "1.1"
 
 RUBRIC = {
     "nature": (
@@ -66,7 +67,12 @@ RUBRIC = {
         "users after the handover. What decides it is who found it and whether the client already had the "
         "build - not the calendar alone. The team's own QA finding something after a handover is still QA."),
     "reasons": (
-        "The 'why' of a KPI note: one to three plain sentences that tell a manager what they would otherwise "
+        "MUST: read the complete KPI note as a decision maker with no project background. Explain which work "
+        "is being measured, what happened, its effect on delivery, and any decision or evidence limit that "
+        "changes the interpretation. Use familiar words, explain project-specific terms, and describe the "
+        "work before referring to a ticket number. Do not infer a cause from a high ratio or a status change. "
+        "Review Met and Not measured notes as carefully as missed KPIs. The 'why' is one to three plain "
+        "sentences that tell a manager what they would otherwise "
         "have to ask - why the number is what it is, what happened, what was decided and by whom. It adds "
         "only new information: never repeat the count the note already printed, never restate the heading. "
         "Describe the work, not the person. Dates as mm/dd. No links, no em dashes, no filler. Use only the "
@@ -81,7 +87,8 @@ FIELDS = {
 }
 
 
-def build_queue(work: dict, results: dict | None, facts: dict, project_dir: Path, period_names: list[str]) -> dict:
+def build_queue(work: dict, results: dict | None, facts: dict, project_dir: Path, period_names: list[str],
+                kif: dict | None = None, profile: dict | None = None) -> dict:
     grouped: dict[str, dict] = {}
     for q in work.get("queue") or []:
         g = grouped.setdefault(q["item_id"], {"item_id": q["item_id"], "item": q.get("item") or {}, "asks": []})
@@ -90,7 +97,7 @@ def build_queue(work: dict, results: dict | None, facts: dict, project_dir: Path
             g["item"].setdefault(k, v)
         g["asks"].append({k: q[k] for k in ("field", "question", "options", "proposal", "because",
                                             "confidence", "previously") if q.get(k) is not None})
-    notes = [n for n in _notes_needed(results, facts)
+    notes = [n for n in _notes_needed(results, facts, review=True, kif=kif, profile=profile)
              if f"{n['period']}|{n['kpi']}" not in ((facts.get("reasons") or {}).get("_questions") or {})] if results else []
     used = sorted({a["field"] for g in grouped.values() for a in g["asks"]} | ({"reasons"} if notes else set()))
     answers = project_dir / "judge" / "answers.json"
@@ -103,21 +110,26 @@ def build_queue(work: dict, results: dict | None, facts: dict, project_dir: Path
             "\"value\": null and say what is missing; it will be put to a person instead of guessed."),
         "rubric_version": RUBRIC_VERSION,
         "rubric": {k: RUBRIC[k] for k in used},
+        "note_instructions": (profile or {}).get("custom_instructions") or {},
+        "workflow": (profile or {}).get("workflow") or {},
         "periods": period_names,
         "answer_file": str(answers),
         "answer_shape": {
             "answers": [{"item_id": "<from items[]>", "field": "<from asks[]>", "value": "<one of options>",
                          "why": "<one sentence>", "evidence": "<url from the context, or null>"}],
-            "reasons": [{"period": "<period>", "kpi": "<kpi name>", "why": "<1-3 sentences, or null>",
+            "reasons": [{"period": "<period>", "kpi": "<kpi name>", "why": "<1-3 sentences; empty if no extra context is needed; null if evidence is missing>",
+                         "review_signature": "<from notes[]; confirms the COMPLETE note was reviewed for an uninvolved reader>",
                          "missing": "<when why is null, what the person needs to explain>"}]},
         "items": list(grouped.values()),
         "notes": notes,
     }
 
 
-def _notes_needed(results: dict, facts: dict) -> list[dict]:
-    """A missed KPI without a reason is the one thing PMS will not accept, so those are asked
-    for. A met KPI is left alone unless the period has a story worth telling."""
+def _notes_needed(results: dict, facts: dict, review: bool = False, kif: dict | None = None,
+                  profile: dict | None = None) -> list[dict]:
+    """Return missing causes, or every note whose complete narrative needs renewed review.
+    Review state is bound to counts, evidence, workflow and wording, never merely a KPI name.
+    """
     reasons = facts.get("reasons") or {}
     periods = {p.get("name"): p for p in ((facts.get("periods") or {}).get("periods") or [])}
     log = (facts.get("periods") or {}).get("log") or []
@@ -125,16 +137,49 @@ def _notes_needed(results: dict, facts: dict) -> list[dict]:
     for per in results.get("periods") or []:
         name = per["period"]
         for m in per.get("measures") or []:
-            if m.get("status") != "Not met" or (reasons.get(name) or {}).get(m["name"]):
+            if not review and (m.get("status") != "Not met" or (reasons.get(name) or {}).get(m["name"])):
                 continue
             p = periods.get(name) or {}
-            out.append({
+            entry = {
                 "period": name, "kpi": m["name"], "status": m["status"], "value": m.get("value"),
                 "target": m.get("threshold"), "the_note_already_says": " || ".join(x for x in m.get("note_parts") or [] if x),
                 "counted": (m.get("counted_keys") or [])[:15],
                 "context": {"period_story": p.get("notes") or "", "original_plan": p.get("plan_text") or "",
+                            "dates": {k: p.get(k) or ((facts.get("periods") or {}).get("project") or {}).get(k)
+                                      for k in ("client_date", "commit_date", "handover_date", "client_check")},
                             "log": [e for e in log if e.get("period") in (name, None, "")][:12]},
-            })
+            }
+            if review:
+                tasks = [t for t in (kif or {}).get("tasks") or [] if t.get("period") == name]
+                entry["context"]["groups"] = [
+                    {"key": t["key"], "title": t["title"], "members": [
+                        x["key"] for x in tasks if x.get("effort_group") == t.get("_item")]}
+                    for t in tasks if t.get("effort_only")]
+                entry["context"]["item_evidence"] = [
+                    {k: t.get(k) for k in ("key", "title", "rework_evidence", "understood_why", "remarks")}
+                    for t in tasks if t.get("type") != "Excluded" and
+                    (t.get("understood") == "No" if m.get("key") == "task_comprehension" else
+                     t.get("reopened") == "Yes" if m.get("key") == "rework_rate" else False)]
+                entry["context"]["approved_additions"] = [
+                    {k: x.get(k) for k in ("title", "approved_on", "dev_hours", "qa_hours")}
+                    for x in (facts.get("estimates") or {}).get("items") or [] if x.get("period") == name]
+                if m.get("key") == "rejection_rate":
+                    entry["context"]["rejected_reports"] = [
+                        {"key": d.get("key"), "title": d.get("title"),
+                         "why": d.get("rejection_reason") or ((d.get("basis") or {}).get("rejected") or {}).get("why")}
+                        for d in (kif or {}).get("defects") or [] if d.get("period") == name and d.get("rejected") == "Yes"]
+                signature = hashlib.sha256(json.dumps({"note": entry, "version": RUBRIC_VERSION,
+                    "style": (profile or {}).get("custom_instructions"),
+                    "workflow": (profile or {}).get("workflow")}, sort_keys=True, default=str).encode()).hexdigest()
+                tag = f"{name}|{m['name']}"
+                prior = (reasons.get(name) or {}).get(m["name"], "")
+                saved = (reasons.get("_reviews") or {}).get(tag) or {}
+                if saved.get("signature") == signature and saved.get("text") == prior:
+                    continue
+                entry.update(review_signature=signature, previous_reason=prior,
+                             reason_author=(reasons.get("_authors") or {}).get(tag),
+                             complete_note=m.get("note"))
+            out.append(entry)
     return out
 
 
@@ -191,21 +236,32 @@ def apply_answers(answers_path: Path, board: dict, ledger, facts: dict, period_n
     reasons = facts.setdefault("reasons", {})
     authors = reasons.setdefault("_authors", {})
     n = 0
+    queue_path = answers_path.parent / "queue.json"
+    queued = json.loads(queue_path.read_text()) if queue_path.exists() else {}
+    note_queue = {f"{x['period']}|{x['kpi']}": x for x in queued.get("notes") or []}
     for r in doc.get("reasons") or []:
         per, kpi, why = r.get("period"), r.get("kpi"), (r.get("why") or "").strip()
         if per in period_names and kpi and r.get("why") is None and r.get("missing"):
             reasons.setdefault("_questions", {})[f"{per}|{kpi}"] = str(r['missing']).strip()
             unsure.append(f"{per} · {kpi}: {r['missing']}")
             continue
-        if per not in period_names or not kpi or not why:
+        tag = f"{per}|{kpi}"
+        reviewed = bool(r.get("review_signature") and
+                        r["review_signature"] == (note_queue.get(tag) or {}).get("review_signature"))
+        if r.get("review_signature") and not reviewed:
+            refused.append(f"reason for {per} · {kpi}: review signature is stale; read the current queue")
+            continue
+        if per not in period_names or not kpi or (not why and not reviewed):
             refused.append(f"reason for {per} · {kpi}: needs a known period, a KPI name and some text")
             continue
-        tag = f"{per}|{kpi}"
-        if authors.get(tag) == "human" and by != "human":
+        if authors.get(tag) == "human" and by != "human" and why != (reasons.get(per) or {}).get(kpi):
             refused.append(f"reason for {per} · {kpi}: a person wrote this one; left alone")
             continue
         reasons.setdefault(per, {})[kpi] = why
         reasons.setdefault("_questions", {}).pop(tag, None)
-        authors[tag] = by
+        if authors.get(tag) != "human" or by == "human":
+            authors[tag] = by
+        if reviewed:
+            reasons.setdefault("_reviews", {})[tag] = {"signature": r["review_signature"], "text": why, "by": by}
         n += 1
     return {"applied": applied, "refused": refused, "reasons": n, "unsure": unsure}

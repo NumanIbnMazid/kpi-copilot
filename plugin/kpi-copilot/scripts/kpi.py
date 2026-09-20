@@ -488,7 +488,8 @@ def cmd_run(args) -> int:
     clock.lap("sheet")
 
     # 7. what needs a brain --------------------------------------------------------------------
-    queue = J.build_queue(work, results, ws.facts, ws.dir, [p.get("name") for p in kif.get("periods") or []])
+    queue = J.build_queue(work, results, ws.facts, ws.dir, [p.get("name") for p in kif.get("periods") or []],
+                          kif=kif, profile=ws.profile)
     qpath = J.write_queue(queue, ws.dir) if (queue["items"] or queue["notes"]) else None
     if not qpath and (ws.dir / "judge" / "queue.json").exists():
         (ws.dir / "judge" / "queue.json").unlink()
@@ -566,7 +567,7 @@ def report(ws, results, kif, work, queue, qpath, questions, edits, notes, said, 
     if qpath:
         n_i, n_n = len(queue["items"]), len(queue["notes"])
         what = " and ".join(x for x in (f"{n_i} card{'s' if n_i != 1 else ''} to judge" if n_i else "",
-                                        f"{n_n} missed KPI{'s' if n_n != 1 else ''} needing a reason" if n_n else "") if x)
+                                        f"{n_n} KPI note{'s' if n_n != 1 else ''} to review for clarity and evidence" if n_n else "") if x)
         print(f"  Assistant: {what}. Read {qpath} once, write {ws.dir / 'judge' / 'answers.json'} in the shape it shows,\n"
               f"  then run:  python3 {Path(__file__).name} judge --profile {ws.profile_path} --project {ws.pid}\n"
               f"  Do not open the board or search anywhere else - everything needed is in that file.")

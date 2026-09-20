@@ -151,6 +151,17 @@ guessing.
 
 ### 9. Generated text is read as English, by a person, before anyone sees it
 
+**Must have: every PMS note must make sense to a decision maker who knows nothing about
+the project.** State the result and what was measured, explain the work and events that
+matter, and describe the effect on delivery and any agreed decision. Explain local workflow
+terms before relying on them. A ticket number, a status name, or a technically correct ratio
+is not an explanation. Where the evidence cannot establish a cause, say so; do not invent
+one. This applies to met and unmeasured KPIs as well as missed targets.
+
+Every generated note goes through the assistant's evidence-based clarity review. The tool
+records that review and asks again when its facts, wording or explanation change. Company
+and client vocabulary is configurable, but readability and factual accuracy are mandatory.
+
 Notes are read by management. A note that says "1 observations" tells the reader that nobody
 is looking at the output — and once they believe that, they stop trusting the numbers too.
 

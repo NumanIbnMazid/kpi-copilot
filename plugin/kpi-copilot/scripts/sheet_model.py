@@ -179,6 +179,10 @@ TASK_COLS = [
     ("handover", "Period handover", 11, "calc", ""), ("client_check", "Client date check", 10, "calc", ""),
     ("item", "Row ID", 10, "calc", ""),
     ("delivery_unknown", "Delivery evidence missing", 10, "data", ""),
+    ("effort_only", "Group estimate only", 12, "data", ""),
+    ("effort_group", "Estimate held on group", 22, "data", ""),
+    ("group_effort_missing", "Group estimate not yet delivered", 15, "calc", ""),
+    ("estimate_missing", "Required estimate missing", 15, "calc", ""),
 ]
 DEFECT_COLS = [
     ("n", "#", 4, "calc", "c"), ("period", "Period", 14, "in", ""), ("key", "Ticket", 11, "data", ""),
@@ -329,6 +333,12 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         ref[key] = f"Config!$C${r}"
 
     r += 2
+    group_cfg = ((profile.get("conventions") or {}).get("grouping") or {})
+    if group_cfg.get("split_source_children") or group_cfg.get("linked_members"):
+        cfg.put(r, 2, "Grouped delivery tickets", "label")
+        cfg.put(r, 3, "Count member tickets; exclude parents from counts", "data")
+        cfg.put(r, 7, "Each approved group estimate is held once. Individual rework is unknown without child history.", "note")
+        r += 2
     cfg.band(r, "KPI TARGETS  (source and any local review override are shown beside each target)", 2, 9, "soft")
     r += 1
     for i, h in enumerate(["KPI", "Unit", "PMS KPI ID", "Type", "Target", "Formula (PMS definition)",
@@ -428,6 +438,8 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
             "remarks": plain(t.get("remarks")) or (t.get("exclude_reason") if excl else ""),
             "hours_dev": t.get("hours_dev"), "hours_qa": t.get("hours_qa"), "board_status": t.get("status"),
             "check": t.get("check"), "item": t.get("_row") or t.get("_item"),
+            "effort_only": "Yes" if t.get("effort_only") else "No",
+            "effort_group": t.get("effort_group") or "No group",
             "delivery_unknown": "Yes" if (t.get("client_date") or t.get("commit_date")) and t.get("met_client_date") is None and t.get("met_commitment") is None and not t.get("delivered") else "No",
         })
     n_tasks = len(trows)
@@ -446,6 +458,15 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         "client_check": f'=IF(B{{r}}="","",IF(COUNTIFS({PN},$B{{r}},{PC},"Handover")>0,"Handover",'
                         f'IF(COUNTIFS({PN},$B{{r}},{PC},"Delivery")>0,"Delivery",{ref["client_check"]})))',
     }
+    group_ids = _rng("Task Register", T["item"], 4)
+    group_delivered = _rng("Task Register", T["delivered"], 4)
+    # Whether a delivered child belongs to a group with an indivisible, still incomplete
+    # estimate. Keep Velocity unknown rather than showing a partial budget as zero.
+    for r, t in enumerate(kif.get("tasks") or [], 4):
+        if t.get("effort_group"):
+            tk.put(r, _n(TASK_COLS, "group_effort_missing"), None, "calc",
+                   f=f'=IF(AND({T["delivered"]}{r}>0,COUNTIFS({group_ids},{T["effort_group"]}{r},'
+                     f'{group_delivered},">0")=0),"Yes","No")')
     dl, ho = T["delivered"], T["handover"]
     done_c = f'IF({T["client_check"]}{{r}}="Delivery",{dl}{{r}},IF(OR({dl}{{r}}="",N({ho}{{r}})=0),"",MAX({dl}{{r}},{ho}{{r}})))'
     done_m = f'IF({ref["commit_on"]}="Handover",IF(OR({dl}{{r}}="",N({ho}{{r}})=0),"",MAX({dl}{{r}},{ho}{{r}})),{dl}{{r}})'
@@ -453,10 +474,19 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     def ontime(gate: str, due: str, done: str) -> str:
         return (f'=IF(OR(B{{r}}="",{T["type"]}{{r}}="Excluded",{gate}{{r}}<>"Yes",{due}{{r}}="",'
                 f'AND({T["delivery_unknown"]}{{r}}="Yes",{dl}{{r}}="")),"",'
-                f'IF({done}="",IF({ref["as_of"]}<={due}{{r}},"Pending","No"),IF({done}<={due}{{r}},"Yes","No")))')
+                f'IF(N({done})=0,IF({ref["as_of"]}<={due}{{r}},"Pending","No"),IF({done}<={due}{{r}},"Yes","No")))')
 
     tf["met_client_date"] = ontime(T["client_expected"], T["client_date"], done_c)
     tf["met_commitment"] = ontime(T["team_committed"], T["commit_date"], done_m)
+    # Keep required-estimate checks beside each row. This avoids array coercion of blank
+    # dates and text in SUMPRODUCT, which differs across spreadsheet calculation engines.
+    tf["estimate_missing"] = (
+        f'=IF(OR(B{{r}}="",N({dl}{{r}})=0),"No",IF({ref["velocity_unit"]}="Story Points",'
+        f'IF(AND({T["type"]}{{r}}<>"Excluded",LEN({T["story_points"]}{{r}})=0),"Yes","No"),'
+        f'IF(AND(OR(AND({T["type"]}{{r}}<>"Excluded",{T["effort_group"]}{{r}}="No group"),'
+        f'{T["effort_only"]}{{r}}="Yes"),OR(LEN({T["hours_dev"]}{{r}})=0,'
+        f'AND({ref["hours_basis"]}="Dev + QA",N({T["closed"]}{{r}})>0,'
+        f'LEN({T["hours_qa"]}{{r}})=0))),"Yes","No")))')
     _fill_row_formulas(tk, TASK_COLS, 4, last_t, tf)
     pick = f"Periods!$B$5:$B$200"
     for key, vals in (("type", ["Task", "CR", "Scope", "Excluded"]),):
@@ -533,10 +563,13 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     tHr, tSp = _rng("Task Register", T["hours"], 4), _rng("Task Register", T["story_points"], 4)
     dP, dRj, dPh, dCt = (_rng("Defect Register", D[k], 4) for k in ("period", "rejected", "phase", "counts"))
     live = f'{tP},$A{{r}},{tTy},"<>Excluded"'
+    tEo = _rng("Task Register", T["effort_only"], 4)
+    tEg = _rng("Task Register", T["effort_group"], 4)
     deliv = f'COUNTIFS({live},{tDl},">0")'
     num = {
         "Velocity": f'=IF({ref["velocity_unit"]}="Story Points",SUMIFS({tSp},{live},{tDl},">0"),'
-                    f'SUMIFS({tHr},{live},{tDl},">0")+N(IFERROR(INDEX({PM},MATCH($A{{r}},{PN},0)),0)))',
+                    f'SUMIFS({tHr},{live},{tDl},">0",{tEg},"No group")+SUMIFS({tHr},{tP},$A{{r}},{tEo},"Yes",{tDl},">0")'
+                    f'+N(IFERROR(INDEX({PM},MATCH($A{{r}},{PN},0)),0)))',
         "Task Comprehension": f'=COUNTIFS({live},{tUn},"Yes")',
         "Client Expectation": f'=COUNTIFS({live},{tMc},"Yes")',
         "Delivery Commitment": f'=COUNTIFS({live},{tMm},"Yes")',
@@ -559,14 +592,10 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     }
     ratio = '=IF(Q{r}<>"",Q{r},IF(N(F{r})=0,"",ROUND(E{r}/F{r}*100,2)))'
     val = {n: ratio for n in KPI_ORDER}
-    dev_col = _rng("Task Register", T["hours_dev"], 4)
-    qa_col = _rng("Task Register", T["hours_qa"], 4)
-    missing_points = f'SUMPRODUCT(({tP}=$A{{r}})*({tTy}<>"Excluded")*({tDl}>0)*(LEN({tSp})=0))'
-    missing_hours = (f'SUMPRODUCT(({tP}=$A{{r}})*({tTy}<>"Excluded")*({tDl}>0)*(LEN({dev_col})=0))+'
-                     f'IF({ref["hours_basis"]}="Dev + QA",SUMPRODUCT(({tP}=$A{{r}})*({tTy}<>"Excluded")*'
-                     f'({tDl}>0)*({tCl}>0)*(LEN({qa_col})=0)),0)')
-    val["Velocity"] = (f'=IF(Q{{r}}<>"",Q{{r}},IF(OR({deliv}=0,IF({ref["velocity_unit"]}="Story Points",'
-                       f'{missing_points},{missing_hours})>0),"",ROUND(E{{r}},2)))')
+    missing_estimate = f'COUNTIFS({tP},$A{{r}},{_rng("Task Register", T["estimate_missing"], 4)},"Yes")'
+    missing_group = f'COUNTIFS({tP},$A{{r}},{_rng("Task Register", T["group_effort_missing"], 4)},"Yes")'
+    val["Velocity"] = (f'=IF(Q{{r}}<>"",Q{{r}},IF(OR({deliv}=0,{missing_estimate}>0,'
+                       f'AND({ref["velocity_unit"]}<>"Story Points",{missing_group}>0)),"",ROUND(E{{r}},2)))')
     val["Escaped Defect Rate"] = (f'=IF(Q{{r}}<>"",Q{{r}},IF(OR(N(F{{r}})=0,N(IFERROR(INDEX({PH},MATCH($A{{r}},{PN},0)),0))=0),'
                                   f'"",ROUND(E{{r}}/F{{r}}*100,2)))')
     reasons, manual = ctx.get("reasons") or {}, ctx.get("manual") or {}
@@ -594,7 +623,8 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
             sm.heights[r] = max(45, min(250, 15 * (len(note_text) // 65 + 2)))
             sm.put(r, 12, auto, "calc")
             man = (manual.get(pn) or {}).get(name) or {}
-            sm.put(r, 13, plain((reasons.get(pn) or {}).get(name)), "in")
+            from note_sentences import terminology
+            sm.put(r, 13, terminology(plain((reasons.get(pn) or {}).get(name)), profile), "in")
             sm.put(r, 14, None, "calc", f=f'=L{r}&IF(TRIM(M{r})="",""," || "&TRIM(M{r}))')
             shown = m.get("value")
             sm.put(r, 15, shown, "calc_r")
