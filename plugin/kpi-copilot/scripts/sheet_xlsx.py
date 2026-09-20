@@ -83,6 +83,11 @@ def write(tabs: list[M.Tab], out: Path) -> Path:
             ws.column_dimensions[get_column_letter(c)].hidden = True
         for r, h in tab.heights.items():
             ws.row_dimensions[r].height = h
+        for r1, c1, r2, c2 in tab.merges:
+            ws.merge_cells(start_row=r1, start_column=c1, end_row=r2, end_column=c2)
+        if tab.filter_range:
+            r1, c1, r2, c2 = tab.filter_range
+            ws.auto_filter.ref = f"{get_column_letter(c1)}{r1}:{get_column_letter(c2)}{r2}"
         if any(tab.freeze):
             ws.freeze_panes = ws.cell(row=tab.freeze[0] + 1, column=tab.freeze[1] + 1)
         for v in tab.validations:
@@ -99,6 +104,7 @@ def write(tabs: list[M.Tab], out: Path) -> Path:
                             fill=(PatternFill(start_color=rule["fill"], end_color=rule["fill"], fill_type="solid")
                                   if rule.get("fill") else None),
                             font=Font(color=rule["color"]) if rule.get("color") else None))
+    wb.active = wb.sheetnames.index(tabs[0].name[:31])
     out.parent.mkdir(parents=True, exist_ok=True)
     fd, name = tempfile.mkstemp(suffix=".xlsx", dir=out.parent)
     os.close(fd)

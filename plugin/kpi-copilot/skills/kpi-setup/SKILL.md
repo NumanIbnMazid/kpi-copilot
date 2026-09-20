@@ -49,6 +49,11 @@ make results look better. Detailed options are in `docs/05-Adapting-To-Your-Work
 If wanted, `workbook.py build` creates an editable Profile Workbook; `workbook.py read`
 imports it back. It is optional. Users normally need only their profile and review workbook.
 For Google, configure a dedicated output file/folder, not the supplied manual reference.
+Use a stable project-level workbook name, without a reporting period. Save `workbook_file`
+after the first successful publication and keep it for every later period. Separate clients
+should have separate private profile folders unless the person explicitly wants one shared
+multi-account profile. A new reporting period is a row in the project history, not a new
+profile, project, or workbook.
 
 ## Prove the setup
 

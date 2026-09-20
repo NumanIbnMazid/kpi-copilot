@@ -567,7 +567,7 @@ class AuditTests(unittest.TestCase):
         self.profile.write_text(yaml.safe_dump(self.profile_data))
         self.test_unresolved_plan_workbook_matches_engine_including_future_dates()
         book = load_workbook(next((self.profile.parent / 'northwind-q3').glob('KPI Tracker*.xlsx')))
-        names = [c.value for row in book['Dashboard'] for c in row if c.column == 2]
+        names = [c.value for row in book['Dashboard'] for c in row if c.column == 1]
         for name in aliases.values():
             self.assertIn(name, names)
             row = next(row for row in book['Config'] if row[1].value == name)

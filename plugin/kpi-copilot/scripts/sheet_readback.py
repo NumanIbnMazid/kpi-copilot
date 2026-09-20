@@ -173,6 +173,10 @@ def fold(state: dict, grid: Grid, ledger, facts: dict, manual: dict, board_items
     for tab, before in (state.get("values") or {}).items():
         now = current[tab]
 
+        if tab == "Dashboard":
+            facts["view"] = now["cells"]
+            continue
+
         if tab == "Config":
             proj = facts.setdefault("periods", {}).setdefault("project", {})
             for k, v in now["cells"].items():
@@ -225,6 +229,13 @@ def fold(state: dict, grid: Grid, ledger, facts: dict, manual: dict, board_items
                 changed = {k: v for k, v in rec.items() if not _same(v, old.get(k))}
                 if not changed:
                     continue
+                if old.get("name") in spec_of(tab).get("historical_periods", []):
+                    if set(changed) & {"name", "start", "end"}:
+                        raise ValueError("Refresh that historical period before changing its name or date bounds.")
+                    facts.setdefault("history_periods", {}).setdefault(old["name"], {}).update(
+                        {k: _iso(v) for k, v in changed.items()})
+                    said.append(f"Periods · {rec['name']}: archived review edits kept")
+                    continue
                 target = next((p for p in plist if p.get("name") == rec.get("name")), None)
                 if target is None and old.get("name") not in names_now:
                     target = next((p for p in plist if p.get("name") == old.get("name")), None)
@@ -250,6 +261,24 @@ def fold(state: dict, grid: Grid, ledger, facts: dict, manual: dict, board_items
             by_hand, plan_row = rid.startswith("hand:"), rid.startswith("plan:")
             item_id = "" if (by_hand or plan_row) else rid.split("#", 1)[0]
             key = rec.get("key") or rec.get("title") or rid
+            if rid.startswith("history:"):
+                changes = {k: v for k, v in rec.items() if k not in ("key", "title", "item")
+                           and not _same(v, (old or {}).get(k))}
+                if "period" in changes:
+                    raise ValueError("Refresh that historical period to change its row membership.")
+                edits = facts.setdefault("history_edits", {}).setdefault(rid, {})
+                for k, v in changes.items():
+                    field = {"kind": "kind", "remarks": "remarks"}.get(k, k)
+                    if k == "planned":
+                        v = v == "Yes"
+                    elif k == "phase":
+                        v = PHASE_IN.get(v, v)
+                    elif k == "final_status":
+                        v = FINAL_IN.get(v, v)
+                    edits[field] = _iso(v)
+                if changes:
+                    said.append(f"{tab} · {key}: archived review edits kept; refresh its period to recompute the saved result")
+                continue
             if old is None:
                 if rec.get("key") or rec.get("title"):
                     row = {k: _iso(v) for k, v in rec.items() if v is not None and k != "item"}

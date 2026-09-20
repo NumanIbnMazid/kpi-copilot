@@ -954,8 +954,8 @@ def pipeline_tests(tmp: Path) -> None:
     book = next(proj.glob("KPI Tracker - *.xlsx"))
     wb = load_workbook(book)
     check("tabs are the ones a lead expects, in order",
-          wb.sheetnames == ["Read Me", "Dashboard", "Config", "Periods", "Task Register", "Defect Register",
-                            "KPI Summary", "Open Questions", "Run Log", "PMS Push Log"], str(wb.sheetnames))
+          wb.sheetnames == ["Dashboard", "Period Overview", "KPI Summary", "Task Register", "Defect Register",
+                            "Periods", "Open Questions", "Config", "Run Log", "PMS Push Log", "Read Me"], str(wb.sheetnames))
     tr, sm = wb["Task Register"], wb["KPI Summary"]
     fonts = {c.font.name for row in tr.iter_rows(min_row=1, max_row=12) for c in row if c.value is not None}
     check("every written cell is Arial; nothing falls back to Calibri", fonts == {"Arial"}, str(fonts))
@@ -1045,8 +1045,9 @@ def pipeline_tests(tmp: Path) -> None:
     k = json.loads((proj / "runs" / "2026-09-18" / "run.kif.json").read_text())
     res = json.loads((proj / "runs" / "2026-09-18" / "results.json").read_text())
     tabs = sheet_model.build(k, res, {"profile": {}})
-    fresh = sheet_google.tab_requests(tabs[4], 111, 4, None)
-    again = sheet_google.tab_requests(tabs[4], 111, 4, {"properties": {"gridProperties": {"rowCount": 10, "columnCount": 5}},
+    register = next(t for t in tabs if t.name == "Task Register")
+    fresh = sheet_google.tab_requests(register, 111, 4, None)
+    again = sheet_google.tab_requests(register, 111, 4, {"properties": {"gridProperties": {"rowCount": 10, "columnCount": 5}},
                                                        "conditionalFormats": [{}, {}]})
     kinds = lambda reqs: [next(iter(x)) for x in reqs]                                    # noqa: E731
     check("a tab that is not there yet is added", kinds(fresh)[0] == "addSheet")
@@ -1057,7 +1058,7 @@ def pipeline_tests(tmp: Path) -> None:
     check("dropdowns and colour rules come across", "setDataValidation" in kinds(fresh) and "addConditionalFormatRule" in kinds(fresh))
     rules = [c["formula"] for t in tabs for c in t.cond]
     check("no colour rule looks at another tab, which Google refuses", not any("!" in f for f in rules), str([f for f in rules if "!" in f]))
-    cells = [v for req in sheet_google.tab_requests(tabs[1], 5, 1, None) if "updateCells" in req
+    cells = [v for req in sheet_google.tab_requests(next(t for t in tabs if t.name == "Dashboard"), 5, 1, None) if "updateCells" in req
              for row in req["updateCells"].get("rows", []) for v in row["values"]]
     check("in Google the bars are real SPARKLINEs", any("SPARKLINE" in (c.get("userEnteredValue") or {}).get("formulaValue", "") for c in cells))
     check("a Drive link, a folder link and a bare id all resolve",

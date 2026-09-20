@@ -15,7 +15,7 @@ dropdowns, colour rules. Two writers render the same description:
 | Profile setting | What happens |
 |---|---|
 | `output.workbook_file: <link or id>` | That Google Sheet is updated in place |
-| `output.workbook_location: <folder link or id>` | The first run creates `[KPI Tracker] <project>` there; later runs find it by name |
+| `output.workbook_location: <folder link or id>` | The first run creates `[KPI Tracker] <project>` there; the saved destination ID pins later runs to it |
 | neither | Local workbook only |
 
 Tabs the tool owns are rebuilt; tabs a person added are left alone. Whatever was typed into
@@ -37,15 +37,41 @@ share the Drive folder with the account's address.
 `python3 scripts/kpi.py doctor --profile … --project …` says whether Google is connected.
 Never handle the token or key yourself.
 
-## Google not connected?
+## Google connected through the assistant's host
 
-Nothing breaks. The run writes the local workbook and says so. To get it into the same
-Google Sheet without any credential:
+The existing spreadsheet can be updated through a connected Google Drive/Sheets tool,
+without putting credentials in the local runtime. Use the normal model and writer:
 
-> Open the Google Sheet > **File > Import > Upload** the .xlsx > **Replace spreadsheet**.
+1. Read live spreadsheet metadata including conditional formats. Save its structured JSON
+   response to a private `metadata.json`. Read CellData for the populated review tabs,
+   including hidden row identities, and save the full structured response to `review.json`.
+   Include `formattedValue,userEnteredValue,effectiveValue`; do not carry the grid through
+   the assistant's conversation. Use the existing sheet baseline to determine the bounds.
+2. Run `kpi.py run --profile … --project … --review-file review.json --no-publish` with
+   the source arguments for the requested period. This consumes the live edits first.
+3. Run `sheet_bridge.py prepare --project-dir <private project folder> --metadata metadata.json
+   --review review.json --out update.json`. It refuses a snapshot not consumed by that run.
+4. Relay `update.json` unchanged to the host's Sheets batch-update tool. It contains one
+   atomic update built by `sheet_google.py`, targeting the configured permanent file ID.
+5. Read all written review inputs and every period's KPI Summary as CellData, with effective
+   values/errors, into `verified.json`. Run `sheet_bridge.py accept --project-dir …
+   --plan update.json --verified verified.json`. It verifies inputs, all KPI results and
+   formula errors before saving the Google destination and edit baseline.
 
-The link stays the same, and the dashboard's bars come alive: they are written the way
-Google itself exports a SPARKLINE, so Excel shows a text bar and Google shows the real one.
+When consolidating older per-period workbooks, `sheet_bridge.py import-period --project-dir …
+--review <source CellData JSON>` retains their live inputs/questions alongside saved engine
+runs. It refuses changed register membership. Preserve source workbooks in an archive until
+the combined workbook is verified. Never replace the entire spreadsheet through File Import:
+that can remove tabs added by the person.
+
+## Continuing history
+
+`workbook_history.json` retains period inputs/results separately from individual run payloads.
+A refresh replaces the matching start/end date pair; a new period is added once. Dashboard
+shows one chosen period; Period Overview has one filterable row per period, newest first.
+Register and summary filters expose the evidence without a separate set of tabs each week.
+Historical review edits stay scoped to that period. Refresh the historical period from its
+sources to recompute its saved result. Include the year when labels would otherwise repeat.
 
 ## If something looks wrong
 

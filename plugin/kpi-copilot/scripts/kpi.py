@@ -139,6 +139,11 @@ class Workspace:
         self.run_dir = self.dir / "runs" / run_label
         self.preserve_sheet = False
         self.previous_sheet_state = None
+        import workbook_history
+        self.history = workbook_history.load(self.dir)
+        self.facts["history_edits"] = _yaml_load(self.dir / "facts" / "history_edits.yaml")
+        self.facts["history_periods"] = _yaml_load(self.dir / "facts" / "history_periods.yaml")
+        self.facts["view"] = _yaml_load(self.dir / "facts" / "view.yaml")
 
     def _adopt_old_reasons(self) -> None:
         """Earlier versions kept reasons, and sometimes a hand-made plan breakdown, beside the
@@ -165,7 +170,7 @@ class Workspace:
 
     def save(self) -> None:
         self.ledger.save()
-        for k in ("periods", "plan", "estimates", "reasons"):
+        for k in ("periods", "plan", "estimates", "reasons", "history_edits", "history_periods", "view"):
             if self.facts.get(k):
                 save_facts(self.dir, k, self.facts[k])
         if (self.facts.get("extra_rows") or {}).get("tasks") or (self.facts.get("extra_rows") or {}).get("defects"):
@@ -200,7 +205,11 @@ def read_back(ws: Workspace, board_items: dict, args) -> list[str]:
         return []
     dest = state.get("destination") or {}
     try:
-        if dest.get("kind") == "google":
+        if getattr(args, "review_file", None):
+            import sheet_google
+            fid = dest.get("id") or G.file_id((ws.profile.get("output") or {}).get("workbook_file"))
+            grid = sheet_google.connector_grid(Path(args.review_file), fid)
+        elif dest.get("kind") == "google":
             if args.offline or not G.how_signed_in():
                 ws.preserve_sheet = True
                 return ["The Google review sheet could not be read. Its link and edit baseline are preserved; "
@@ -338,11 +347,23 @@ def _show(v: Any) -> str:
 
 
 def publish(ws: Workspace, kif: dict, results: dict, ctx: dict, args) -> tuple[dict, list[str]]:
+    import workbook_history as H
     import sheet_model
     import sheet_readback as R
     import sheet_xlsx
     said: list[str] = []
-    tabs = sheet_model.build(kif, results, ctx)
+    ctx["history_edits"] = ws.facts.get("history_edits") or {}
+    ctx["history_periods"] = ws.facts.get("history_periods") or {}
+    ctx["view"] = ws.facts.get("view") or {}
+    H.upsert(ws.history, kif, results, ctx)
+    book_kif, book_results, book_ctx = H.combine(ws.history, kif, results, ctx)
+    tabs = sheet_model.build(book_kif, book_results, book_ctx)
+    # Persist the continuing workbook separately from run payloads. PMS still receives
+    # only the periods requested in this run.
+    H.save(ws.dir / "workbook_history.json", ws.history)
+    H.save(ws.dir / "workbook_model.json", {"kif": book_kif, "results": book_results, "ctx": book_ctx,
+           "review_digest": hashlib.sha256(Path(args.review_file).read_bytes()).hexdigest()
+           if getattr(args, "review_file", None) else None})
     out_cfg = ws.profile.get("output") or {}
     safe = "".join(ch if ch.isalnum() or ch in " -_()[]" else " " for ch in ws.name).strip()
     title = (out_cfg.get("workbook_name") or "[KPI Tracker] {project}").replace("{project}", ws.name)
@@ -368,9 +389,11 @@ def publish(ws: Workspace, kif: dict, results: dict, ctx: dict, args) -> tuple[d
         else:
             try:
                 import sheet_google
-                prev = (ws.previous_sheet_state or {}).get("destination") or {}
+                saved = ws.dir / "workbook_destination.json"
+                prev = json.loads(saved.read_text()) if saved.exists() else (ws.previous_sheet_state or {}).get("destination") or {}
                 g = sheet_google.publish(tabs, out_cfg, title, prev.get("id") if prev.get("kind") == "google" else None)
                 dest = {**g, "path": str(local)}
+                H.save(ws.dir / "workbook_destination.json", dest)
                 said.append(("Created" if g["created"] else "Updated") + f" the Google Sheet as {g['as']}: {g['url']}")
                 if g.get("warning"):
                     said.append(g["warning"])
@@ -451,6 +474,10 @@ def cmd_run(args) -> int:
         kif, work = classify.to_kif(snap, ws.profile, ws.project, active_facts, ws.ledger, ws.today)
         kif_path.write_text(json.dumps(kif, indent=1, ensure_ascii=False), encoding="utf-8")
     clock.lap("classify")
+
+    import workbook_history
+    workbook_history.apply_edits(kif, ws.facts)
+    kif_path.write_text(json.dumps(kif, indent=1, ensure_ascii=False), encoding="utf-8")
 
     # 5. count -------------------------------------------------------------------------------
     results = compute(ws, kif_path)
@@ -804,6 +831,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--board", help="A board snapshot file, instead of reading the tracker.")
     r.add_argument("--file", help="CSV export, for --adapter csv.")
     r.add_argument("--no-publish", action="store_true", help="Write the local workbook only.")
+    r.add_argument("--review-file", help="Fresh connector CellData snapshot of the configured Google workbook, saved to disk.")
     j = common(sub.add_parser("judge", help="Fold judge/answers.json into the ledger and recompute."))
     j.add_argument("--answers", help="Default: <project>/judge/answers.json")
     j.add_argument("--human", action="store_true", help="These answers are a person's, not an assistant's.")
