@@ -114,6 +114,40 @@ class AuditTests(unittest.TestCase):
         self.assertIsNone(result.value)
         self.assert_grouped_formulas(kif, profile)
 
+    def test_old_card_history_does_not_credit_a_later_planned_period(self):
+        item = {"id": "REUSED", "key": "REUSED", "title": "Installer repair",
+                "created_at": "2025-04-01", "section": "To Do", "fields": {}, "comments": [],
+                "events": [
+                    {"kind": "section", "at": "2025-04-03", "from": "Doing", "to": "QA"},
+                    {"kind": "section", "at": "2025-04-04", "from": "QA", "to": "Done"},
+                ]}
+        snap = {"capabilities": ["status_history"], "items": [item]}
+        profile = {"workflow": {"delivered_when": {"values": ["QA", "Done"]},
+                                 "closed_when": {"values": ["Done"]}}}
+        facts = {"periods": {"periods": [{"name": "Current phase", "start": "2026-09-07"}]},
+                 "plan": {"items": [{"board_key": "REUSED", "title": "Installer repair",
+                                      "period": "Current phase", "dev_hours": 40, "qa_hours": 12}]}}
+        kif, _ = classify.to_kif(snap, profile, {}, facts, None, "2026-09-21")
+        row = next(t for t in kif["tasks"] if t["key"] == "REUSED")
+        self.assertIsNone(row["delivered"])
+        self.assertIsNone(row["closed"])
+
+    def test_explicit_source_delivery_can_precede_period_start(self):
+        item = {"id": "CARRY", "key": "CARRY", "title": "Carried item",
+                "created_at": "2025-04-01", "section": "Done", "fields": {}, "comments": [],
+                "events": [{"kind": "section", "at": "2025-04-04", "from": "QA", "to": "Done"}]}
+        snap = {"capabilities": ["status_history"], "items": [item]}
+        profile = {"workflow": {"delivered_when": {"values": ["Done"]},
+                                 "closed_when": {"values": ["Done"]}}}
+        facts = {"periods": {"periods": [{"name": "Current phase", "start": "2026-09-07"}]},
+                 "plan": {"items": [{"board_key": "CARRY", "title": "Carried item",
+                                      "period": "Current phase", "dev_hours": 1,
+                                      "delivered": "2026-09-05"}]}}
+        kif, _ = classify.to_kif(snap, profile, {}, facts, None, "2026-09-21")
+        row = next(t for t in kif["tasks"] if t["key"] == "CARRY")
+        self.assertEqual(row["delivered"], "2026-09-05")
+        self.assertIsNone(row["closed"])
+
     def test_explicit_member_answers_survive_missing_individual_history(self):
         snap, profile, facts = self.grouped_example()
         stored = ledger.Ledger(self.base / 'member-answers.json')

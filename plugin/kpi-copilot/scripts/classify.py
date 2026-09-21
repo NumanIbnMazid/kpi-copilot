@@ -386,7 +386,9 @@ class Classifier:
 
         ttype = keep("type", nat)
         delivered, closed = self._delivered(item), self._closed(item)
-        if not delivered and scope_row and scope_row.get("delivered"):
+        if scope_row and scope_row.get("delivered"):
+            # A delivery date recorded in the agreed source is more specific than an old
+            # tracker transition on a reused card.
             delivered = B.day(scope_row["delivered"])
         rework_closed = self._closed(item, rework=True)
         guess = self.period_of(item, delivered or B.day(item.get("created_at")), scope_row)
@@ -396,6 +398,21 @@ class Classifier:
             period = keep("period", self.settle(item, "period", guess,
                                                 "Which period does this item belong to?", self.period_names))
         per = next((p for p in self.periods if p["name"] == period), self.periods[0])
+
+        # A reused tracker card can carry completion history from an earlier project or
+        # phase.  Once an authoritative plan row puts that card in a later period, events
+        # before the period began are not delivery evidence for the current scope.  Keep an
+        # explicit source delivery date when one exists; otherwise withhold the stale board
+        # event instead of crediting old work to the new cycle.
+        period_start = per.get("start")
+        source_delivery = (scope_row or {}).get("delivered")
+        if period_start:
+            if not source_delivery and delivered and delivered < period_start:
+                delivered = None
+            if closed and closed < period_start:
+                closed = None
+            if rework_closed and rework_closed < period_start:
+                rework_closed = None
 
         row: dict[str, Any] = {
             "period": period, "key": item.get("key") or item["id"], "link": item.get("url"),
