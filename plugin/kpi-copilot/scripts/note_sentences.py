@@ -154,6 +154,11 @@ def _comprehension(s: dict) -> list[str]:
 
 def _client(s: dict) -> list[str]:
     yes, den, pct = s["yes"], s["den"], n(s["value"])
+    if s.get("human_batch_override"):
+        when = span(s.get("dates") or [])
+        outcome = "on track for" if s.get("override") == "Yes" else "not meeting"
+        return [f"The review decision counts all {den} items as {outcome} the {when} client expectation ({pct}%).",
+                "Work remains in progress."]
     by_delivery = s.get("check") == "Delivery"
     when = span(s.get("dates") or [])
     basis = ((s.get("delivery_label") or "each delivered") + " by " if by_delivery else "handed over by ") + when if when else \
@@ -174,6 +179,12 @@ def _client(s: dict) -> list[str]:
 
 
 def _commitment(s: dict) -> list[str]:
+    if s.get("human_batch_override"):
+        den, pct = s["den"], n(s["value"])
+        when = span(s.get("dates") or [])
+        outcome = "on track for" if s.get("override") == "Yes" else "not meeting"
+        return [f"The review decision counts all {den} items as {outcome} the {when} team commitment ({pct}%).",
+                "Work remains in progress."]
     if s.get("none_committed"):
         return [f"No team commitment was recorded against any of the {_items(s['rows'])} in this cycle, so there "
                 f"is nothing to measure reliability against."]
@@ -254,15 +265,17 @@ def _rework(s: dict) -> list[str]:
     group = f"{den} assessed completed {w(den, 'task')}" if s.get("unjudged") else f"{den} completed {w(den, 'task')}"
     first = (("The one assessed completed task was not reopened after closing." if den == 1 else
               f"None of the {group} had to be reopened after being closed.") if not r else
-             f"{r} of the {group} had to be reopened after being closed ({n(s['value'])}%).")
+             f"{r} reopening {w(r, 'event was', 'events were')} recorded across the {group} ({n(s['value'])}%).")
     q = s.get("near") or 0
     near = (f"{q} {w(q, 'task')} failed QA while still being tested for the first time. That is normal testing "
             f"rather than rework, so {w(q, 'it is', 'they are')} not counted here.") if q else ""
     u = s.get("unjudged") or 0
     gap = (f"{u} completed {w(u, 'task was', 'tasks were')} left out because the history needed to judge "
            f"{w(u, 'it', 'them')} was not available.") if u else ""
-    return [first, s.get("close_explanation") or "", near, gap,
-            "Each affected ticket counts once, even if it returned for changes several times."]
+    affected = s.get("affected") or 0
+    event_basis = (f"Those events affected {affected} {w(affected, 'ticket')}; each return after another close "
+                   "is counted separately." if r else "Each return after another close is counted separately.")
+    return [first, s.get("close_explanation") or "", near, gap, event_basis]
 
 
 def _cr(s: dict) -> list[str]:

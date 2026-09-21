@@ -231,6 +231,19 @@ def entered_after(item: dict, first: Iterable[str], then: Iterable[str]) -> dict
     return None
 
 
+def entries_after_each_close(item: dict, first: Iterable[str], then: Iterable[str]) -> list[dict]:
+    """Every close-to-reopen cycle, not merely whether the ticket ever reopened."""
+    first, then = list(first), list(then)
+    closed, hits = False, []
+    for event in moves(item):
+        if _in(event.get("to"), first):
+            closed = True
+        elif closed and _in(event.get("to"), then):
+            hits.append(event)
+            closed = False
+    return hits
+
+
 def ever_in(item: dict, states: Iterable[str]) -> list[dict]:
     states = list(states)
     return [e for e in moves(item) if _in(e.get("to"), states)]

@@ -172,7 +172,9 @@ TASK_COLS = [
     ("client_expected", "Client-Expected?", 10, "in", ""), ("client_date", "Client Expected Date", 11, "in", ""),
     ("met_client_date", "Met Client Date?", 10, "calc", "c"), ("team_committed", "Team Committed?", 10, "in", ""),
     ("commit_date", "Commitment Date", 11, "in", ""), ("met_commitment", "Met Commitment?", 10, "calc", "c"),
-    ("reopened", "Reopened after closing?", 9, "in", ""), ("rework_evidence", "Rework Evidence", 34, "data", ""),
+    ("reopened", "Reopened after closing?", 9, "in", ""),
+    ("reopen_count", "Reopening Events", 9, "data", "r"),
+    ("rework_evidence", "Rework Evidence", 34, "data", ""),
     ("rework_link", "Rework Link", 9, "data", ""), ("remarks", "Remarks and sources", 44, "data", ""),
     ("hours_dev", "Dev Hours", 8, "in", "r"), ("hours_qa", "QA Hours", 8, "in", "r"),
     ("board_status", "Board Column", 16, "data", ""), ("check", "Check (how this row was decided)", 40, "data", ""),
@@ -434,6 +436,7 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
             "client_date": t.get("client_date"),
             "team_committed": None if excl else ("Yes" if (t.get("commit_date") or t.get("met_commitment")) else "No"),
             "commit_date": t.get("commit_date"), "reopened": t.get("reopened"),
+            "reopen_count": t.get("reopen_count"),
             "rework_closed": t.get("rework_closed", t.get("closed")),
             "rework_evidence": plain(t.get("rework_evidence")),
             "rework_link": {"v": "Open", "link": rlink, "style": "link"} if rlink and t.get("rework_evidence") else None,
@@ -562,6 +565,7 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     sm.freeze = (3, 3)
     tP, tTy, tDl, tCl = (_rng("Task Register", T[k], 4) for k in ("period", "type", "delivered", "rework_closed"))
     tUn, tMc, tMm, tRe = (_rng("Task Register", T[k], 4) for k in ("understood", "met_client_date", "met_commitment", "reopened"))
+    tRc = _rng("Task Register", T["reopen_count"], 4)
     tHr, tSp = _rng("Task Register", T["hours"], 4), _rng("Task Register", T["story_points"], 4)
     dP, dRj, dPh, dCt = (_rng("Defect Register", D[k], 4) for k in ("period", "rejected", "phase", "counts"))
     live = f'{tP},$A{{r}},{tTy},"<>Excluded"'
@@ -581,7 +585,7 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         "Defect Rate": f'=COUNTIFS({dP},$A{{r}},{dCt},"Yes")',
         "Escaped Defect Rate": f'=COUNTIFS({dP},$A{{r}},{dRj},"<>Yes",{dPh},"Post-release")',
         "Defect Rejection Rate": f'=COUNTIFS({dP},$A{{r}},{dRj},"Yes")',
-        "Rework Rate": f'=COUNTIFS({live},{tCl},">0",{tRe},"Yes")',
+        "Rework Rate": f'=SUMIFS({tRc},{live},{tCl},">0",{tRe},"Yes")',
         "CR Rate": f'=COUNTIFS({tP},$A{{r}},{tTy},"CR")',
     }
     den = {
@@ -599,8 +603,11 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     val = {n: ratio for n in KPI_ORDER}
     missing_estimate = f'COUNTIFS({tP},$A{{r}},{_rng("Task Register", T["estimate_missing"], 4)},"Yes")'
     missing_group = f'COUNTIFS({tP},$A{{r}},{_rng("Task Register", T["group_effort_missing"], 4)},"Yes")'
-    val["Velocity"] = (f'=IF(Q{{r}}<>"",Q{{r}},IF(OR({deliv}=0,{missing_estimate}>0,'
-                       f'AND({ref["velocity_unit"]}<>"Story Points",{missing_group}>0)),"",ROUND(E{{r}},2)))')
+    if (profile.get("sources") or {}).get("missing_estimate") == "skip":
+        val["Velocity"] = f'=IF(Q{{r}}<>"",Q{{r}},IF({deliv}=0,"",ROUND(E{{r}},2)))'
+    else:
+        val["Velocity"] = (f'=IF(Q{{r}}<>"",Q{{r}},IF(OR({deliv}=0,{missing_estimate}>0,'
+                           f'AND({ref["velocity_unit"]}<>"Story Points",{missing_group}>0)),"",ROUND(E{{r}},2)))')
     val["Escaped Defect Rate"] = (f'=IF(Q{{r}}<>"",Q{{r}},IF(OR(N(F{{r}})=0,N(IFERROR(INDEX({PH},MATCH($A{{r}},{PN},0)),0))=0),'
                                   f'"",ROUND(E{{r}}/F{{r}}*100,2)))')
     reasons, manual = ctx.get("reasons") or {}, ctx.get("manual") or {}
@@ -849,7 +856,7 @@ HOW_COUNTED = {
     "Defect Rate": "Defect Register rows with Counts in Defect Rate = Yes ÷ delivered Task Register rows.",
     "Escaped Defect Rate": "Post-release reports that were not rejected ÷ all reports that were not rejected. Blank until the period is handed over.",
     "Defect Rejection Rate": "Defect Register rows with Rejected = Yes ÷ all Defect Register rows.",
-    "Rework Rate": "Closed rows with Reopened = Yes ÷ closed rows with Reopened = Yes or No.",
+    "Rework Rate": "Reopening events after the configured close boundary ÷ completed rows assessed for rework.",
     "CR Rate": "Rows with Item Type = CR ÷ rows with Item Type = Task (the whole project's, when the period has none).",
 }
 

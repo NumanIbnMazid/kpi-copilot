@@ -174,6 +174,50 @@ class Classifier:
             })
         return prop
 
+    def _review_batch_choice(self, period: str, kpi: str) -> str | None:
+        """A person's plain-English answer can resolve the unassessed remainder of one KPI.
+
+        Review questions describe a set rather than one card, so they cannot use the normal
+        item judgement id. Keep the interpretation intentionally narrow and only apply it to
+        rows whose value is still unknown; explicit item judgements always remain authoritative.
+        """
+        if not self.ledger:
+            return None
+        prefix = f"review:{period}|{kpi}:"
+        for qid, record in (self.ledger.data.get("answers") or {}).items():
+            if not qid.startswith(prefix) or record.get("by") != "human":
+                continue
+            words = " ".join(str(record.get("value") or "").casefold().replace("'", "").split())
+            if "not understood" in words or ("count" in words and "as misunderstood" in words):
+                return "No"
+            if "count" in words and "understood" in words:
+                return "Yes"
+        return None
+
+    def _review_delivery_choice(self, period: str, kpi: str) -> tuple[str | None, str | None]:
+        """Return an explicit batch outcome and date from a human's period-level answer."""
+        if not self.ledger:
+            return None, None
+        prefix = f"review:{period}|{kpi}:"
+        for qid, record in (self.ledger.data.get("answers") or {}).items():
+            if not qid.startswith(prefix) or record.get("by") != "human":
+                continue
+            raw = str(record.get("value") or "")
+            words = " ".join(raw.casefold().replace("'", "").split())
+            value = "Yes" if ("count as meet expectation" in words or "count as met" in words) else None
+            if "count as not met" in words or "count as missed" in words:
+                value = "No"
+            date = None
+            iso = re.search(r"\b(20\d{2})-(\d{1,2})-(\d{1,2})\b", words)
+            named = re.search(r"\b(sep(?:tember)?)\s+(\d{1,2})\b", words)
+            if iso:
+                date = f"{int(iso.group(1)):04d}-{int(iso.group(2)):02d}-{int(iso.group(3)):02d}"
+            elif named:
+                date = f"{self.today[:4]}-09-{int(named.group(2)):02d}"
+            if value or date:
+                return value, date
+        return None, None
+
     # -- matching cards to the plan and the estimates ---------------------------------------
 
     def match_scope(self, item: dict) -> tuple[dict | None, float]:
@@ -355,7 +399,7 @@ class Classifier:
             "delivery_evidence": (scope_row or {}).get("delivery_evidence"),
             "understood": None, "understood_evidence": None, "understood_why": None,
             "met_client_date": None, "client_date": None, "met_commitment": None, "commit_date": None,
-            "reopened": None, "rework_evidence": None, "remarks": "", "_item": item["id"],
+            "reopened": None, "reopen_count": None, "rework_evidence": None, "remarks": "", "_item": item["id"],
         }
         if ttype == "Excluded":
             row["exclude_reason"] = nat["why"]
@@ -367,10 +411,14 @@ class Classifier:
         self._hours(item, row, scope_row)
 
         if "status_history" in self.caps or item.get("events"):
-            p = self.settle(item, "reopened", self._reopened(item, row),
+            proposed_rework = self._reopened(item, row)
+            event_count = proposed_rework.get("count")
+            p = self.settle(item, "reopened", proposed_rework,
                             "Was this item closed and then reopened (rework)? A QA failure while it was "
                             "still being tested for the first time is not rework.", ["Yes", "No"], "events")
             row["reopened"] = keep("reopened", p) if rework_closed or p["value"] == "Yes" else None
+            row["reopen_count"] = ((event_count or 1) if row["reopened"] == "Yes" else
+                                   0 if row["reopened"] == "No" else None)
             if p.get("evidence") and row["reopened"] == "Yes":
                 row["rework_evidence"] = p["evidence"]
         if "comments" in self.caps or "status_history" in self.caps or item.get("comments"):
@@ -456,14 +504,17 @@ class Classifier:
         cfg = self.wf.get("reopened_when") or {}
         closed_states = cfg.get("closed_values", (self.wf.get("closed_when") or {}).get("values")) or []
         back = cfg.get("values") or []
-        hit = B.entered_after(item, closed_states, back) if closed_states and back else None
-        if not hit and any(e.get("kind") == "reopened" for e in item.get("events") or []) and not closed_states:
-            hit = next(e for e in item["events"] if e.get("kind") == "reopened")
+        hits = B.entries_after_each_close(item, closed_states, back) if closed_states and back else []
+        if not hits and not closed_states:
+            hits = [e for e in item.get("events") or [] if e.get("kind") == "reopened"]
+        hit = hits[0] if hits else None
         if hit:
             closed_on = B.first_entered(item, closed_states) or "earlier"
-            return Proposal("Yes", f"closed {_md(closed_on)}, then moved back to '{hit.get('to') or 'open'}' on "
-                                   f"{_md(B.day(hit.get('at')))}", 0.85,
-                            evidence=f"Closed on {_md(closed_on)} and reopened on {_md(B.day(hit.get('at')))}")
+            out = Proposal("Yes", f"closed {_md(closed_on)}, then moved back to '{hit.get('to') or 'open'}' on "
+                                  f"{_md(B.day(hit.get('at')))}", 0.85,
+                           evidence=f"Closed on {_md(closed_on)} and reopened on {_md(B.day(hit.get('at')))}")
+            out["count"] = len(hits)
+            return out
         first_close = B.first_entered(item, closed_states) if closed_states else None
         fails = [e for e in B.ever_in(item, back) if "fail" in B.norm(e.get("to") or "")
                  and (not first_close or (B.day(e.get("at")) or "") <= first_close)]
@@ -630,7 +681,7 @@ class Classifier:
                         row["delivery_evidence"] = parent.get("url")
                     if not own_close and (row.get("basis", {}).get("reopened", {}).get("by") or "rule") == "rule":
                         # A group failure does not establish which child required changes.
-                        row["reopened"], row["rework_evidence"] = None, None
+                        row["reopened"], row["reopen_count"], row["rework_evidence"] = None, None, None
                     if not item.get("comments") and (row.get("basis", {}).get("understood", {}).get("by") or "rule") == "rule":
                         row["understood"] = None
                     row["remarks"] = (f"Counted separately under {parent.get('key')}. Effort is held once on "
@@ -688,6 +739,41 @@ class Classifier:
 
         for row in tasks + defects:
             self._overlay(row)
+        understood_by_period = {p: self._review_batch_choice(p, "Task Comprehension")
+                                for p in self.period_names}
+        client_by_period = {p: self._review_delivery_choice(p, "Client Expectation")
+                            for p in self.period_names}
+        commitment_by_period = {p: self._review_delivery_choice(p, "Delivery Commitment")
+                                for p in self.period_names}
+        for row in tasks:
+            decision = understood_by_period.get(row.get("period"))
+            if decision and row.get("understood") is None and row.get("type") != "Excluded":
+                row["understood"] = decision
+                row["understood_why"] = "The person reviewing the KPI resolved the unassessed items as a group."
+                row.setdefault("basis", {})["understood"] = {
+                    "by": "human", "confidence": 1.0,
+                    "why": "The person reviewing the KPI resolved the unassessed items as a group.",
+                }
+            if row.get("type") == "Excluded":
+                continue
+            client_decision, client_date = client_by_period.get(row.get("period"), (None, None))
+            if client_date:
+                row["client_date"] = client_date
+            if client_decision and row.get("met_client_date") is None:
+                row["met_client_date"] = client_decision
+                row.setdefault("basis", {})["met_client_date"] = {
+                    "by": "human", "confidence": 1.0,
+                    "why": "The person reviewing the KPI resolved the period outcome as a group.",
+                }
+            commit_decision, commit_date = commitment_by_period.get(row.get("period"), (None, None))
+            if commit_date:
+                row["commit_date"] = commit_date
+            if commit_decision and row.get("met_commitment") is None:
+                row["met_commitment"] = commit_decision
+                row.setdefault("basis", {})["met_commitment"] = {
+                    "by": "human", "confidence": 1.0,
+                    "why": "The person reviewing the KPI resolved the period outcome as a group.",
+                }
         # A grouped budget becomes delivered only when all its members are delivered.
         # Never invent a per-child allocation of an indivisible approved estimate.
         for row in tasks:
@@ -705,6 +791,17 @@ class Classifier:
                 rows.append(self._hand_row(kind, x))
         if self.grain == "plan-items":
             tasks = self._explode(tasks)
+        for period in self.periods:
+            choice, date = self._review_delivery_choice(period["name"], "Client Expectation")
+            if choice:
+                period["client_expectation_override"] = choice
+            if date:
+                period["client_date"] = date
+            choice, date = self._review_delivery_choice(period["name"], "Delivery Commitment")
+            if choice:
+                period["delivery_commitment_override"] = choice
+            if date:
+                period["commit_date"] = date
         self._attach_context()
         self._period_questions(defects)
         return {"tasks": tasks, "defects": defects}
@@ -802,7 +899,7 @@ class Classifier:
                 # measures rather than counted as late: unknown is not the same as missed.
                 "met_client_date": on_time(delivered, client, self.today) if known else None, "client_date": client,
                 "met_commitment": on_time(delivered, commit, self.today) if (commit and known) else None,
-                "commit_date": commit, "reopened": None, "rework_evidence": None,
+                "commit_date": commit, "reopened": None, "reopen_count": None, "rework_evidence": None,
                 "remarks": "In the plan with no card of its own on the board", "basis": {},
                 "check": "" if known else "no card on the board; delivery date not known", "_item": None,
                 "_row": f"plan:{B.norm(r['title'])[:40]}",

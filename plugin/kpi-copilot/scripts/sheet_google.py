@@ -87,7 +87,8 @@ def _grid_range(sid: int, r1: int, c1: int, r2: int, c2: int) -> dict:
     return {"sheetId": sid, "startRowIndex": r1 - 1, "endRowIndex": r2, "startColumnIndex": c1 - 1, "endColumnIndex": c2}
 
 
-def tab_requests(tab: M.Tab, sid: int, index: int, existing: dict | None) -> list[dict]:
+def tab_requests(tab: M.Tab, sid: int, index: int, existing: dict | None,
+                 compact_existing: bool = False) -> list[dict]:
     """Everything needed to make one tab look like the model, whatever state it was in."""
     rows, cols = tab.size
     rows, cols = rows + 5, max(cols + 1, 8)
@@ -96,26 +97,30 @@ def tab_requests(tab: M.Tab, sid: int, index: int, existing: dict | None) -> lis
         reqs.append({"addSheet": {"properties": {"sheetId": sid, "title": tab.name, "index": index,
                                                  "gridProperties": {"rowCount": rows, "columnCount": cols}}}})
     else:
-        for i in reversed(range(len(existing.get("conditionalFormats") or []))):
-            reqs.append({"deleteConditionalFormatRule": {"sheetId": sid, "index": i}})
+        if not compact_existing:
+            for i in reversed(range(len(existing.get("conditionalFormats") or []))):
+                reqs.append({"deleteConditionalFormatRule": {"sheetId": sid, "index": i}})
         grid = (existing.get("properties") or {}).get("gridProperties") or {}
         rows, cols = max(rows, grid.get("rowCount") or 0), max(cols, grid.get("columnCount") or 0)
         # The tab may be one a person built by hand before pointing the tool at it, so anything
         # that would fight the new layout goes first: merged cells, a filter, old colour rules.
-        reqs.append({"unmergeCells": {"range": {"sheetId": sid}}})
-        if existing.get("basicFilter"):
-            reqs.append({"clearBasicFilter": {"sheetId": sid}})
+        if not compact_existing:
+            reqs.append({"unmergeCells": {"range": {"sheetId": sid}}})
+            if existing.get("basicFilter"):
+                reqs.append({"clearBasicFilter": {"sheetId": sid}})
         reqs.append({"updateCells": {"range": {"sheetId": sid},
-                                     "fields": "userEnteredValue,userEnteredFormat,dataValidation"}})
+                                     "fields": ("userEnteredValue,dataValidation" if compact_existing else
+                                                "userEnteredValue,userEnteredFormat,dataValidation")}})
     reqs.append({"updateSheetProperties": {
         "properties": {"sheetId": sid, "title": tab.name, "index": index, "tabColor": _rgb(tab.color),
                        "gridProperties": {"rowCount": rows, "columnCount": cols, "frozenRowCount": tab.freeze[0],
                                           "frozenColumnCount": tab.freeze[1], "hideGridlines": not tab.gridlines}},
         "fields": "title,index,tabColor,gridProperties(rowCount,columnCount,frozenRowCount,frozenColumnCount,hideGridlines)"}})
     # Expand the grid before touching dimensions outside the old bounds.
-    reqs.append({"updateDimensionProperties": {
-        "range": {"sheetId": sid, "dimension": "COLUMNS", "startIndex": 0, "endIndex": cols},
-        "properties": {"hiddenByUser": False}, "fields": "hiddenByUser"}})
+    if not compact_existing:
+        reqs.append({"updateDimensionProperties": {
+            "range": {"sheetId": sid, "dimension": "COLUMNS", "startIndex": 0, "endIndex": cols},
+            "properties": {"hiddenByUser": False}, "fields": "hiddenByUser"}})
 
     last_r, last_c = tab.size
     data = [{"values": [_value(tab.cells.get((r, c)) or {}) for c in range(1, last_c + 1)]} for r in range(1, last_r + 1)]
@@ -124,46 +129,48 @@ def tab_requests(tab: M.Tab, sid: int, index: int, existing: dict | None) -> lis
 
     # Formats as runs down each column: a register column is one style for a hundred rows,
     # so this is a few dozen requests instead of a format on every cell.
-    for c in range(1, last_c + 1):
-        run_key, run_start = None, 1
-        for r in range(1, last_r + 2):
-            cell = tab.cells.get((r, c)) if r <= last_r else None
-            key = (cell.get("style") or "text", cell.get("fmt")) if cell else None
-            if key != run_key:
-                if run_key is not None:
-                    reqs.append({"repeatCell": {
-                        "range": _grid_range(sid, run_start, c, r - 1, c),
-                        "cell": {"userEnteredFormat": _format(M.STYLES.get(run_key[0], M.STYLES["text"]), run_key[1])},
-                        "fields": "userEnteredFormat"}})
-                run_key, run_start = key, r
+    if not compact_existing:
+        for c in range(1, last_c + 1):
+            run_key, run_start = None, 1
+            for r in range(1, last_r + 2):
+                cell = tab.cells.get((r, c)) if r <= last_r else None
+                key = (cell.get("style") or "text", cell.get("fmt")) if cell else None
+                if key != run_key:
+                    if run_key is not None:
+                        reqs.append({"repeatCell": {
+                            "range": _grid_range(sid, run_start, c, r - 1, c),
+                            "cell": {"userEnteredFormat": _format(M.STYLES.get(run_key[0], M.STYLES["text"]), run_key[1])},
+                            "fields": "userEnteredFormat"}})
+                    run_key, run_start = key, r
 
-    for c, w in tab.widths.items():
-        reqs.append({"updateDimensionProperties": {
-            "range": {"sheetId": sid, "dimension": "COLUMNS", "startIndex": c - 1, "endIndex": c},
-            "properties": {"pixelSize": int(w * 7 + 5)}, "fields": "pixelSize"}})
-    for c in tab.hidden_cols:
-        reqs.append({"updateDimensionProperties": {
-            "range": {"sheetId": sid, "dimension": "COLUMNS", "startIndex": c - 1, "endIndex": c},
-            "properties": {"hiddenByUser": True}, "fields": "hiddenByUser"}})
-    for r, h in tab.heights.items():
-        reqs.append({"updateDimensionProperties": {
-            "range": {"sheetId": sid, "dimension": "ROWS", "startIndex": r - 1, "endIndex": r},
-            "properties": {"pixelSize": int(h * 96 / 72)}, "fields": "pixelSize"}})
+        for c, w in tab.widths.items():
+            reqs.append({"updateDimensionProperties": {
+                "range": {"sheetId": sid, "dimension": "COLUMNS", "startIndex": c - 1, "endIndex": c},
+                "properties": {"pixelSize": int(w * 7 + 5)}, "fields": "pixelSize"}})
+        for c in tab.hidden_cols:
+            reqs.append({"updateDimensionProperties": {
+                "range": {"sheetId": sid, "dimension": "COLUMNS", "startIndex": c - 1, "endIndex": c},
+                "properties": {"hiddenByUser": True}, "fields": "hiddenByUser"}})
+        for r, h in tab.heights.items():
+            reqs.append({"updateDimensionProperties": {
+                "range": {"sheetId": sid, "dimension": "ROWS", "startIndex": r - 1, "endIndex": r},
+                "properties": {"pixelSize": int(h * 96 / 72)}, "fields": "pixelSize"}})
     for v in tab.validations:
         cond = ({"type": "ONE_OF_RANGE", "values": [{"userEnteredValue": "=" + v["source"]}]} if v.get("source")
                 else {"type": "ONE_OF_LIST", "values": [{"userEnteredValue": x} for x in v["values"]]})
         reqs.append({"setDataValidation": {"range": _grid_range(sid, *v["range"]),
                                            "rule": {"condition": cond, "showCustomUi": True, "strict": False}}})
-    for i, rule in enumerate(tab.cond):
-        fmt: dict[str, Any] = {}
-        if rule.get("fill"):
-            fmt["backgroundColor"] = _rgb(rule["fill"])
-        if rule.get("color"):
-            fmt["textFormat"] = {"foregroundColor": _rgb(rule["color"])}
-        reqs.append({"addConditionalFormatRule": {"index": i, "rule": {
-            "ranges": [_grid_range(sid, *rule["range"])],
-            "booleanRule": {"condition": {"type": "CUSTOM_FORMULA", "values": [{"userEnteredValue": rule["formula"]}]},
-                            "format": fmt}}}})
+    if not compact_existing:
+        for i, rule in enumerate(tab.cond):
+            fmt: dict[str, Any] = {}
+            if rule.get("fill"):
+                fmt["backgroundColor"] = _rgb(rule["fill"])
+            if rule.get("color"):
+                fmt["textFormat"] = {"foregroundColor": _rgb(rule["color"])}
+            reqs.append({"addConditionalFormatRule": {"index": i, "rule": {
+                "ranges": [_grid_range(sid, *rule["range"])],
+                "booleanRule": {"condition": {"type": "CUSTOM_FORMULA", "values": [{"userEnteredValue": rule["formula"]}]},
+                                "format": fmt}}}})
     return reqs
 
 
@@ -195,7 +202,8 @@ def publish(tabs: list[M.Tab], out_cfg: dict, name: str, known_id: str | None = 
     for i, tab in enumerate(tabs):
         ex = have.get(tab.name)
         sid = ex["properties"]["sheetId"] if ex else sheet_id_for(tab.name)
-        reqs += tab_requests(tab, sid, i, ex)
+        compact = bool(ex) and G.how_signed_in() == "host-connector" and not out_cfg.get("full_refresh")
+        reqs += tab_requests(tab, sid, i, ex, compact_existing=compact)
     # Sheets resolves references when a formula is entered. Create every tab first;
     # otherwise an early Dashboard formula can retain #REF! for a later Config tab.
     reqs = [r for r in reqs if "addSheet" in r] + [r for r in reqs if "addSheet" not in r]

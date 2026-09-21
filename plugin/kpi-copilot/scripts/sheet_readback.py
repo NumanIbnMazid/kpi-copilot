@@ -330,7 +330,8 @@ def _file_answer(qid: str, answer: Any, ledger, facts: dict) -> None:
         item_id, field = qid[6:].rsplit(":", 1)
         allowed = ([p["name"] for p in (facts.get("periods") or {}).get("periods") or []]
                    if field == "period" else judge.FIELDS.get(field))
-        if not allowed or answer not in allowed:
+        answer = _allowed_answer(answer, allowed, field)
+        if answer is None:
             raise ValueError(f"{qid}: choose one of {', '.join(allowed or [])}")
         ledger.set(item_id, field, answer, "human", "Answered the open question")
         ledger.forget(item_id, "deferred:" + field)
@@ -346,3 +347,26 @@ def _file_answer(qid: str, answer: Any, ledger, facts: dict) -> None:
                           "answered in the sheet")
         return
     ledger.set_answer(qid, iso, "human", "answered in the sheet")
+
+
+def _allowed_answer(answer: Any, allowed: list[str] | None, field: str) -> str | None:
+    """Accept an unambiguous human sentence as well as a dropdown's exact value.
+
+    Open Questions is intentionally a prose-friendly surface. Requiring somebody to replace
+    "count this as understood" with the literal word ``Yes`` loses a valid decision and can
+    stop every later sheet edit from being read. Keep this deliberately narrow: only exact
+    choices, or the two plain-English forms of the understood judgement, are normalised.
+    """
+    if not allowed:
+        return None
+    raw = str(answer).strip()
+    exact = {str(value).casefold(): str(value) for value in allowed}
+    if raw.casefold() in exact:
+        return exact[raw.casefold()]
+    if field == "understood" and {value.casefold() for value in allowed} == {"yes", "no"}:
+        words = " ".join(raw.casefold().replace("'", "").split())
+        if "not understood" in words or "count" in words and "as misunderstood" in words:
+            return exact["no"]
+        if "count" in words and "understood" in words:
+            return exact["yes"]
+    return None

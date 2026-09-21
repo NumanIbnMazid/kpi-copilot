@@ -123,6 +123,52 @@ class AuditTests(unittest.TestCase):
         member = next(t for t in kif['tasks'] if t['key'] == 'BASE-A')
         self.assertEqual((member['understood'], member['reopened']), ('No', 'Yes'))
 
+    def test_plain_english_review_answer_resolves_unassessed_comprehension_rows(self):
+        snap, profile, facts = self.grouped_example()
+        stored = ledger.Ledger(self.base / 'batch-review.json')
+        stored.set_answer('review:Cycle|Task Comprehension:example',
+                          "It's fine. Count those items as understood.", 'human')
+        kif, _ = classify.to_kif(snap, profile, {}, facts, stored, '2025-03-08')
+        members = [t for t in kif['tasks'] if t.get('effort_group') == 'BASE']
+        self.assertTrue(members)
+        self.assertTrue(all(t['understood'] == 'Yes' for t in members))
+        self.assertTrue(all(t['basis']['understood']['by'] == 'human' for t in members))
+
+    def test_plain_english_period_answer_resolves_delivery_outcome_and_date(self):
+        snap, profile, facts = self.grouped_example()
+        stored = ledger.Ledger(self.base / 'batch-delivery-review.json')
+        stored.set_answer('review:Cycle|Client Expectation:example',
+                          'Count as meet expectation. Expected date count as Sep 30.', 'human')
+        kif, _ = classify.to_kif(snap, profile, {}, facts, stored, '2025-09-08')
+        delivered = [t for t in kif['tasks'] if t.get('type') != 'Excluded' and t.get('delivered')]
+        self.assertTrue(delivered)
+        self.assertTrue(all(t['client_date'] == '2025-09-30' for t in delivered))
+        self.assertTrue(all(t['met_client_date'] == 'Yes' for t in delivered))
+        engine = kpi_engine.Engine(kif, profile, kpi._registry(self.ws()))
+        self.assertEqual(engine.client_expectation(kif['periods'][0]).value, 100)
+
+    def test_rework_counts_each_close_to_reopen_cycle(self):
+        item = {"id": "A", "key": "A", "title": "Feature", "created_at": "2025-03-01",
+                "section": "Doing", "fields": {}, "comments": [], "events": [
+                    {"kind": "section", "at": "2025-03-02", "from": "Doing", "to": "QA"},
+                    {"kind": "section", "at": "2025-03-03", "from": "QA", "to": "Done"},
+                    {"kind": "section", "at": "2025-03-04", "from": "Done", "to": "Doing"},
+                    {"kind": "section", "at": "2025-03-05", "from": "Doing", "to": "Done"},
+                    {"kind": "section", "at": "2025-03-06", "from": "Done", "to": "Doing"},
+                ]}
+        snap = {"capabilities": ["status_history"], "items": [item]}
+        profile = {"workflow": {"delivered_when": {"values": ["QA"]},
+                                "closed_when": {"values": ["Done"]},
+                                "reopened_when": {"closed_values": ["Done"], "values": ["Doing"]}}}
+        facts = {"periods": {"periods": [{"name": "Cycle"}]}}
+        c = classify.Classifier(snap, profile, {}, facts, None, '2025-03-08')
+        row = c.task_row(item, classify.Proposal('Task', 'planned work', 1), None)
+        self.assertEqual((row['reopened'], row['reopen_count']), ('Yes', 2))
+        kif = {"project": {}, "periods": [{"name": "Cycle"}], "tasks": [row], "defects": [],
+               "generated": {"capabilities": ["status_history"]}}
+        measure = kpi_engine.Engine(kif, profile, kpi._registry(self.ws())).rework_rate(kif['periods'][0])
+        self.assertEqual((measure.numerator, measure.denominator, measure.value), (2, 1, 200))
+
     def test_group_member_defect_edits_do_not_change_its_delivery_classification(self):
         snap, profile, facts = self.grouped_example()
         kif, _ = classify.to_kif(snap, profile, {}, facts, None, '2025-03-08')
@@ -706,6 +752,22 @@ class AuditTests(unittest.TestCase):
         sheet_readback._file_answer(c.questions[0]['id'], 'No', ws.ledger, ws.facts)
         self.assertEqual(ws.ledger.get(item['id'], 'understood')['value'], 'No')
         self.assertIsNone(ws.ledger.get(item['id'], 'deferred:understood'))
+
+    def test_plain_english_understood_answer_is_kept_as_the_yes_choice(self):
+        ws = self.ws()
+        item = self.snap['items'][0]
+        sheet_readback._file_answer(
+            f"judge:{item['id']}:understood", "It's fine, count them as understood.", ws.ledger, ws.facts
+        )
+        self.assertEqual(ws.ledger.get(item['id'], 'understood')['value'], 'Yes')
+
+    def test_ambiguous_plain_english_judgement_is_still_refused(self):
+        ws = self.ws()
+        item = self.snap['items'][0]
+        with self.assertRaisesRegex(ValueError, 'choose one of Yes, No'):
+            sheet_readback._file_answer(
+                f"judge:{item['id']}:understood", "Please review this again.", ws.ledger, ws.facts
+            )
 
     def test_stale_digest_is_withheld_but_not_deleted(self):
         facts = {'plan': {'source': {'fingerprint':'old'}, 'items':[{'title':'Scope'}]}}
