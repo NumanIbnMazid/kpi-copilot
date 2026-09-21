@@ -77,14 +77,23 @@ def main(argv: list[str] | None = None) -> int:
         "parts that need judgement; come here when you want to know whether a field exists and "
         "exactly what it takes.",
         "",
+        "[Documentation](../README.md) · [Configuration guide](../16-Configuration-Field-Guide.md) · "
+        "[Reference index](README.md)",
+        "",
+        "Commands below run from the repository root using its Python environment. "
+        "On Windows use `.\\.venv\\Scripts\\python.exe` instead of `.venv/bin/python`.",
+        "",
         "You can also ask for one setting at a time, which is usually faster:",
         "",
         "```bash",
-        "python3 scripts/profile_tool.py explain --key workflow.delivered_when",
+        ".venv/bin/python plugin/kpi-copilot/scripts/profile_tool.py explain --key workflow.delivered_when",
         "```",
         "",
         "**Required** marks a field the schema insists on. Almost nothing is required — the "
-        "tool would rather report a gap than refuse to run.",
+        "tool would rather report a gap than refuse to run. Schema defaults describe fields; "
+        "the minimal starter profile explicitly selects review-only. A field being accepted "
+        "by the schema does not guarantee every adapter implements it; read the narrative "
+        "reference for runtime limits.",
         "",
     ]
 

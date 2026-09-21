@@ -1,5 +1,7 @@
 # Sources — where the plan and the numbers come from
 
+[Documentation](../README.md) · [Field guide](../16-Configuration-Field-Guide.md)
+
 Where scope, hours and dates come from when the tracker is not the agreed truth.
 
 **This list is an allowlist.** A run reads the tracker and the sources named here, and
@@ -41,15 +43,14 @@ sources:
 
 **Fetched straight to disk, and only when it changed.** Drive says when a file was last
 modified; if that has not moved since the cached copy, nothing is downloaded. The plan PDF is
-fetched once in the life of a project. This needs Google connected
+reused until its source changes. This needs Google connected
 ([03-Prerequisites](../03-Prerequisites.md)); without it, drop an export in
 `<project>/inbox/plan.pdf` (or `estimates.xlsx`, `timeline.xlsx`) and it is picked up.
 
 **Never re-read for the same facts.**
 
 - A **table** (estimates sheet, timeline, a plan kept as a sheet) is read through `map`: the
-  column headers that hold each field, written once at setup. Every run after that reads it
-  in milliseconds. The header row is found by itself, and a header may carry a suffix in the
+  column headers that hold each field, written once at setup. Later runs use that mapping. The header row is found by itself, and a header may carry a suffix in the
   sheet ("Actual (auto)").
 - A **document** (a PDF plan) is digested **once** by the assistant into
   `<project>/facts/plan.yaml` - the items, their hours, their milestones. The digest records
@@ -60,7 +61,7 @@ From a mapped timeline the run takes each period's handover date (the latest *do
 a handover type) and keeps the KPI-flagged log entries as context for writing notes. Anything
 a person typed in the sheet or the facts file wins over what the mapping found.
 
-→ The facts files: `plugin/kpi-copilot/skills/kpi-run/references/facts.md`
+→ [Facts file shapes](../../plugin/kpi-copilot/skills/kpi-run/references/facts.md)
 
 | Field | What it is |
 |---|---|
@@ -81,12 +82,13 @@ points at the Tools registry; `ref` is the actual link or id; `kind` is `pdf`, `
 | Missing | Effect |
 |---|---|
 | `plan` | Scope comes from the board alone. Fine for many teams; a problem when the board and the signed scope differ |
-| `estimates` | CR Rate depends on the tracker's CR marker instead. If there is none, CRs go uncounted |
+| `estimates` | CR Rate depends on the tracker's CR marker instead. Without approval/baseline evidence, review the gap rather than assuming no changes |
 | `timeline` | Handover dates are typed once on the Periods tab instead |
 | `evidence_channels` | Nothing. Open questions go to a person, which is the default anyway |
 
-None of these stops a run. They change what can be measured, and the note on each KPI - and
-the Open Questions tab - says so.
+An unconfigured optional source is not required. A configured source that is missing, stale
+or invalid is a repair task, can withhold affected facts, and can block PMS submission.
+Open Questions and NEXT make those gaps visible.
 
 ## `hours_first`
 
@@ -112,3 +114,6 @@ see, and pointing at another client's channel fails validation rather than searc
 wrong place.
 
 → [01-tools.md](01-tools.md)
+
+For actual column mappings and their outcomes, see the
+[fictional source files](../../samples/README.md) and [walkthrough](../../samples/WALKTHROUGH.md).

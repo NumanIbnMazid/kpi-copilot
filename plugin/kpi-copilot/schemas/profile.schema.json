@@ -509,7 +509,7 @@
         },
         "reopened_when": {
           "type": "object",
-          "description": "Rework Rate = items that were closed and then reopened. A QA fail while the item is still being tested for the first time is normal testing, not rework.",
+          "description": "Rework Rate compares reopening events after the agreed closure boundary with completed tasks whose outcome is known. Repeated reopening uses reopen_count where available; an explicit Yes without a count contributes one. First-round QA failure before closure is not rework.",
           "properties": {
             "values": {
               "type": "array",
@@ -1013,8 +1013,8 @@
           "type": "boolean",
           "default": false,
           "x-workbook": {
-            "label": "Allow scheduled runs to push without a person",
-            "hint": "Only meaningful with auto-push. Leave No unless you have run this for a while."
+            "label": "Legacy scheduling flag",
+            "hint": "Does not authorize PMS writes. Schedules prepare drafts only."
           },
           "description": "Legacy scheduling compatibility flag. It never grants permission to send values to PMS."
         },
@@ -1034,7 +1034,7 @@
           "type": "string",
           "x-workbook": {
             "label": "Where the working file goes",
-            "hint": "Drive folder id, SharePoint path or a local folder."
+            "hint": "Google Drive folder link or ID. Local output follows the private profile/project folder."
           },
           "description": "A Drive folder (link or id). The first run creates the Google Sheet there; later runs find it by name and update it."
         },
@@ -1042,22 +1042,25 @@
           "type": "string",
           "x-workbook": {
             "label": "Tracker template to copy",
-            "hint": "Sheet id or path. Blank = build a fresh one."
-          }
+            "hint": "Not applied by the current kpi.py workbook writer."
+          },
+          "description": "Legacy configuration metadata; kpi.py uses its shared sheet model and does not copy an arbitrary template."
         },
         "run_folder": {
           "type": "string",
           "default": "runs",
           "x-workbook": {
             "label": "Where run output is kept"
-          }
+          },
+          "description": "Legacy runner setting. The current kpi.py writes under <profile folder>/<project id>/runs/<date>."
         },
         "notify": {
           "type": "string",
           "x-workbook": {
             "label": "Post a summary to",
             "hint": "A tool id from the Tools tab, or blank for none."
-          }
+          },
+          "description": "Preferred notification tool ID. The Python runner does not send messages; an assistant integration needs explicit user authorization."
         },
         "workbook_file": {
           "type": "string",
@@ -1077,7 +1080,7 @@
     },
     "custom_instructions": {
       "type": "object",
-      "description": "Your own instructions, which take precedence over the tool's defaults. Three tiers, and the difference matters: STYLE is free - say how you want things worded and it is followed. RULE OVERRIDES are allowed but recorded - they describe a fact about your project that the defaults get wrong, and each one is printed in the run summary and the workbook so a reader can see the number was produced under a local rule. PMS-OWNED settings are not set here: targets are configurable per project in PMS, so a project that needs a different bar gets one there and the next run reads it; keeping a target in this file instead would make the workbook and PMS disagree about the same number. The KPI ids and the definition of each ratio are fixed, because the counting is what makes two projects comparable. An attempt to set either here is reported, not silently dropped.",
+      "description": "Instructions for the assistant: note style, glossary and review preferences. Supported rule overrides require a reason and remain visible. Official targets are managed in PMS and refreshed into the registry; separate local review targets belong in targets, require a reason, and block PMS submission until reconciled. KPI identities and shared formulas are not free-text settings.",
       "x-workbook": {
         "tab": "Custom Instructions",
         "title": "Your own instructions"
@@ -1269,7 +1272,7 @@
     },
     "projects": {
       "type": "array",
-      "description": "The projects this profile covers - one row per PMS project. Everything above is the default for all of them; a project that differs says so in its 'overrides'. One profile can cover several accounts on several trackers.",
+      "description": "Projects this profile covers, including review-only projects without PMS access. Shared defaults apply unless account or project overrides differ.",
       "x-workbook": {
         "tab": "Projects",
         "title": "Your projects",

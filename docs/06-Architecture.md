@@ -1,5 +1,7 @@
 # Architecture
 
+[Documentation](README.md) · [Field guide](16-Configuration-Field-Guide.md)
+
 One shared Python engine serves every tracker and assistant. Keep deterministic work out of
 the model's context: source APIs write to disk, a compact queue asks for judgement, and the
 same workbook description drives local and Google output.
@@ -70,7 +72,7 @@ The user's chosen runtime still needs permission to execute and to reach each na
 
 ## Validation
 
-`python scripts/selftest.py` runs the bundled examples, formula evaluation and audit
+`.venv/bin/python plugin/kpi-copilot/scripts/selftest.py` runs the bundled examples, formula evaluation and audit
 regressions. Install `requirements-test.txt`; formula validation is required. Separately,
 `tests/verify_mcp.py` exercises a real stdio session against fictional offline data. The
 GitHub workflow runs both on supported modern Python versions.

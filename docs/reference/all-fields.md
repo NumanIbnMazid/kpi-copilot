@@ -4,13 +4,17 @@ Generated from `plugin/kpi-copilot/schemas/profile.schema.json` by `scripts/gen_
 
 This is the exhaustive list. The documents beside it explain *why* and *when* for the parts that need judgement; come here when you want to know whether a field exists and exactly what it takes.
 
+[Documentation](../README.md) · [Configuration guide](../16-Configuration-Field-Guide.md) · [Reference index](README.md)
+
+Commands below run from the repository root using its Python environment. On Windows use `.\.venv\Scripts\python.exe` instead of `.venv/bin/python`.
+
 You can also ask for one setting at a time, which is usually faster:
 
 ```bash
-python3 scripts/profile_tool.py explain --key workflow.delivered_when
+.venv/bin/python plugin/kpi-copilot/scripts/profile_tool.py explain --key workflow.delivered_when
 ```
 
-**Required** marks a field the schema insists on. Almost nothing is required — the tool would rather report a gap than refuse to run.
+**Required** marks a field the schema insists on. Almost nothing is required — the tool would rather report a gap than refuse to run. Schema defaults describe fields; the minimal starter profile explicitly selects review-only. A field being accepted by the schema does not guarantee every adapter implements it; read the narrative reference for runtime limits.
 
 ## `profile_version`
 
@@ -73,6 +77,12 @@ How your team names and shapes things. These are regular expressions or literal 
 
 | Field | Type | Default | Required | What it is |
 |---|---|---|---|---|
+| `additional_request_label` | string |  |  | Client wording for approved added work in notes, for example Additional Request. Internal types and PMS identifiers do not change. |
+| `grouping` | object |  |  | Count member tickets of approved source groups individually while retaining the group's estimate once. |
+| &nbsp;&nbsp;`grouping.split_source_children` | boolean | `no` |  |  |
+| &nbsp;&nbsp;`grouping.inherit_parent_delivery` | boolean | `no` |  |  |
+| &nbsp;&nbsp;`grouping.exclude_member_patterns` | list of string |  |  |  |
+| &nbsp;&nbsp;`grouping.linked_members` | object |  |  |  |
 | `key_pattern` | string |  |  | Regex, e.g. TKT-\d+ or [A-Z]+-\d+. Blank = use the tracker id. |
 | `defect_pattern` | string |  |  | Regex on the title, e.g. ^(Bug\|Observation\|Improvement) ?\d+ - or leave blank and use defect_by below. |
 | `defect_by` | one of: `title-pattern`, `issue-type`, `label`, `separate-board`, `field` | `title-pattern` |  | title-pattern \| issue-type \| label \| separate-board \| field |
@@ -101,7 +111,7 @@ What your team's states mean. This is the single most important section: it is w
 | `closed_when` | object |  |  |  |
 | &nbsp;&nbsp;`closed_when.values` | list of string |  |  | e.g. ['Closed', 'Done']. |
 | &nbsp;&nbsp;`closed_when.completed_flag_means` | string |  |  | What the tracker's own 'complete' flag means on your board - on some boards it means merged, not accepted. |
-| `reopened_when` | object |  |  | Rework Rate = items that were closed and then reopened. A QA fail while the item is still being tested for the first time is normal testing, not rework. |
+| `reopened_when` | object |  |  | Rework Rate compares reopening events after the agreed closure boundary with completed tasks whose outcome is known. Repeated reopening uses reopen_count where available; an explicit Yes without a count contributes one. First-round QA failure before closure is not rework. |
 | &nbsp;&nbsp;`reopened_when.values` | list of string |  |  | States that mean 'back in play after being closed'. |
 | &nbsp;&nbsp;`reopened_when.ignore_first_qa_fail` | boolean | `yes` |  |  |
 | `clarification_when` | object |  |  | Task Comprehension = the requirement was understood without going back to the client. This is how we detect 'we had to ask'. |
@@ -198,15 +208,15 @@ What the run produces and how far it is allowed to go on its own. This is the se
 | `unattended` | boolean | `no` |  | Legacy scheduling compatibility flag. It never grants permission to send values to PMS. |
 | `workbook` | one of: `google-sheets`, `xlsx`, `none` | `xlsx` |  | Where the KPI tracker lives. xlsx (the default) writes it locally, in the project's folder. google-sheets also keeps one live Google Sheet that every run updates in place - same link every time. The local copy is always written, whichever is chosen. |
 | `workbook_location` | string |  |  | A Drive folder (link or id). The first run creates the Google Sheet there; later runs find it by name and update it. |
-| `workbook_template` | string |  |  | Sheet id or path. Blank = build a fresh one. |
-| `run_folder` | string | `runs` |  |  |
-| `notify` | string |  |  | A tool id from the Tools tab, or blank for none. |
+| `workbook_template` | string |  |  | Legacy configuration metadata; kpi.py uses its shared sheet model and does not copy an arbitrary template. |
+| `run_folder` | string | `runs` |  | Legacy runner setting. The current kpi.py writes under <profile folder>/<project id>/runs/<date>. |
+| `notify` | string |  |  | Preferred notification tool ID. The Python runner does not send messages; an assistant integration needs explicit user authorization. |
 | `workbook_file` | string |  |  | A specific Google Sheet (link or id) to update in place, instead of creating one in workbook_location. Tabs the tool owns are rebuilt; tabs a person added are left alone. |
 | `workbook_name` | string |  |  | Name for a Google Sheet the tool creates. {project} is replaced. Default: '[KPI Tracker] {project}'. |
 
 ## `custom_instructions`
 
-Your own instructions, which take precedence over the tool's defaults. Three tiers, and the difference matters: STYLE is free - say how you want things worded and it is followed. RULE OVERRIDES are allowed but recorded - they describe a fact about your project that the defaults get wrong, and each one is printed in the run summary and the workbook so a reader can see the number was produced under a local rule. PMS-OWNED settings are not set here: targets are configurable per project in PMS, so a project that needs a different bar gets one there and the next run reads it; keeping a target in this file instead would make the workbook and PMS disagree about the same number. The KPI ids and the definition of each ratio are fixed, because the counting is what makes two projects comparable. An attempt to set either here is reported, not silently dropped.
+Instructions for the assistant: note style, glossary and review preferences. Supported rule overrides require a reason and remain visible. Official targets are managed in PMS and refreshed into the registry; separate local review targets belong in targets, require a reason, and block PMS submission until reconciled. KPI identities and shared formulas are not free-text settings.
 
 | Field | Type | Default | Required | What it is |
 |---|---|---|---|---|
@@ -244,7 +254,7 @@ Your client accounts. Most of what varies between two projects actually varies b
 
 ## `projects`
 
-The projects this profile covers - one row per PMS project. Everything above is the default for all of them; a project that differs says so in its 'overrides'. One profile can cover several accounts on several trackers.
+Projects this profile covers, including review-only projects without PMS access. Shared defaults apply unless account or project overrides differ.
 
 | Field | Type | Default | Required | What it is |
 |---|---|---|---|---|

@@ -433,6 +433,20 @@ def main() -> int:
     missing = lost(a, b)
     check("workbook round trip loses nothing that was written",
           not missing, "; ".join(f"{p}: {o!r} -> {n!r}" for p, o, n in missing[:4]))
+    local_profile = json.loads(json.dumps(a))
+    local_profile["organization"]["pms_base_url"] = ""
+    local_profile["output"]["mode"] = "review-only"
+    (tmp / "local-profile.yaml").write_text(yaml.safe_dump(local_profile))
+    built = run(["scripts/workbook.py", "build", "--profile", str(tmp / "local-profile.yaml"),
+                 "--out", str(tmp / "local-profile.xlsx")])
+    imported = run(["scripts/workbook.py", "read", "--xlsx", str(tmp / "local-profile.xlsx"),
+                    "--out", str(tmp / "local-back.yaml")])
+    checked = run(["scripts/profile_tool.py", "validate", "--profile", str(tmp / "local-back.yaml")])
+    restored = yaml.safe_load((tmp / "local-back.yaml").read_text())
+    check("a local-only profile stays valid after workbook import with a blank PMS address",
+          built.returncode == imported.returncode == checked.returncode == 0
+          and restored["organization"].get("pms_base_url") == ""
+          and not lost(local_profile, restored), checked.stdout + checked.stderr)
     r = run(["scripts/workbook.py", "tracker", "--results", str(tmp / "sav.results.json"),
              "--kif", str(EX / "northwind-q3" / "run.kif.json"), "--out", str(tmp / "tracker.xlsx")])
     check("tracker workbook builds", r.returncode == 0, r.stderr)

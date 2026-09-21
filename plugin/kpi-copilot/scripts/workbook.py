@@ -151,11 +151,13 @@ def build(profile_path: Path | None, out: Path) -> None:
         ("KPI Profile Workbook", "title"),
         ("", ""),
         ("This workbook is the configuration for KPI Copilot. It is the same information as profile.yaml, "
-         "shown so a person can read it. Edit either one; the tools convert between them.", ""),
+         "shown so a person can read it. After workbook edits, ask the assistant to import and validate "
+         "the profile before running; the two files do not synchronize automatically.", ""),
         ("", ""),
         ("Yellow cells are yours to change. Grey cells are not edited here: they are read from PMS or fixed "
          "for the company. Targets are the common case - a threshold is configurable per project in PMS, so if "
-         "yours needs a different bar, set it there and the next run reads it. What does not vary is the "
+         "yours needs a different bar, set it there and refresh the registry. Local review targets need "
+         "a value and reason and block PMS submission until reconciled. What does not vary is the "
          "counting behind each number, because that is what lets two projects be compared at all.", ""),
         ("", ""),
         ("Tabs", "h"),
@@ -241,11 +243,14 @@ def build(profile_path: Path | None, out: Path) -> None:
 
     # --- Prerequisites --------------------------------------------------------------
     ws = wb.create_sheet("Prerequisites")
+    ws.merge_cells("A1:H1")
     ws.cell(row=1, column=1, value="Readiness checklist").font = TITLE_FONT
+    ws.merge_cells("A2:H2")
     c = ws.cell(row=2, column=1,
-                value="Refreshed by: python3 scripts/preflight.py --profile profile.yaml. "
-                      "Do not edit by hand - confirmations are recorded with the command, so they carry a date.")
+                value="Ask the assistant to run the readiness check and rebuild this workbook. "
+                      "Record confirmations through the tool so each has a date; do not edit this checklist by hand.")
     c.font, c.alignment = HINT_FONT, WRAP
+    ws.row_dimensions[2].height = 30
     _style_header(ws, 4, ["#", "Group", "Check", "State", "Why it matters", "How to fix", "Who owns it", "Checked"],
                   [5, 16, 42, 14, 50, 50, 14, 20])
     state = _read_preflight(profile_path)
@@ -456,6 +461,10 @@ def _read_settings(ws, spec: dict) -> dict:
             val = _unflatten(str(raw) if raw is not None else "", props.get(str(key), {}))
             if val not in (None, "", []):
                 result[str(key)] = val
+            elif str(key) in spec.get("required", []) and props.get(str(key), {}).get("type") == "string":
+                # A required string may legitimately be blank, such as pms_base_url for
+                # local review. Keep the key so workbook import preserves that profile.
+                result[str(key)] = ""
 
     if sub_start:
         prop, cols, first = sub_start

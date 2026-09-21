@@ -35,3 +35,15 @@ venv/
 .DS_Store
 .idea/
 .vscode/
+
+# Presentations are maintained outside this public codebase.
+/presentation/
+
+# Deliberately published fictional documentation samples only.
+!samples/workspace/clients/northwind/profile.yaml
+!samples/workspace/clients/acme/profile.yaml
+!samples/workspace/clients/northwind/northwind-q3/facts/reasons.yaml
+!samples/workbooks/Northwind - Profile Workbook.xlsx
+!samples/workbooks/Northwind - KPI Tracker.xlsx
+!samples/workbooks/Acme - Profile Workbook.xlsx
+!samples/workbooks/Acme - KPI Tracker.xlsx

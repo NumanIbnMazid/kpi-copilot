@@ -1,186 +1,151 @@
 # Your first KPI run
 
-Imagine you are preparing a monthly review. Your tasks are in an issue tracker, estimates
-are in a sheet, and the delivery dates changed during the project. You want the numbers,
-but you also want notes that explain what actually happened.
+[Documentation](README.md) · [Install](12-Installation.md) · [Help](14-Troubleshooting.md)
 
-KPI Copilot helps your AI assistant do that work. You describe your workflow once, review
-what it understood, and ask it to prepare KPIs. You normally work with two things: **your
-saved profile** and **your KPI workbook**. The assistant handles the files behind them.
+**Use this guide first.** KPI Copilot helps an AI assistant turn your project records into
+KPIs—key performance indicators—with explanations you can review. You talk to the assistant;
+it runs the tool and maintains the workbook.
 
-## 1. Choose where you will talk to the assistant
+For example, you can ask it to prepare September's KPIs for a Jira project, review what it
+counted, answer a missing handover date, and refresh the same workbook next month.
 
-Start in the AI tool you already use. What matters is what that session can access.
+## 1. Understand what you are installing
 
-| Where you work | What you need before the first run |
+| Term | In everyday language |
 |---|---|
-| A coding assistant such as Cursor, Codex or a CLI | A local copy of this repository opened in the assistant, with permission to run commands and read your project files |
-| A desktop assistant with local MCP support | A one-time connection to KPI Copilot's local runner; ask the assistant or your administrator to follow the [connection guide](03-Prerequisites.md#optional-local-mcp-connection) |
-| A browser assistant with a Python/file workspace | The repository archive and exports of the project sources you want it to read; downloadable workbooks are the simplest output |
-| A browser chat with no code workspace or connected runner | It can help review a workbook, but it cannot run KPI Copilot yet; use one of the routes above |
+| **Repository** | The complete project folder on GitHub: code, instructions, examples and tests. Cloning means downloading a working copy that can receive updates |
+| **Plugin** | An installable package containing KPI Copilot's code and skills. This repository includes a Claude Code plugin |
+| **Skill** | Instructions for your assistant. `kpi-setup` handles setup, `kpi-run` prepares and reviews KPIs, and `kpi-adapter` helps add tracker support |
+| **Python** | The program that runs the calculations and creates the workbook. It must be available wherever the tool runs |
+| **MCP connection** | An optional way for an assistant to call the local tool. It is useful for desktop chat that cannot run commands directly |
+| **Profile** | Your saved project settings: tracker, sources, rules and output destination. The assistant creates this file for you |
+| **PMS** | Your organization's project-management system where reviewed KPIs may be recorded. Connecting it is optional for local review |
 
-You do not need all these tools. Choose one. Installing a skill gives the assistant
-instructions; it does not, by itself, give it access to your tracker or a place to run code.
-Individual host installation checks are still tracked in the [audit](11-Audit.md).
+Installing only a skill does not connect your accounts or install the calculation tool.
+You need the code, Python and a way for your assistant to run it.
 
-If you have not installed the tool, send this first:
+## 2. Choose one installation route
 
-> Help me get KPI Copilot ready in this AI tool. Use the repository's setup instructions,
-> check whether this session can run it, and explain any one-time installation or connection
-> step I need to do. Start with a local review workbook.
-
-The [technical setup guide](03-Prerequisites.md) is for the assistant or person doing that
-installation. You do not need to learn its commands to prepare KPIs.
-
-## 2. Bring one project and the sources you trust
-
-For your first run, choose a finished period you know well. It is easier to spot a wrong
-delivery rule on work you remember than on an unfamiliar project.
-
-Have these ready:
-
-- **The project:** its name, tracker link or export, and the period you want to measure.
-- **Your working rules:** hours or story points, what “done” means, and any categories you
-  exclude. If you are unsure, the assistant will propose a mapping for you to correct.
-- **Extra sources, if needed:** the agreed plan, approved estimates, and a timeline or
-  project tracker. A tracker-only workflow is fine when it has the necessary evidence.
-- **The destination:** a local workbook, a Google Drive folder, or a dedicated KPI Google
-  Sheet. Keep your original project tracker and manual reference workbook separate.
-
-You do not need to reorganize your team's boards or create a new sheet of configuration
-before starting. The assistant can map the columns you already use.
-If work for this project was delivered on another board, provide those specific task links.
-The assistant can include them without searching every project in the account.
-
-## 3. Connect the accounts this project needs
-
-Being signed in to an AI tool does not automatically connect Asana, Jira, GitHub, Google
-or PMS. Even a browser login is usable only when the assistant can access **that browser
-and profile** through its supported tools.
-
-Ask for a readiness check. The assistant should tell you what already works and offer the
-available connection choices before asking you to sign in.
-
-| What you want to use | What needs to be accessible |
+| You use | Choose this route |
 |---|---|
-| Your issue tracker | A supported existing connection, an approved API connection, or a saved export; Asana also has a signed-in-tab export route |
-| Files already on your computer | The assistant's runner must be able to read the folder you select |
-| Google Drive sources or a live Google Sheet | Google access for the selected files; an AI connector and the local runner may have separate connections |
-| A local `.xlsx` review workbook | No Google login is needed |
-| PMS targets or submission | Access to your PMS deployment and selected project; submission requires a supported write route and your approval |
+| Codex, Cursor, Claude Code, or another assistant with local file and command access | **Local folder:** clone or download this repository, install its dependencies, then open it in your assistant |
+| Claude Code and want reusable plugin skills | **Claude Code plugin:** install from the repository marketplace. You do not need to clone it manually; Python and dependencies are still required |
+| Claude Desktop with local MCP support | **Local connection:** install the repository, create your profile with a shell-capable assistant or IT, then connect MCP |
+| An assistant that only runs in a browser | A Python/file workspace may run uploaded code and exports. Plain chat without that capability cannot run KPI Copilot; use a local route |
 
-With browser sign-in, you complete the sign-in and consent step yourself. If you choose a
-token instead, the assistant explains how to enter it privately. **Do not paste passwords
-or tokens into the conversation.** Exported files are a valid starting route when account
-connections are unavailable.
+Follow [Install KPI Copilot](12-Installation.md) for the exact clone, ZIP and plugin steps.
+Then use [Connect your assistant](13-Assistant-Connections.md) if needed. You do not have to
+install a plugin as well as opening the repository.
 
-## 4. Describe your workflow and let the assistant build the profile
+If your assistant can already run local commands, send:
 
-Here is a fictional first message. Replace the bracketed parts with your own details;
-leave out any source you do not use.
+> Help me install KPI Copilot from https://github.com/NumanIbnMazid/kpi-copilot.
+> Follow its installation guide, check Python and dependencies, and run the fictional
+> offline example. Tell me where the tool and demo workbook are saved.
 
-> Set up KPI Copilot for [project name]. The tracker is [link], and I want KPIs for
-> [period]. We estimate in [hours/story points]. Development is finished at [state];
-> client handover is recorded in [place].
+**Ready to continue when:** the assistant can run the example and show its workbook.
+A plugin appearing in a menu alone does not prove the runner works.
+
+## 3. Bring the minimum information
+
+Choose one project and, preferably, a finished period you know well.
+
+| Have ready | Example |
+|---|---|
+| Project and tracker | “Northwind Booking, Jira project NW” and its link, or an exported CSV |
+| Reporting period | “Sprint 14, 1–14 September” or “the Q3 release” |
+| Estimate unit | Hours or story points; say if estimates are unavailable |
+| Meaning of delivered | “Accepted by QA” or “the build reached the client”; ask for a proposal if unsure |
+| Sources you want read | The board alone, or specific plan, estimates and timeline files |
+| Output choice | Start with a local Excel workbook, or name a dedicated Google Sheet/folder |
+
+You need read access to the chosen tracker or export. Google access is needed only for
+Google sources or output. You can start without PMS, a plan PDF, or an estimates sheet;
+measures without enough evidence will say **Not measured**. The full
+[prerequisite checklist](03-Prerequisites.md) explains the optional connections.
+
+Your private profile and results must live outside the tool's repository or installed plugin.
+For example, keep them in a separate `KPI Work` folder in Documents. The
+[fictional sample pack](../samples/README.md) shows a root → client → project layout and
+includes ready-to-open configuration and KPI workbooks.
+
+## 4. Ask the assistant to set up your project
+
+Copy this and replace the bracketed parts. Omit sources you do not use.
+
+> Set up KPI Copilot for [project name]. The tracker is [link or export], and the first
+> reporting period is [name and dates]. We estimate in [hours/story points].
 >
-> Use this plan [file/link], approved estimates [file/link], and timeline [file/link].
-> For defects, count [your rule] and exclude [your exceptions]. Show me how you will
-> count parent tasks, subtasks and separately estimated changes so work is counted once.
+> Use [the board only / these specific plan, estimates and timeline files]. Start with a
+> local review workbook. Check access, explain my connection choices, and propose the
+> delivery states, defect exclusions and counting rules in plain English. Show how parent
+> tasks, subtasks and approved additions will be counted once.
 >
-> Create a local review workbook first. Inspect the available sources, propose my profile
-> in plain English, and ask only what you cannot determine. Do not read email or chat.
+> Save my profile in [private folder]. Ask me only about gaps or decisions I need to make.
+> Do not search email or chat, and do not submit to PMS.
 
-The assistant now checks access, reads the bounded sources, and describes its proposal.
-For example: “Velocity uses story points from accepted tickets. Improvements are listed
-but excluded from the defect count. Each approved change is one deliverable. The timeline
-supplies actual handover dates.”
+The assistant checks the available evidence and proposes settings for you to correct.
+Use the [field guide](16-Configuration-Field-Guide.md) to understand a setting or the
+[sample walkthrough](../samples/WALKTHROUGH.md) to see why a rule or note was chosen.
+For example: “Accepted tickets count as delivered. Velocity uses their story points.
+Pre-existing bugs are listed but excluded from Defect Rate. Client handover is a separate date.”
 
-Correct anything that does not match your team. A feature-freeze date, the final delivery
-deadline and the actual handover date can all be different; say so. An old estimate status
-may also need a confirmed correction rather than a guess.
+Being signed in to an AI app does not automatically connect its local runner to Jira, Asana,
+Google or PMS. If needed, the assistant offers supported sign-in choices. You handle browser
+consent or enter a token privately; never paste passwords or tokens into chat.
 
-The assistant saves this agreement as your **profile**, outside the repository, and tells
-you where it is. You can ask to change it later in ordinary language. The workbook's
-**Config** tab shows the counting rules; **Periods** shows the dates and shared effort.
-The profile is reusable configuration, not a form you must fill in before every run.
+**Ready to continue when:** you have agreed on the proposal, the connection check succeeds
+or an export is available, and the assistant gives you the saved profile's location.
 
-## 5. Review the first result
+## 5. Prepare and review the workbook
 
-Once setup is ready, say:
+> Prepare KPIs for [project and period] using my saved profile. Update the review workbook,
+> explain the results from the evidence, and show all remaining questions together.
 
-> Prepare KPIs for [project] for [period] using my saved profile. Update the review
-> workbook, explain any missed targets from the evidence, and show me what still needs
-> my answer. Do not submit to PMS yet.
+The assistant prepares the draft and reviews uncertain classifications in a batch. It asks
+you for facts the records cannot establish, such as whether a date was agreed or when the
+client received the build. A first draft with questions is expected.
 
-The assistant reads the tracker in bulk, calculates the measures, and reviews uncertain
-classifications together. It should then bring you one short set of questions only you
-can answer, such as an actual handover date or whether a change was approved.
+Open these tabs in order:
 
-Open the workbook and start with:
+1. **Dashboard and KPI Summary:** values, targets and explanations.
+2. **Open Questions:** facts or decisions still needed.
+3. **Task Register and Defect Register:** what counted, what was excluded and the evidence.
 
-1. **Dashboard and KPI Summary:** values, targets, and plain-language notes.
-2. **Open Questions:** missing facts or decisions that affect the result.
-3. **Task and defect registers:** what counted, what was excluded, and evidence links.
+Answer in chat or edit the yellow input cells, then ask the assistant to refresh. It reads
+those edits before rebuilding. Grey cells are formulas; correct the inputs that feed them.
+Review notes for every KPI, including “Met” and “Not measured,” so someone unfamiliar with
+the project can understand what happened. Reasons must come from evidence.
 
-Yellow cells are for corrections and explanations. Answer in the conversation or edit
-those cells, then ask the assistant to refresh. It reads your edits back before rebuilding
-the workbook. A missing fact should say **Not measured** or remain visibly unresolved;
-it should never become a guessed zero or a flattering percentage.
+For example, “42 of 50 planned story points were delivered” states the result. “The export
+feature moved after the client changed its format” adds useful context **only if the sources
+support it**. The assistant should ask when the cause is unknown.
 
-A useful note tells you the unit, the relevant count, the exclusions and the actual
-reason. For example: “In story points, the team completed 42 of the 50 planned. The export
-feature moved to the next cycle after the client changed the required format.” That last
-sentence belongs there only when the sources support it.
+**The first run is complete when:** you have reviewed the workbook against the known period,
+understand unresolved limits, and know where the profile and output are saved.
 
-## 6. Choose how the results leave the review
+## 6. Decide how to use the results
 
-You can keep the `.xlsx`, ask for a dedicated Google Sheet updated in place, or copy the
-reviewed values into PMS yourself. If you choose Google Sheets, the assistant first checks
-the connection and confirms the destination. A reference workbook is a reference, not the
-output to replace.
+You can keep the workbook, copy reviewed results into PMS yourself, or use a dedicated Google
+Sheet that the tool updates in place. Google output needs a connection and edit access; use a
+separate output sheet so the original reference workbook is preserved.
 
-When you want the assistant to submit, ask:
+To submit through the assistant, first ask:
 
-> Show me the final values and notes for [project and period] that you would send to PMS.
+> Show the exact values and notes you would send to PMS for [project and period].
 
-After reviewing that preview, explicitly approve it in the conversation. The assistant
-submits through the available supported route and reads the saved values back. If the
-inputs change, it must show you the changed result before submission. A successful local
-workbook is not proof that PMS or Google Sheets was updated.
+After checking the preview, explicitly approve it in the conversation. The assistant must
+verify the saved results after sending. A local workbook does not prove Google Sheets or
+PMS was updated. See [daily use](04-Daily-Use.md) for corrections and delivery details.
 
-## 7. Next month, start with one sentence
+## 7. Next time, ask for a refresh
 
-> Refresh KPIs for [project] for [period] using my saved profile and update the same workbook.
+> Refresh KPIs for [project and period] using the profile at [saved location]. Update the
+> same workbook and show what changed or still needs my answer.
 
-You should not repeat the setup interview. Stable evidence and earlier decisions are
-reused; changed cards and new questions get attention. To add another project, say what it
-shares with the first and what differs. One project can use hours and another story points.
+You do not repeat the setup interview. The tool reuses decisions while their evidence remains
+valid. A new period, changed board structure or different source may need an update.
 
-To change a rule, be specific:
-
-> For this project, include existing bugs from the next period onward. Show me the effect
-> before saving that change to my profile.
-
-## Keeping a run quick
-
-**A routine refresh should take minutes, not half an hour of opening cards.** This is the
-product goal, not a promised time for every board. Connection setup, a changed plan PDF,
-provider limits, assistant review and waiting for your answers add time.
-
-The normal route reads the tracker in bulk, reuses unchanged history where the reader
-supports it, remembers judgements, and digests a document only when it changes. Signed-in
-browser exports currently read the full configured board; API caching can make repeated
-reads faster. Email and chat are searched only when you explicitly request a focused check.
-
-If a run drags, say:
-
-> Show what is taking time: source reading, calculation, review or publishing. Reuse the
-> current snapshot for judgement and recalculation. Do not re-read unchanged sources or
-> open cards one by one. Give me the draft and the unresolved questions together.
-
-The assistant should report both the measured processing time and any unfinished review
-or delivery work. A fast calculation alone is not a fast completed KPI run.
-
-For more examples, see [setup prompts](10-Setup-By-Conversation.md). For everyday corrections,
-see [daily use](04-Daily-Use.md). Installation and troubleshooting live in the
-[technical setup guide](03-Prerequisites.md).
+For other workflows, use the [setup examples](10-Setup-By-Conversation.md). If a step fails,
+start with [troubleshooting](14-Troubleshooting.md). Routine runs are designed to be short;
+connection setup, source changes, provider limits and review can add time.

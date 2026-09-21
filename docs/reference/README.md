@@ -1,5 +1,7 @@
 # Configuration reference
 
+[Documentation](../README.md) · [Field guide](../16-Configuration-Field-Guide.md)
+
 Every setting, what it does, and when you would touch it.
 
 The narrative documents here explain **why** and **when**. [all-fields.md](all-fields.md) is
@@ -8,8 +10,12 @@ and what it takes.
 
 Faster than either, for one setting:
 
+Commands below start at the repository root with its Python environment. On Windows,
+use `.\.venv\Scripts\python.exe` instead of `.venv/bin/python`. Replace profile paths with
+your actual private profile location.
+
 ```bash
-python3 scripts/profile_tool.py explain --key workflow.delivered_when
+.venv/bin/python plugin/kpi-copilot/scripts/profile_tool.py explain --key workflow.delivered_when
 ```
 
 ---
@@ -24,22 +30,21 @@ profile defaults      how you usually work
        └─ project     what is true for just this one
 ```
 
-A lead with one client and one tracker writes neither of the lower two and never notices they
-exist. A lead with two clients writes four or five lines per account.
+A single-client profile can omit accounts, but still declares at least one project. A lead with two clients writes four or five lines per account.
 
 **Two faces.** `profile.yaml` is what the tools read; the **KPI Profile Workbook** is the same
-information laid out for a human. Generated from one schema, converted both ways, so they
-cannot drift.
+information laid out for a human. Generated from one schema and converted explicitly in both directions. Import workbook
+edits before running; the files are not continuously synchronized.
 
 ```bash
-python3 scripts/workbook.py build --profile profile.yaml --out "KPI Profile Workbook.xlsx"
-python3 scripts/workbook.py read  --xlsx "KPI Profile Workbook.xlsx" --out profile.yaml
+.venv/bin/python plugin/kpi-copilot/scripts/workbook.py build --profile profile.yaml --out "KPI Profile Workbook.xlsx"
+.venv/bin/python plugin/kpi-copilot/scripts/workbook.py read  --xlsx "KPI Profile Workbook.xlsx" --out profile.yaml
 ```
 
 **Lost?**
 
 ```bash
-python3 scripts/where.py --profile profile.yaml
+.venv/bin/python plugin/kpi-copilot/scripts/where.py --profile profile.yaml
 ```
 
 ---
@@ -74,15 +79,16 @@ python3 scripts/where.py --profile profile.yaml
 | `periods` | How a project is sliced | yes |
 | `policy` | Counting choices | yes |
 | `output` | What happens with results | yes |
+| `targets` | Labelled local review targets and reasons | yes |
 | `custom_instructions` | Your own instructions | yes |
 | `accounts` | Your clients | — |
 | `projects` | Your projects | — |
 
-## What is not configurable, and where it lives instead
+## Shared definitions and target ownership
 
 | Not here | Where |
 |---|---|
-| KPI targets | **PMS**, per project. The run reads them and marks any a project sets for itself |
+| Official KPI targets | **PMS**, per project, via a registry refresh. Labelled local review targets with a reason are supported under `targets` and block submission until reconciled |
 | The KPI list and their ids | PMS |
 | How each KPI is counted | The engine, shared by everyone. Changing it is a conversation — see [00-Philosophy.md](../00-Philosophy.md) |
 
@@ -91,8 +97,8 @@ A refusal always names the alternative. If you hit one that does not, that is a 
 ## After editing
 
 ```bash
-python3 scripts/profile_tool.py validate --profile profile.yaml
-python3 scripts/profile_lib.py --profile profile.yaml --list
+.venv/bin/python plugin/kpi-copilot/scripts/profile_tool.py validate --profile profile.yaml
+.venv/bin/python plugin/kpi-copilot/scripts/profile_lib.py --profile profile.yaml --list
 ```
 
 `validate` checks more than the schema: a tool id that does not exist, an output mode that

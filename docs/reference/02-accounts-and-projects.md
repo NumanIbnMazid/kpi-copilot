@@ -1,5 +1,7 @@
 # Accounts and projects
 
+[Documentation](../README.md) · [Field guide](../16-Configuration-Field-Guide.md)
+
 One profile covers everything you work on. Most of what varies between two projects actually
 varies between two **clients**, so say it once per client.
 
@@ -89,8 +91,12 @@ projects. `/kpi-copilot:kpi-setup` will walk it and read the board for you.
 
 ## Checking it
 
+Commands below start at the repository root with its Python environment. On Windows,
+use `.\.venv\Scripts\python.exe` instead of `.venv/bin/python`. Replace profile paths with
+your actual private profile location.
+
 ```bash
-python3 scripts/profile_lib.py --profile profile.yaml --list
+.venv/bin/python plugin/kpi-copilot/scripts/profile_lib.py --profile profile.yaml --list
 ```
 
 ```
@@ -103,7 +109,7 @@ acme-identity  acme        csv      402    Acme Identity Platform
 It also prints every override, by scope. To see one project fully resolved:
 
 ```bash
-python3 scripts/profile_lib.py --profile profile.yaml --project acme-identity --section tracker
+.venv/bin/python plugin/kpi-copilot/scripts/profile_lib.py --profile profile.yaml --project acme-identity --section tracker
 ```
 
 With several projects, omitting `--project` is an error that lists the ones it knows — a

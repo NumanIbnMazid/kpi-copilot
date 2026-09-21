@@ -1,5 +1,7 @@
 # Periods and counting rules
 
+[Documentation](../README.md) · [Field guide](../16-Configuration-Field-Guide.md)
+
 How a project is sliced for PMS, and the few counting choices a team may make.
 
 ---
@@ -52,7 +54,7 @@ closed as not a bug."* Nothing is quietly dropped.
 
 ## Where the counting rules are written down
 
-`skills/kpi-run/references/kpi-rules.md` holds all nine, with the PMS formula for each and
+[KPI rules](../../plugin/kpi-copilot/skills/kpi-run/references/kpi-rules.md) holds all nine, with the PMS formula for each and
 the reasoning behind the awkward cases. Read it before arguing with a number.
 
 Two that surprise people, both correct:
@@ -62,3 +64,8 @@ Two that surprise people, both correct:
 - **Escaped Defect Rate divides by defects, not by items.** *Defects found after release /
   total defects, before and after.* The question is what share of the problems reached the
   client.
+
+`periods.by_ancestor` maps ancestor titles to periods before date fallback.
+The schema-listed period settings are described in [all fields](all-fields.md); the optional
+ancestor mapping is documented in [review and delivery](../15-Review-and-connected-delivery.md).
+Actual dates and handovers belong in the project facts or Periods review tab.

@@ -1,5 +1,10 @@
 # Review notes and connected delivery
 
+[Documentation](README.md) · [Daily use](04-Daily-Use.md) · [Assistant connections](13-Assistant-Connections.md)
+
+This technical companion explains review preservation and delivery. Start with Daily use
+if you only want to prepare and approve a workbook.
+
 The KPI Summary has two editable yellow fields: **Result summary** and **Why / context**.
 The combined note is the text sent to PMS. Edits survive refreshes, including an intentional
 blank. An edited summary that no longer matches its measurement basis is retained for

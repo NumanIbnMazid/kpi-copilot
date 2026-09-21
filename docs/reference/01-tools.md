@@ -1,5 +1,7 @@
 # Tools — where everything lives
 
+[Documentation](../README.md) · [Field guide](../16-Configuration-Field-Guide.md)
+
 One registry for every place your projects' truth is kept: the tracker, the chat spaces, the
 plan, the estimates sheet, the folder working files go in, PMS.
 
@@ -159,8 +161,12 @@ outside that set fails validation with the reason, rather than searching the wro
 
 Check what a project can see:
 
+Commands below start at the repository root with its Python environment. On Windows,
+use `.\.venv\Scripts\python.exe` instead of `.venv/bin/python`. Replace profile paths with
+your actual private profile location.
+
 ```bash
-python3 scripts/profile_lib.py --profile profile.yaml --project acme-identity --section tools
+.venv/bin/python plugin/kpi-copilot/scripts/profile_lib.py --profile profile.yaml --project acme-identity --section tools
 ```
 
 ---

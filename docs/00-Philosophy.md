@@ -1,5 +1,7 @@
 # Philosophy
 
+[Documentation](README.md) · [First run](02-Start-Here.md)
+
 The core document. Everything else in this project is downstream of what is written here.
 
 If you are picking this up to extend it, change a rule, add a tracker, or decide whether some

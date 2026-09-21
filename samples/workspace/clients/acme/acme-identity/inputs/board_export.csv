@@ -1,0 +1,15 @@
+Issue key,Summary,Issue Type,Status,Assignee,Reporter,Created,Resolved,Original Estimate,Story Points,Sprint,Labels,Resolution,Issue URL
+ACME-101,Single sign-on for the portal,Story,Done,Sample Developer A,PM,2026-08-03,2026-08-21,32,8,Sprint 14,,Done,https://tracker.example.com/browse/ACME-101
+ACME-102,Audit log export,Story,Done,Sample Developer B,PM,2026-08-03,2026-08-25,18,5,Sprint 14,,Done,https://tracker.example.com/browse/ACME-102
+ACME-103,Role editor screen,Story,Done,Sample Developer A,PM,2026-08-04,2026-08-27,24,8,Sprint 14,,Done,https://tracker.example.com/browse/ACME-103
+ACME-104,Bulk user import,Story,In Progress,Sample Developer C,PM,2026-08-05,,20,5,Sprint 14,,,https://tracker.example.com/browse/ACME-104
+ACME-110,Sprint Goal: identity work,Task,Done,PM,PM,2026-08-03,2026-08-28,0,,Sprint 14,,Done,https://tracker.example.com/browse/ACME-110
+ACME-111,QA Checklist Sprint 14,Task,Done,QA Lead,QA Lead,2026-08-03,2026-08-28,0,,Sprint 14,,Done,https://tracker.example.com/browse/ACME-111
+ACME-120,SSO session timeout configurable,Story,Done,Sample Developer B,Client PM,2026-08-14,2026-08-26,10,3,Sprint 14,change-request,Done,https://tracker.example.com/browse/ACME-120
+ACME-131,SSO redirect loops on Safari,Bug,Done,Sample Developer A,QA Lead,2026-08-18,2026-08-22,,,Sprint 14,,Fixed,https://tracker.example.com/browse/ACME-131
+ACME-132,Audit export misses deleted users,Bug,Done,Sample Developer B,QA Lead,2026-08-19,2026-08-24,,,Sprint 14,,Fixed,https://tracker.example.com/browse/ACME-132
+ACME-133,Role editor spacing looks off,Improvement,Done,Sample Developer A,QA Lead,2026-08-20,2026-08-27,,,Sprint 14,,Done,https://tracker.example.com/browse/ACME-133
+ACME-134,Cannot log in at all,Bug,Closed,Sample Developer A,QA Lead,2026-08-21,2026-08-21,,,Sprint 14,,Cannot Reproduce,https://tracker.example.com/browse/ACME-134
+ACME-135,SSO fails for federated domain,Bug,Open,Sample Developer A,Client PM,2026-09-02,,,,Sprint 15,,,https://tracker.example.com/browse/ACME-135
+ACME-201,Delegated admin roles,Story,In Progress,Sample Developer C,PM,2026-09-01,,28,8,Sprint 15,,,https://tracker.example.com/browse/ACME-201
+ACME-202,Session revocation API,Story,Done,Sample Developer B,PM,2026-09-01,2026-09-15,16,5,Sprint 15,,Done,https://tracker.example.com/browse/ACME-202

@@ -13,8 +13,10 @@ legacy surface is not held to a greenfield defect rate. The engine uses this pro
 if PMS holds one, otherwise the PMS default, and records which on every measure. The counting
 below does not vary, because that is what makes two projects' numbers comparable at all.
 
-The thresholds quoted per KPI below are the **PMS defaults** as of September 2026. A project
-may be scored against a different one; the run always says so.
+The thresholds quoted below describe the bundled September 2026 reference, not a live
+query of your PMS. The runner uses the configured registry; refresh it when definitions
+change. A project target can differ. A labelled local target needs a value and reason and
+blocks PMS submission until reconciled.
 
 ## Contents
 
@@ -38,8 +40,8 @@ may be scored against a different one; the run always says so.
   duplicates. Kept in the workbook with a reason.
 
 **Delivered** - the item reached the team's delivery event (`workflow.delivered_when`).
-For most teams that is the state meaning development is finished and testing can start. Not
-"closed"; closed is later, and scoring against it flatters every delivery figure.
+It may be development ready for testing, final closure, or another supported event. Choose
+the agreed promise; the status name alone does not establish what the team committed to.
 
 **Committed** - the team negotiated and promised something for this item, so it carries a
 commitment date. An item nobody promised is not committed, and is invisible to Delivery
@@ -50,8 +52,8 @@ Commitment.
 **Period** - one PMS period: a milestone, a delivery cycle, a sprint, a month, or the whole
 project. PMS allows 25 characters in the name.
 
-**Handover** - the build that reached the client. A period with no handover date has not been
-seen by the client, and several KPIs correctly refuse to report a number for it.
+**Handover** - the build that reached the client. A missing handover date means the tool cannot establish that boundary; it does not prove
+the client never received the build. Ask for the fact when it is needed.
 
 **Evidence** - a link that proves a judgement: a comment, a status change, a chat message, a
 row in the plan. Every Yes/No should carry one.
@@ -147,9 +149,8 @@ PMS: *"Defects found after release / Total defects (before + after release)."*
   QA and let one through scores well, which is the right answer.
 - Rejected reports were never defects, so they are in **neither** half, and the note says how
   many were set aside.
-- **A period with no handover date returns "Not measured", not 0%.** Nothing can escape from
-  a cycle the client has never seen, and a green zero here would be a flattering lie that
-  nobody would think to question.
+- **A period with no handover date returns "Not measured", not 0%.** Without the release boundary,
+  the tool cannot establish whether a report escaped; missing evidence is not zero.
 
 ### Defect Rejection Rate (lower is better, max 15)
 
@@ -160,11 +161,14 @@ reasons are summarised in the note.
 
 ### Rework Rate (lower is better, max 10)
 
-Tasks that had to be reopened at least once after being closed, over completed tasks.
+Recorded reopening events after the agreed closure boundary, over completed tasks whose
+reopening outcome is known. The current engine uses `reopen_count` when available and one
+event for an explicit Yes without a count. Multiple returns can exceed the number of
+affected tasks; review the event count, not only the distinct-task count.
 
 - **A QA failure while the item is still being tested for the first time is not rework.** It
   is testing working as intended. It stays in the evidence column, is named in the note as
-  not counted, and belongs to Defect Rate instead. This is the most commonly mis-scored KPI
+  not counted, and does not itself create a defect report. This is the most commonly mis-scored KPI
   in the whole set.
 - Items whose history could not be read are left out of the denominator and named. If none
   could be read, the KPI is "Not measured" rather than a flattering 0%.
@@ -240,15 +244,18 @@ A KPI is "Not measured" when:
   delivered),
 - or every item that could have been judged was left out for a stated reason.
 
-In every case the note says which of these it is, in a sentence a manager can read. Those
-KPIs are **not sent to PMS** - they are listed as skipped, with the reason.
+The review identifies the reason without inventing a result. Missing inputs and questions
+belong in Open Questions; result notes remain understandable to a manager. Unmeasured
+values are not submitted as numbers. If a previously published managed KPI becomes
+unmeasured, an approved push can clear its old value; inspect the exact preview.
 
 ---
 
 ## Cases that come up
 
-**A cycle with nothing delivered yet.** Velocity, Defect Rate and Escaped Defect Rate have no
-denominator. The notes say so explicitly: "Nothing to measure yet: all 6 items are still
+**A cycle with nothing delivered yet.** Inspect each KPI separately: Velocity needs
+completed effort, Defect Rate needs delivered work, and Escaped Defect Rate needs a release
+boundary and reports. A period explanation may say: "Nothing to measure yet: all 6 items are still
 ahead of 09/22 and the handover has not happened."
 
 **Additional requests delivered inside the initial scope.** They stay in that period, and the
@@ -259,8 +266,8 @@ period to make a cycle look cleaner is not allowed.
 value is sent and the note carries the real figure: "PMS accepts up to 100; the real figure
 is 200".
 
-**A defect that first looked like an environment problem.** If it came back on the next
-build, it is a real bug. Say so in the remarks rather than quietly re-classifying it.
+**A defect that first looked like an environment problem.** Recurrence alone does not establish
+a product defect. Use the recorded diagnosis or ask for clarification before reclassifying it.
 
 **Work tracked on another board.** It is still a deliverable. Add it as a row with its
 evidence link and a remark saying where it lives.

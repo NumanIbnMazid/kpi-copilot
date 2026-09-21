@@ -1,135 +1,72 @@
-# Rollout playbook
+# Introduce KPI Copilot to a team
 
-For the CTO and whoever ends up owning this. What to decide, in what order, and what to watch
-for.
+[Documentation](README.md) · [Overview](01-Overview.md) · [First run](02-Start-Here.md)
 
----
+Use a small pilot to check whether people can install, configure, review and repeat a KPI
+run with their actual tools. The [fictional sample pack](../samples/README.md) is a useful
+first demonstration. It does not prove that a company's accounts or workflows are connected.
 
-## What is being proposed
+## Agree on ownership first
 
-Make KPI preparation a shared capability rather than something each project lead reinvents:
-one implementation of the counting rules, adapters for whatever tracker each team already
-uses, and a human approval step before anything reaches PMS.
-
-## The case, in four lines
-
-1. **Comparability.** Today, two careful leads reach different numbers for the same
-   situation, because the rules live in their heads. One implementation fixes that.
-2. **Time.** A day per project per cycle becomes minutes of machine time plus a focused
-   review.
-3. **Traceability.** Every judgement carries a link. A number questioned in three months can
-   be traced to the comment that justified it.
-4. **No workflow churn.** Nobody has to move to a different tracker, spreadsheet or chat tool.
-
-## What it is not
-
-Not a replacement for judgement — it concentrates a lead's attention on the handful of calls
-that genuinely need a person. Not a surveillance tool — it measures delivery against agreed
-dates, not individuals; the notes describe tasks, not people. Not automatic by default: the
-shipped default asks before writing to PMS.
-
----
-
-## Decisions that need you
-
-| # | Decision | Recommendation |
-|---|---|---|
-| 1 | Are the counting rules the company standard? | Yes, and fixed. The value is entirely in everyone counting the same way |
-| 1b | Who may set a project's targets in PMS? | Already a PMS setting. Worth agreeing who signs off a non-default target, and that it is visible on the report |
-| 2 | Who owns a rule change? | You, or a named person. It changes every project's numbers at once |
-| 3 | Default output mode for the org | `assisted-push`. Nothing reaches PMS without a person |
-| 4 | Is unattended pushing allowed at all? | No. Schedules prepare drafts; submissions need conversation approval |
-| 5 | Who gets Claude Code seats? | Every project lead who prepares KPIs |
-| 6 | Who grants PMS project access and edit rights? | Name them now — this is the slowest step |
-| 7 | Where does the plugin live? | A private marketplace repo, so updates reach everyone |
-
-Decisions 5 and 6 are organisational and take the longest. Start them the day you agree to a
-pilot; everything technical is a `pip install`.
-
----
-
-## Phased plan
-
-### Phase 0 — Pilot (2 weeks, 3 people)
-
-Pick three leads on **three different trackers** — that is the point of the pilot, not
-coverage of three projects. One should be somebody who will have to use the CSV adapter,
-because that is the experience most of the company will have.
-
-Each: set up, run one completed period, compare against numbers they already trust.
-
-**Success looks like:** each lead recognises the numbers for a period they know, and can
-explain any difference. Any surprise is either a real rule they had been applying informally,
-or a mapping error — both are worth finding now.
-
-**Watch for:** setup taking more than 90 minutes, which means the interview is asking things
-it should be detecting; and a project quietly running on a non-default target nobody agreed to
-— the report marks those, so check them.
-
-### Phase 1 — One account (1 month)
-
-Every project on one client account. This is where multi-project use gets exercised: shared
-conventions, one profile covering several projects, the workbook as a handover artefact.
-
-Add a native adapter only if a real team is genuinely blocked by the manual export step.
-
-### Phase 2 — Company (1 quarter)
-
-Marketplace install, a named owner, a short internal session, and the four-page doc set.
-Measure adoption by *runs*, not installs.
-
----
-
-## What could go wrong, and what to do
-
-| Risk | What it looks like | What to do |
-|---|---|---|
-| **Numbers disagree with what a lead expects** | Cycle one, every time | Expected. It is usually a mapping error or an informal rule. Two or three rounds is normal. Build the review round into the plan rather than treating it as a defect |
-| **A lead wants a different target** | "Our integration project can't hit 15%" | Legitimate, and PMS already supports it per project. Set it there, with someone signing off. The report marks it as this project's own target so nobody mistakes it for the company default |
-| **Targets drift quietly** | Projects on non-default bars nobody agreed | Every run prints which targets are the project's own. Review them at the same time as the numbers |
-| **Half the KPIs say "Not measured"** | A team on a tracker with no history | Working as designed, and better than a false number. Six honest KPIs beat nine confident ones. A native adapter fixes it when it is worth the work |
-| **A tracker nobody has an adapter for** | Any tracker but Asana and Jira | CSV, same day. Native adapter later if the export becomes a nuisance |
-| **PMS access takes weeks** | Blocks the pilot | Start it on day one. The readiness check names the owner for exactly this reason |
-| **It becomes one person's tool** | Only the author ever runs it | Name an owner who is not the author. Profiles live where the team can read them |
-| **Drift from PMS** | Thresholds change and nobody notices | The registry syncs from PMS on every run, and the fallback announces itself |
-| **Too much trust** | Numbers pushed without review | Every submission requires explicit conversation approval |
-
-The two most likely to actually happen are the first and the fifth. Plan for both.
-
----
-
-## What to measure
-
-After one quarter:
-
-- **Runs per cycle** — the real adoption number.
-- **Hours saved**, self-reported against the previous manual process.
-- **Review rounds per run** — should fall sharply after the first cycle. If it does not, the
-  profile is wrong and nobody has fixed it.
-- **KPIs reported "Not measured"** — tells you where tracker quality is actually costing
-  visibility.
-- **Counting-rule change requests** — each one is either a real gap in the standard or a lead
-  trying to score themselves differently. Both are worth knowing about.
-- **Projects on non-default targets** — how many, and whether each was signed off.
-
----
-
-## What it costs
-
-| | |
+| Decision | What to agree |
 |---|---|
-| Build | Done. Working, self-tested, with two complete example stacks |
-| Per lead, setup | About an hour |
-| Per lead, per cycle | Minutes of machine time plus review |
-| Ongoing ownership | Light. A named owner, occasional adapter work |
-| Licences | Claude Code seats. No other new tooling |
+| Owner | Who maintains the tool, resolves setup problems and reviews updates? |
+| Counting rules | Which delivery, closure, defect and scope definitions does the team approve? |
+| Targets | Who maintains PMS targets and checks that the cached registry is current? |
+| Assistant | Which approved assistant can run local Python or connect to the local MCP server? |
+| Access | Who grants tracker access, optional Google access and optional PMS editing rights? |
+| Storage | Where do private profiles, source documents, review workbooks and backups live? |
+| Delivery | Start with local review files; enable Google Sheets or PMS only when needed. |
 
----
+Use the assistant people already have where it meets the prerequisites. This repository
+ships a Claude Code plugin and a local runner usable by other assistants; it does not
+require one vendor's subscription. API access, OAuth registration and organizational
+approval can take longer than installing Python dependencies.
 
-## The ask
+## Run a pilot
 
-Approve a two-week pilot with three leads on three different trackers, and name the person
-who can grant PMS project access.
+1. **Show a fictional result.** Open the sample Profile Workbook and KPI Tracker. Explain
+   which one holds settings and which one holds results. Walk through a missing value and
+   its Open Question as well as a measured value.
+2. **Choose representative projects.** Include a workflow with date changes or approved
+   additions, and a CSV workflow if anyone depends on exports. Start with one known period.
+3. **Set up with the project lead.** Use the [first-run guide](02-Start-Here.md). Ask the lead
+   to confirm delivery, scope, estimates and commitments; do not infer agreement from a label.
+4. **Compare with a reviewed calculation.** Resolve differences in inputs or interpretation.
+   Do not adjust numbers to match expectations. Check the notes, including Met results.
+5. **Refresh and correct.** Edit a yellow review cell, rerun, and verify the correction
+   survives. If using Google Sheets, verify the same sheet and its current edits are retained.
+6. **Practice delivery.** Review a PMS preview if PMS is in scope. Submit only after explicit
+   approval, and check read-back. A local-only pilot can finish without PMS access.
+7. **Hand over.** A second person should be able to find the private profile, read its
+   workbook, and repeat the run with the agreed assistant.
 
-Everything else can be decided after the pilot, with real numbers from real projects rather
-than from this document.
+Set your own time budget for the pilot. API speed, source size, missing evidence and review
+work affect elapsed time; the repository does not guarantee a fixed setup or run duration.
+
+## Decide whether to expand
+
+Track the time from the first request to a reviewed workbook, not just script execution.
+Record setup blockers, incorrect mappings, unanswered questions, notes needing revision,
+manual export effort and whether a second lead could repeat the process. Confirm the
+review workbook is readable and useful to its intended audience.
+
+Expand to one client account before a wider rollout. A profile may hold several projects;
+use separate client folders and profiles when that makes access and handover clearer. See
+the [sample folder layout](../samples/README.md#what-the-folders-look-like-after-setup).
+
+## Problems to expect
+
+| Situation | Response |
+|---|---|
+| Values differ from a familiar report | Compare the included rows, dates, estimates and denominators. Record the agreed rule. |
+| Several values are Not measured | Inspect the missing evidence. Native adapters can expose more history, but cannot supply an agreement nobody recorded. |
+| No native adapter exists | Start with a mapped CSV export; measure its actual coverage before promising a KPI set. |
+| A project needs a different target | Use its PMS target, or a labelled local review target with a reason. Local overrides block PMS submission until reconciled. |
+| Targets changed in PMS | Refresh and review the registry; the normal run does not synchronize it automatically. |
+| A schedule is requested | Schedule draft preparation only. PMS submission still requires conversation approval. |
+| Only one person can operate it | Resolve access, storage, documentation and ownership before expanding. |
+
+Budget for assistant licensing where applicable, setup support, provider permissions,
+maintenance and review time. The [audit](11-Audit.md) is historical evidence, not a claim
+that every current client or live provider has passed acceptance.

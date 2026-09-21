@@ -83,7 +83,7 @@ there, not in PMS notes. Do not replace a gap with a plausible number or invente
 **No links in a PMS note.** PMS shows plain text; a URL there is noise, and the push strips
 any that slip through.
 
-Links belong in the workbook, on the words they support: write `[the 08/12 handover](url)`,
+Links belong in the workbook, on the words they support: write `[the 08/12 handover](https://tracker.example.com/release/demo)`,
 not a bare URL at the end of a sentence. The workbook is where somebody goes to check a
 number; PMS is where somebody goes to read the result.
 

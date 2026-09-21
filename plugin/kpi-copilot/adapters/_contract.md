@@ -32,8 +32,9 @@ Rules for a reader:
 
 - **Straight to disk.** API to file. A board must never travel through an assistant's
   context; that is what turns a run of seconds into one of half an hour.
-- **Cache by `modified_at`.** Take the previous snapshot, re-read history only for cards
-  that changed. The second run should be a fraction of the first.
+- **Cache without losing membership changes.** Reuse unchanged history where reliable,
+  but refresh membership or reconcile removals so deleted or out-of-scope records disappear.
+  Verify provider semantics before relying on modified timestamps.
 - **No judgement, no team-specific names.** A regex for "[Existing]" inside a reader is a
   rule nobody else's project gets, and it will miss "[Exisiting]".
 - **Declare capabilities honestly**, follow paging to the end, read-only, plain-English
@@ -55,12 +56,12 @@ def from_raw(raw: dict, profile: dict, project: dict) -> dict:     # optional
 Credentials come from `scripts/connect.py` (`connect.credential("<service>")`), which knows
 every way a person can sign in - browser, an existing CLI login, a token, a signed-in tab -
 and which to suggest. Add your service's routes there, so `kpi.py auth` and the readiness
-check can explain them. `adapters/github/api.py` (one GraphQL query per fifty issues) and
+check can explain them. `adapters/github/api.py` (paginated GraphQL with nested-page checks) and
 `adapters/jira/api.py` are the other two worked examples.
 
 ## A converter: tracker -> KIF directly
 
-The `jira` and `csv` adapters do this: they produce a finished KIF document
+The legacy Jira converter and current CSV adapter do this: they produce a finished KIF document
 (`schemas/kif.schema.json`), making the judgement calls themselves. It remains supported -
 a CSV export has no history to judge from anyway - and the rules below are for this shape.
 
