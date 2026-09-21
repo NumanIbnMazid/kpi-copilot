@@ -33,7 +33,8 @@ A deep run allows that bounded follow-up; it does not add a general-purpose chat
 | Tab | What to use it for |
 |---|---|
 | Read Me | Understand colors and review instructions |
-| Dashboard | Compare periods and see overall results |
+| Dashboard | Select one period and review its nine KPIs |
+| Period Overview | Compare retained periods, newest first |
 | Config | Check the applied settings and KPI definitions |
 | Periods | Review dates, handover, shared effort and period context |
 | Task Register | Inspect work, estimates, delivery, exclusions and evidence |

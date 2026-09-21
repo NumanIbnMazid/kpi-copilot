@@ -28,6 +28,9 @@ provide the relevant evidence. Do not inspect the tracker card by card or scrape
 Propose delivery/closed/reopened states, defect exclusions and period grouping. Ask only
 about ambiguity: what counts as delivery, which promises are commitments, and which dates
 were actually agreed. Validate a proposal with the person before treating it as policy.
+When a tracker project contains several teams, use a project-scoped
+`conventions.assignee_include` allowlist of exact tracker display names. Do not encode real
+people in repository examples; the private profile owns those names.
 
 ## Keep configuration understandable
 
@@ -49,6 +52,11 @@ make results look better. Detailed options are in `docs/05-Adapting-To-Your-Work
 If wanted, `workbook.py build` creates an editable Profile Workbook; `workbook.py read`
 imports it back. It is optional. Users normally need only their profile and review workbook.
 For Google, configure a dedicated output file/folder, not the supplied manual reference.
+Use a stable project-level workbook name, without a reporting period. Save `workbook_file`
+after the first successful publication and keep it for every later period. Separate clients
+should have separate private profile folders unless the person explicitly wants one shared
+multi-account profile. A new reporting period is a row in the project history, not a new
+profile, project, or workbook.
 
 ## Prove the setup
 

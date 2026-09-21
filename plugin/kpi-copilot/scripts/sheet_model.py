@@ -33,10 +33,9 @@ import re
 from typing import Any
 from kpi_registry import NAME_TO_KEY
 
-MODEL_VERSION = "2.2"
+MODEL_VERSION = "2.3"
 LAST = 999            # formulas look down to here, so a row added by hand is still counted
 SPARE = 40            # formatted, formula-filled rows past the data
-MAX_PERIODS = 12      # dashboard slots
 KPI_ORDER = ["Velocity", "Task Comprehension", "Client Expectation", "Delivery Commitment", "Defect Rate",
              "Escaped Defect Rate", "Defect Rejection Rate", "Rework Rate", "CR Rate"]
 KPI_KEYS = ["velocity", "task_comprehension", "client_expectation", "delivery_commitment", "defect_rate",
@@ -120,6 +119,8 @@ class Tab:
         self.hidden_cols: list[int] = []
         self.readback: dict | None = None
         self.append_only = False
+        self.filter_range = None
+        self.merges = []
 
     def put(self, r: int, c: int, v: Any = None, style: str = "text", *, f: str | None = None,
             gf: str | None = None, link: str | None = None, fmt: str | None = None) -> None:
@@ -198,13 +199,14 @@ DEFECT_COLS = [
     ("check", "Check (how this row was decided)", 40, "data", ""), ("item", "Row ID", 10, "calc", ""),
 ]
 PERIOD_COLS = [
-    ("n", "#", 4, "calc", "c"), ("name", "Period Name (max 25)", 22, "in", ""), ("start", "Start", 12, "in", ""),
+    ("n", "#", 4, "calc", "c"), ("name", "Period Name", 32, "in", ""), ("start", "Start", 12, "in", ""),
     ("end", "End", 12, "in", ""), ("description", "PMS Description (auto)", 34, "calc", ""),
     ("client_date", "Client Expected Date", 14, "in", ""), ("commit_date", "Commitment Date", 14, "in", ""),
     ("handover_date", "Handed Over On", 14, "in", ""), ("pms_period_id", "PMS Period ID", 12, "in", "c"),
     ("pushed_on", "Pushed to PMS On", 14, "data", ""), ("notes", "Notes", 70, "in", ""),
     ("plan_text", "Original Plan", 40, "in", ""), ("team_hours", "Team-level Effort (h)", 12, "in", "r"),
     ("client_check", "Client Date Check", 12, "in", ""),
+    ("as_of", "Computed as of", 14, "data", ""),
 ]
 PHASE_OUT = {"Post-release": "Post-release"}          # everything else shows as Pre-release
 FINAL_OUT = {"Fixed": "Fixed / Closed", "Closed": "Fixed / Closed", "Deferred": "Deferred (moved out of scope)",
@@ -241,6 +243,7 @@ def _register(tab: Tab, title: str, subtitle: str, cols: list[tuple], rows: list
         tab.put(hdr, i, header, "head")
         tab.widths[i] = width
     tab.freeze = (hdr, freeze_cols)
+    tab.filter_range = (hdr, 1, max(first, first + len(rows) - 1), len(cols))
     last = first + len(rows) + SPARE - 1
     for r in range(first, last + 1):
         rec = rows[r - first] if r - first < len(rows) else {}
@@ -258,7 +261,8 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     """ctx: profile, registry, reasons, manual, questions, sources, changes, push_log, grain,
     refreshed (ISO), tool_version."""
     LAST = max(999, len(kif.get("tasks") or []) + SPARE + 4,
-               len(kif.get("defects") or []) + SPARE + 4, len(ctx.get("questions") or []) + SPARE + 4)
+               len(kif.get("defects") or []) + SPARE + 4, len(ctx.get("questions") or []) + SPARE + 4,
+               len(kif.get("periods") or []) * 9 + 4)
 
     def _rng(sheet: str, letter: str, first: int) -> str:
         return f"'{sheet}'!${letter}${first}:${letter}${LAST}"
@@ -294,6 +298,8 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         ("Sources read", ctx.get("sources_text") or plain(project.get("sources_text")) or "Issue tracker only"),
         ("Deliverables are counted as", {"plan-items": "Plan items (a card the plan splits into modules counts once per module)",
                                         "board-cards": "Board cards (one card, one deliverable)"}.get(ctx.get("grain") or "board-cards")),
+        ("Assignee scope", ", ".join((profile.get("conventions") or {}).get("assignee_include") or [])
+         or "All assignees"),
         ("Calculated as of", (ctx.get("as_of") or ctx.get("refreshed") or "")[:10]), ("Prepared by", ctx.get("prepared_by") or ""),
     ]
     for label, value in info:
@@ -406,14 +412,16 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
             "pms_period_id": p.get("pms_period_id"), "pushed_on": pushed.get(p.get("name")),
             "notes": plain(p.get("notes")), "plan_text": plain(p.get("plan_text")),
             "team_hours": p.get("team_hours"), "client_check": p.get("client_check"),
+            "as_of": (ctx.get("period_as_of") or {}).get(p.get("name")) or ctx.get("as_of"),
         })
     last_p = _register(per, "Periods", "One row per KPI period. Leave a date empty to use the project date from Config.",
                        PERIOD_COLS, prow, first=5, freeze_cols=2)
     per.heights[4] = 31.5
     _fill_row_formulas(per, PERIOD_COLS, 5, last_p, {"n": '=IF(B{r}="","",ROW()-4)'})
     per.dropdown(5, 14, last_p, 14, ["Handover", "Delivery"])
-    per.readback = {"kind": "table", "first": 5, "key": "name", "cols": PERIOD_COLS}
-    PN, PH, PC, PM = (f"Periods!${P[k]}$5:${P[k]}$200" for k in ("name", "handover_date", "client_check", "team_hours"))
+    per.readback = {"kind": "table", "first": 5, "key": "name", "cols": PERIOD_COLS,
+                    "historical_periods": ctx.get("historical_periods") or []}
+    PN, PH, PC, PM = (f"Periods!${P[k]}$5:${P[k]}${last_p}" for k in ("name", "handover_date", "client_check", "team_hours"))
 
     # ---- Task Register --------------------------------------------------------------------
     tk = Tab("Task Register")
@@ -479,7 +487,7 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     def ontime(gate: str, due: str, done: str) -> str:
         return (f'=IF(OR(B{{r}}="",{T["type"]}{{r}}="Excluded",{gate}{{r}}<>"Yes",{due}{{r}}="",'
                 f'AND({T["delivery_unknown"]}{{r}}="Yes",{dl}{{r}}="")),"",'
-                f'IF(N({done})=0,IF({ref["as_of"]}<={due}{{r}},"Pending","No"),IF({done}<={due}{{r}},"Yes","No")))')
+                f'IF(N({done})=0,IF(IFERROR(INDEX(Periods!${P["as_of"]}$5:${P["as_of"]}${last_p},MATCH(B{{r}},{PN},0)),{ref["as_of"]})<={due}{{r}},"Pending","No"),IF({done}<={due}{{r}},"Yes","No")))')
 
     tf["met_client_date"] = ontime(T["client_expected"], T["client_date"], done_c)
     tf["met_commitment"] = ontime(T["team_committed"], T["commit_date"], done_m)
@@ -493,7 +501,7 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         f'AND({ref["hours_basis"]}="Dev + QA",N({T["closed"]}{{r}})>0,'
         f'LEN({T["hours_qa"]}{{r}})=0))),"Yes","No")))')
     _fill_row_formulas(tk, TASK_COLS, 4, last_t, tf)
-    pick = f"Periods!$B$5:$B$200"
+    pick = f"Periods!$B$5:$B${last_p}"
     for key, vals in (("type", ["Task", "CR", "Scope", "Excluded"]),):
         tk.dropdown(4, _n(TASK_COLS, key), last_t, _n(TASK_COLS, key), vals)
     for key in ("planned", "understood", "client_expected", "team_committed", "reopened"):
@@ -601,7 +609,7 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         "Rework Rate": (f'=COUNTIFS({live},{tDl},">0",{tCl},">0",{tEo},"<>Yes",{tRe},"Yes")+'
                         f'COUNTIFS({live},{tDl},">0",{tCl},">0",{tEo},"<>Yes",{tRe},"No")'),
         "CR Rate": f'=IF(OR({ref["cr_den"]}="Whole project",COUNTIFS({tP},$A{{r}},{tTy},"Task")=0),'
-                   f'COUNTIFS({tTy},"Task"),COUNTIFS({tP},$A{{r}},{tTy},"Task"))',
+                   f'COUNTIFS({tTy},"Task",{_rng("Task Register", T["item"], 4)},"<>history:*"),COUNTIFS({tP},$A{{r}},{tTy},"Task"))',
     }
     ratio = '=IF(Q{r}<>"",Q{r},IF(N(F{r})=0,"",ROUND(E{r}/F{r}*100,2)))'
     val = {n: ratio for n in KPI_ORDER}
@@ -632,6 +640,14 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
             sm.put(r, 7, None, "calc_r", f=val.get(metric_name(name), ratio).format(r=r))
             sm.put(r, 8, None, "calc_r", f=f'=IFERROR(INDEX({ref["kpi_targets"]},MATCH($C{r},{ref["kpi_names"]},0)),"")')
             sm.put(r, 9, None, "calc_c", f=f'=IFERROR(INDEX({ref["kpi_types"]},MATCH($C{r},{ref["kpi_names"]},0)),"")')
+            if pn in (ctx.get("historical_periods") or []):
+                # A later run can use different policy, dates, units, or targets.
+                # Only an explicit refresh may change an archived computation.
+                sm.put(r, 5, m.get("numerator"), "data_r")
+                sm.put(r, 6, m.get("denominator"), "data_r")
+                sm.put(r, 7, m.get("value"), "data_r")
+                sm.put(r, 8, m.get("threshold"), "data_r")
+                sm.put(r, 9, "Min" if m.get("direction") == "higher-is-better" else "Max", "data_c")
             sm.put(r, 10, None, "calc_c", f=f'=IF(G{r}="","Not measured",IF(H{r}="","Measured",IF(I{r}="Min",'
                                             f'IF(G{r}>=H{r},"Met","Below minimum"),IF(G{r}<=H{r},"Met","Above maximum"))))')
             sm.put(r, 11, None, "calc_c", f=f'=IF(OR(J{r}="Below minimum",J{r}="Above maximum"),"Yes","No")')
@@ -658,8 +674,12 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
                                           f'"Changed in the sheet since the run. Run again before pushing."))')
             sm.put(r, 17, man.get("value") if isinstance(man, dict) else None, "in")
             sm.put(r, 18, man.get("why") if isinstance(man, dict) else None, "in")
+            sm.put(r, 19, pn + "|" + name, "data")
             summary_rows.append((pn, name, r))
     last_s = max(r, 4)
+    sm.hidden_cols = [19]
+    sm.filter_range = (3, 1, last_s, 18)
+    sm.widths[1] = 32
     sm.when(4, 10, last_s, 10, '=J4="Met"', fill="C6EFCE", color="006100")
     sm.when(4, 10, last_s, 10, '=OR(J4="Below minimum",J4="Above maximum")', fill="FFC7CE", color="9C0006")
     sm.when(4, 13, last_s, 13, '=AND(K4="Yes",M4="")', fill="FFC7CE")
@@ -667,108 +687,8 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     sm.readback = {"kind": "summary", "first": 4, "last": last_s, "period": 1, "kpi": 3, "why": 13,
                    "summary": 12, "note_bases": note_bases, "manual_value": 17, "manual_why": 18}
 
-    # ---- Dashboard ------------------------------------------------------------------------
-    db = Tab("Dashboard")
-    db.widths.update({1: 4, 2: 22, 3: 12, 4: 14, 5: 12, 6: 12, 7: 12, 8: 12, 9: 12, 10: 10, 11: 12, 12: 10,
-                      13: 12, 14: 12, 15: 12, 16: 3, 17: 22, 18: 22})
-    db.put(1, 1, None, "title", f=f'="KPI Dashboard: "&{ref["project_name"]}')
-    db.put(2, 1, None, "sub", f=f'="PMS project "&{ref["pms_id"]}&"  ·  Velocity in "&{ref["velocity_unit"]}&"  ·  '
-                                f'Data pulled {(ctx.get("refreshed") or "")[:10]}  ·  Everything here is calculated from the other tabs."')
-    db.band(4, "Work and issues by period", 1, 18)
-    hd = ["#", "Period", "Delivered", "Not delivered yet", "Planned tasks", "Additional requests", "Completed",
-          "Issues reported", "Bugs counted", "Rejected", "Found after handover", "Reopened", "Client date",
-          "Commit date", "Handed over", None, "Delivered (green) vs not yet (grey)", "Bugs (red) vs other issues (orange)"]
-    db.heights[5] = 31.5
-    for i, h in enumerate(hd, start=1):
-        if h:
-            db.put(5, i, h, "head")
-    tPl = _rng("Task Register", T["planned"], 4)
-    top, bot = 6, 6 + MAX_PERIODS - 1
-    for rr in range(top, bot + 1):
-        b = f"$B{rr}"
-        t_live = f'{tP},{b},{tTy},"<>Excluded"'
-        db.put(rr, 1, None, "calc_c", f=f'=IF({b}="","",ROW()-5)')
-        db.put(rr, 2, None, "kpi", f=f'=IFERROR(INDEX(Periods!$B$5:$B$200,ROW()-5)&"","")')
-        cells = [
-            f'COUNTIFS({t_live},{tDl},">0")', f'COUNTIFS({t_live})-COUNTIFS({t_live},{tDl},">0")',
-            f'COUNTIFS({t_live},{tPl},"Yes")',
-            f'COUNTIFS({tP},{b},{tTy},"CR")',
-            f'ROUND(SUMIFS(\'KPI Summary\'!$E$4:$E${LAST},\'KPI Summary\'!$A$4:$A${LAST},{b},\'KPI Summary\'!$C$4:$C${LAST},"Velocity"),2)'
-            f'&IF({ref["velocity_unit"]}="Story Points"," pts"," h")',
-            f"COUNTIFS({dP},{b})", f'COUNTIFS({dP},{b},{dCt},"Yes")', f'COUNTIFS({dP},{b},{dRj},"Yes")',
-            f'COUNTIFS({dP},{b},{dPh},"Post-release",{dRj},"<>Yes")', f'COUNTIFS({t_live},{tCl},">0",{tRe},"Yes")',
-        ]
-        for i, fx in enumerate(cells, start=3):
-            db.put(rr, i, None, "calc_r", f=f'=IF({b}="","",{fx})')
-        for i, (rng, fallback) in enumerate(((f"Periods!${P['client_date']}$5:${P['client_date']}$200", ref["client_date"]),
-                                             (f"Periods!${P['commit_date']}$5:${P['commit_date']}$200", ref["commit_date"])), start=13):
-            look = f'IFERROR(INDEX({rng},MATCH({b},{PN},0)),"")'
-            db.put(rr, i, None, "calc_c", f=f'=IF({b}="","",IF(N({look})>0,TEXT({look},"mm/dd/yyyy"),'
-                                            f'IF(N({fallback})>0,TEXT({fallback},"mm/dd/yyyy"),"-")))')
-        look = f'IFERROR(INDEX({PH},MATCH({b},{PN},0)),"")'
-        db.put(rr, 15, None, "calc_c", f=f'=IF({b}="","",IF(N({look})>0,TEXT({look},"mm/dd/yyyy"),"Not yet"))')
-        mx1 = f"MAX(1,$C${top}:$C${bot},$D${top}:$D${bot})"
-        db.put(rr, 17, None, "bar", f=f'=IF({b}="","",REPT("█",ROUND(N(C{rr})/{mx1}*18,0))&REPT("░",ROUND(N(D{rr})/{mx1}*18,0)))',
-               gf=f'=IF({b}="","",SPARKLINE({{N(C{rr}),N(D{rr})}},{{"charttype","bar";"color1","#38761d";"color2","#b7b7b7";'
-                  f'"max",MAX(1,ARRAYFORMULA($C${top}:$C${bot}+$D${top}:$D${bot}))}}))')
-        mx2 = f"MAX(1,$H${top}:$H${bot})"
-        db.put(rr, 18, None, "bar", f=f'=IF({b}="","",REPT("█",ROUND(N(I{rr})/{mx2}*18,0))&REPT("░",ROUND((N(H{rr})-N(I{rr}))/{mx2}*18,0)))',
-               gf=f'=IF({b}="","",SPARKLINE({{N(I{rr}),N(H{rr})-N(I{rr})}},{{"charttype","bar";"color1","#cc0000";"color2","#f6b26b";'
-                  f'"max",MAX(1,$H${top}:$H${bot})}}))')
-    tr = bot + 1
-    db.put(tr, 2, "Total", "total")
-    for i in (3, 4, 5, 6, 8, 9, 10, 11, 12):
-        db.put(tr, i, None, "total", f=f"=SUM({col(i)}{top}:{col(i)}{bot})")
-
-    k0 = tr + 2
-    db.band(k0, "KPI results by period (the bar is green when the KPI is met, red when not)", 1, 18)
-    db.heights[k0 + 1] = 31.5
-    db.put(k0 + 1, 2, "KPI", "head")
-    db.put(k0 + 1, 3, "Target", "head")
-    slots = [(4 + 2 * i, 5 + 2 * i) for i in range(6)]
-    for i, (vc, bc) in enumerate(slots):
-        db.put(k0 + 1, vc, None, "head", f=f'=IF($B${top + i}="","",$B${top + i})')
-        db.put(k0 + 1, bc, None, "head")
-    S = "'KPI Summary'!"
-    sA, sC, sG, sJ = (f"{S}${x}$4:${x}${LAST}" for x in "ACGJ")
-    for j, name in enumerate(display_order):
-        rr = k0 + 2 + j
-        db.put(rr, 2, name, "kpi")
-        db.put(rr, 3, None, "calc", f=f'=IFERROR(IF(INDEX({ref["kpi_types"]},MATCH($B{rr},{ref["kpi_names"]},0))="Min","at least ","at most ")'
-                                      f'&INDEX({ref["kpi_targets"]},MATCH($B{rr},{ref["kpi_names"]},0))&IF($B{rr}="Velocity",""," %"),"")')
-        vals = ",".join(f"N({col(vc)}{rr})" for vc, _ in slots)
-        for vc, bc in slots:
-            hdr = f"{col(vc)}${k0 + 1}"
-            has = f'COUNTIFS({sA},{hdr},{sC},$B{rr},{sG},">=0")'
-            db.put(rr, vc, None, "calc_r", f=f'=IF({hdr}="","",IF({has}=0,"not measured",SUMIFS({sG},{sA},{hdr},{sC},$B{rr})))')
-            met = f'COUNTIFS({sA},{hdr},{sC},$B{rr},{sJ},"Met")>0'
-            top_of = f'IF($B{rr}="Velocity",MAX(1,{vals}),100)'
-            v = f"{col(vc)}{rr}"
-            db.put(rr, bc, None, "bar", f=f'=IF(ISNUMBER({v}),REPT("█",ROUND(MIN({v},{top_of})/{top_of}*14,0)),"")',
-                   gf=f'=IF(ISNUMBER({v}),SPARKLINE({v},{{"charttype","bar";"max",{top_of};"color1",IF({met},"#38761d","#cc0000")}}),"")')
-            # Google Sheets refuses a conditional format that looks at another tab, so the
-            # met/not-met flag sits in a hidden helper column on this one.
-            flag = 20 + slots.index((vc, bc))
-            db.put(rr, flag, None, "calc", f=f'=IF(ISNUMBER({v}),IF({met},1,0),"")')
-            db.when(rr, bc, rr, bc, f"=${col(flag)}{rr}=0", color="CC0000")
-    s0 = k0 + 2 + len(KPI_ORDER) + 1
-    db.band(s0, "Status across all periods", 1, 18)
-    sK, sM = f"{S}$K$4:$K${LAST}", f"{S}$M$4:$M${LAST}"
-    for rr, c1, label, fx in (
-            (s0 + 1, 2, "Met", f'=COUNTIF({sJ},"Met")'),
-            (s0 + 1, 4, "Not met", f'=COUNTIF({sJ},"Below minimum")+COUNTIF({sJ},"Above maximum")'),
-            (s0 + 2, 2, "Not measured yet", f'=COUNTIF({sJ},"Not measured")'),
-            (s0 + 2, 4, "Reasons still missing", f'=SUMPRODUCT(({sK}="Yes")*(LEN({sM})=0))'),
-            (s0 + 3, 2, "Rows waiting for a check", f"=COUNTIF({_rng('Task Register', T['check'], 4)},\"?*\")+COUNTIF({_rng('Defect Register', D['check'], 4)},\"?*\")"),
-            (s0 + 3, 4, "Open questions", f"=SUMPRODUCT((LEN('Open Questions'!$B$4:$B${LAST})>0)*(LEN('Open Questions'!$E$4:$E${LAST})=0))")):
-        db.put(rr, c1, label, "kpi")
-        db.put(rr, c1 + 1, None, "calc_r", f=fx)
-    db.hidden_cols = list(range(20, 26))
-    ch = ctx.get("changes") or []
-    c0 = s0 + 5
-    db.band(c0, "What moved since the last run" + ("" if ch else ": nothing"), 1, 18)
-    for i, line in enumerate(ch[:12]):
-        db.put(c0 + 1 + i, 2, line, "text")
+    from period_views import build as period_views
+    db, overview = period_views(periods, display_order, ctx, LAST)
 
     # ---- Open Questions -----------------------------------------------------------------------
     oq = Tab("Open Questions", "BF9000")
@@ -839,7 +759,7 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         elif text:
             rm.put(rr, 2, text, "text")
 
-    return [rm, db, cfg, per, tk, df, sm, oq, rl, pl]
+    return [db, overview, sm, tk, df, per, oq, cfg, rl, pl, rm]
 
 
 def _n(cols: list[tuple], key: str) -> int:
@@ -872,7 +792,8 @@ HOW_COUNTED = {
 
 README = [
     ("h", "Tabs"),
-    ("", "Dashboard: totals per period and KPI results with coloured bars. Nothing to type here."),
+    ("", "Dashboard: select a period in the yellow field to see its nine KPIs. Period Overview compares all retained periods, newest first."),
+    ("", "One workbook per project: refreshing a period replaces that period; other periods retain their last computed inputs and results. Use the column filters on detail tabs to focus on a period."),
     ("", "Config: project details, counting rules, KPI targets, and the project dates used when a period or task has none."),
     ("", "Periods: one row per KPI period with its dates, notes and PMS period ID."),
     ("", "Task Register: every planned task and additional request, with the evidence behind each Yes/No."),
@@ -883,7 +804,7 @@ README = [
     ("", "PMS Push Log: what was sent to PMS and when."),
     ("", ""),
     ("h", "How to read and change it"),
-    ("", "Yellow cells are yours: change one and every formula follows at once. The next run reads your change back and keeps it - it is never overwritten."),
+    ("", "Yellow cells are yours. Current-period formulas follow your edits; archived results remain saved until you refresh that period. The next run reads your changes back and keeps them."),
     ("", "White cells were read from the tracker, the plan or the estimates. Grey cells are worked out. Editing either achieves nothing; the next run rebuilds them."),
     ("", "The Check column says how a row was decided when it was not obvious: a tag read tolerantly ('read [Exisiting] as Existing'), a loose match to the plan, a call an assistant made and why. Disagree by changing the yellow cell."),
     ("", "Dates: a date on the task wins, then the period date, then the project date in Config. Leave a cell empty to use the next level."),

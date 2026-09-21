@@ -16,6 +16,12 @@ manual.yaml
 ledger.json
 next.json
 sheet_state.json
+workbook_history.json
+workbook_model.json
+workbook_destination.json
+history_edits.yaml
+history_periods.yaml
+view.yaml
 **/cache/
 **/judge/
 **/inbox/

@@ -46,6 +46,17 @@ actual reason in natural language; avoid generic excuses or personal blame. Read
 
 ## Review and delivery
 
+Keep one continuing workbook per project. Never add the period to `output.workbook_name`,
+change `workbook_file` for a new week, or import a new spreadsheet on each run. The pipeline
+retains prior period inputs/results and replaces the refreshed period by date bounds.
+Dashboard has a period selector; Period Overview compares the complete history. Source
+queries still cover the requested run; retained history must not expand a PMS submission.
+
+If Google is available through the host connector but the local runtime is not signed in,
+use the file-backed connector workflow in `references/sheets-writer.md`. Reuse the existing
+spreadsheet ID and writer-generated requests. Do not work around missing local auth by
+creating another workbook.
+
 The workbook contains editable yellow inputs, formulas, evidence and Open Questions.
 The run reads edits before rebuilding. A failed read stops replacement; unavailable Google
 produces a separate preview while preserving the review baseline. Do not format/upload it

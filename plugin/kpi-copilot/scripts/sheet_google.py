@@ -53,7 +53,7 @@ def _format(spec: dict, fmt: str | None) -> dict:
         side = {"style": "SOLID", "color": _rgb(M.LINE)}
         out["borders"] = {"top": side, "bottom": side, "left": side, "right": side}
     if fmt:
-        out["numberFormat"] = {"type": "DATE", "pattern": fmt}
+        out["numberFormat"] = {"type": "DATE" if any(x in fmt.lower() for x in ("yy", "dd")) else "NUMBER", "pattern": fmt}
     return out
 
 
@@ -121,6 +121,9 @@ def tab_requests(tab: M.Tab, sid: int, index: int, existing: dict | None,
         reqs.append({"updateDimensionProperties": {
             "range": {"sheetId": sid, "dimension": "COLUMNS", "startIndex": 0, "endIndex": cols},
             "properties": {"hiddenByUser": False}, "fields": "hiddenByUser"}})
+        reqs.append({"updateDimensionProperties": {
+            "range": {"sheetId": sid, "dimension": "ROWS", "startIndex": 0, "endIndex": rows},
+            "properties": {"hiddenByUser": False, "pixelSize": 21}, "fields": "hiddenByUser,pixelSize"}})
 
     last_r, last_c = tab.size
     data = [{"values": [_value(tab.cells.get((r, c)) or {}) for c in range(1, last_c + 1)]} for r in range(1, last_r + 1)]
@@ -171,6 +174,10 @@ def tab_requests(tab: M.Tab, sid: int, index: int, existing: dict | None,
                 "ranges": [_grid_range(sid, *rule["range"])],
                 "booleanRule": {"condition": {"type": "CUSTOM_FORMULA", "values": [{"userEnteredValue": rule["formula"]}]},
                                 "format": fmt}}}})
+        for bounds in tab.merges:
+            reqs.append({"mergeCells": {"range": _grid_range(sid, *bounds), "mergeType": "MERGE_ALL"}})
+        if tab.filter_range:
+            reqs.append({"setBasicFilter": {"filter": {"range": _grid_range(sid, *tab.filter_range)}}})
     return reqs
 
 
@@ -245,4 +252,44 @@ def read_grid(fid: str, tabs: list[str], session: G.Session | None = None) -> Ca
         return (v.strip() or None) if isinstance(v, str) else v
 
     grid.rows = lambda tab: len(data.get(tab) or [])                     # type: ignore[attr-defined]
+    return grid
+
+
+def connector_doc(path):
+    """Unwrap a connector CellData/metadata response saved directly to disk."""
+    import json
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if "cells" in data:
+        data = data["cells"]
+    return data.get("structuredContent", data)
+
+
+def connector_grid(path, fid):
+    doc = connector_doc(path)
+    if doc.get("spreadsheetId") != fid:
+        raise ValueError("Review snapshot belongs to a different spreadsheet.")
+    data, counts = {}, {}
+    for sheet in doc.get("sheets", []):
+        name = sheet["properties"]["title"]
+        for block in sheet.get("data", []):
+            for ri, row in enumerate(block.get("rowData", []), 1 + block.get("startRow", 0)):
+                counts[name] = max(counts.get(name, 0), ri)
+                for ci, cell in enumerate(row.get("values", []), 1 + block.get("startColumn", 0)):
+                    effective = cell.get("effectiveValue") or {}
+                    if effective.get("errorValue"):
+                        raise ValueError(f"Formula error on {name}; repair the review sheet before continuing.")
+                    fmt = ((cell.get("effectiveFormat") or cell.get("userEnteredFormat") or {})
+                           .get("numberFormat") or {}).get("type")
+                    # Preserve date text for ISO conversion; otherwise use unrounded values.
+                    value = effective or cell.get("userEnteredValue") or {}
+                    if fmt in ("DATE", "DATE_TIME", "TIME"):
+                        data[name, ri, ci] = cell.get("formattedValue")
+                    else:
+                        data[name, ri, ci] = value.get("stringValue", value.get("numberValue", value.get("boolValue")))
+                    if data[name, ri, ci] is None:
+                        data[name, ri, ci] = cell.get("formattedValue")
+    def grid(name, row, col):
+        value = data.get((name, row, col))
+        return None if value == "" else value
+    grid.rows = lambda name: counts.get(name, 0)
     return grid
