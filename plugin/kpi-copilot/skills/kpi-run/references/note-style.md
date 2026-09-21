@@ -23,9 +23,11 @@ what the numbers say, in sentences || what was left out || why
 ```
 
 `||` reads as a line break in the PMS note field. Everything before the last part is
-generated, as whole sentences a person might have written. The last part - the **why** - is
-the only part a person (or the assistant, from `judge/queue.json`) writes, and it lives in the
-project's `facts/reasons.yaml` and in the yellow column of KPI Summary.
+generated initially, as whole sentences a person might have written. Both **Result summary**
+and **Why / context** are editable yellow columns in KPI Summary. Edits are kept in the
+project's `facts/reasons.yaml`. Every push rereads the configured Google Sheet (or the local
+workbook when that is the configured destination); it never substitutes an older local copy.
+Changed figures require renewed review of an edited summary.
 
 Example:
 
@@ -69,9 +71,10 @@ Read it.
 is still pending, with dates: "5 more items are not due until 09/22 to 09/24, so they are not
 in this figure."
 
-**A bare zero or a bare blank.** Say why: "Nothing to measure yet: all 6 items are still
-ahead of 09/22 and the handover has not happened." "Not handed over to the client yet, so
-there is nothing to measure."
+**A bare zero or an unsupported claim.** Explain a measured zero with its actual scope.
+When a KPI needs more information, leave it unmeasured and add an actionable question to
+Open Questions. Missing evidence, unavailable history and requests to confirm dates belong
+there, not in PMS notes. Do not replace a gap with a plausible number or invented cause.
 
 **Filler.** No "it should be noted that", no "in order to", no em dashes.
 

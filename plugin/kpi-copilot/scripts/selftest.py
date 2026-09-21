@@ -132,8 +132,9 @@ def main() -> int:
     m = measure(mixed, "Initial Scope", "Delivery Commitment")
     check("an item with no commitment is out of the denominator", m["denominator"] == 5,
           f"got {m['denominator']}, expected 5 of 7 deliverables")
-    check("...and the note says how many were left out",
-          "No commitment date is recorded for 2 other items" in m["note"], m["note"])
+    check("...and the review sheet explains the missing commitment dates",
+          any("No commitment date is recorded for 2 other items" in x for x in m["review_items"])
+          and "No commitment date is recorded" not in m["note"])
     check("the heading is about commitments, not about QA",
           "recorded commitment dates" in m["note"] and "QA" not in m["note"], m["note"])
 
@@ -149,8 +150,8 @@ def main() -> int:
     m = measure(nc, "Initial Scope", "Delivery Commitment")
     check("no commitments at all is Not measured, not 0%", m["status"] == "Not measured",
           f"{m['status']} = {m['value']}")
-    check("...and says why, in terms of reliability",
-          "nothing to measure reliability against" in m["note"], m["note"])
+    check("...and records the reason as a review item",
+          any("nothing to measure reliability against" in x for x in m["review_items"]) and not m["note"])
 
     allcfg = yaml.safe_load((EX / "northwind-q3" / "profile.yaml").read_text())
     allcfg["workflow"]["commitment"] = {"scope": "all-deliverables", "met_when": "handover"}
@@ -231,7 +232,7 @@ def main() -> int:
     a = {(p["period"], m["name"]): m["value"] for p in sav["periods"] for m in p["measures"]}
     b = {(p["period"], m["name"]): m["value"] for p in frag["periods"] for m in p["measures"]}
     check("the older fragment style is still there for anyone who prefers it",
-          measure(frag, "Initial Scope", "Velocity")["note"].startswith("Work finished in this cycle ||"))
+          measure(frag, "Additional Requests 1", "Velocity")["note"].startswith("Work finished in this cycle ||"))
     check("...and the style changes the wording only, never a figure", a == b)
 
     print("\nCustom instructions")
@@ -978,7 +979,7 @@ def pipeline_tests(tmp: Path) -> None:
     check("dates are dates", tr.cell(4, heads["Delivered"].column).number_format == "yyyy-mm-dd"
           and hasattr(tr.cell(4, heads["Delivered"].column).value, "year"))
     check("the numbers are live formulas over the registers", str(sm["E5"].value).startswith("=COUNTIFS(") and str(sm["G5"].value).startswith("=IF("))
-    check("the note for PMS follows the reason as it is typed", sm["N5"].value == '=L5&IF(TRIM(M5)="",""," || "&TRIM(M5))')
+    check("the note for PMS follows both editable fields without a leading separator", sm["N5"].value == '=L5&IF(TRIM(M5)="","",IF(TRIM(L5)="",""," || ")&TRIM(M5))')
     check("the engine's own figure sits beside each live one", isinstance(sm["O5"].value, (int, float)) and "Run again before pushing" in str(sm["P5"].value))
     every = [str(c.value) for w in wb.worksheets for row in w.iter_rows() for c in row if isinstance(c.value, str) and c.value.startswith("=")]
     check("no formula relies on how a spreadsheet treats an empty cell in a criterion", not any('"<>"' in f for f in every))

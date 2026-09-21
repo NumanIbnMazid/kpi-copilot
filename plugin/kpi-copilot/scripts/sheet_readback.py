@@ -82,6 +82,8 @@ def _read(name: str, spec: dict, grid: Grid) -> dict:
             if per and kpi:
                 rows[f"{per}|{kpi}"] = {"why": grid(name, r, spec["why"]), "value": grid(name, r, spec["manual_value"]),
                                         "manual_why": grid(name, r, spec["manual_why"])}
+                if spec.get("summary"):
+                    rows[f"{per}|{kpi}"]["summary"] = grid(name, r, spec["summary"])
         return {"rows": rows}
     if kind == "questions":
         return {"rows": {str(grid(name, r, spec["id"])): {"answer": grid(name, r, spec["answer"])}
@@ -121,6 +123,20 @@ def load_state(path: Path) -> dict | None:
         return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
     except (OSError, json.JSONDecodeError) as e:
         raise SystemExit(f"Cannot read sheet baseline {path}. Restore it before refreshing the review sheet: {e}") from e
+
+
+def upgrade_summary(state: dict, results: dict) -> None:
+    """Capture edits to column L even when upgrading a workbook that called it automatic."""
+    spec = (state.get("spec") or {}).get("KPI Summary") or {}
+    if not spec or spec.get("summary"):
+        return
+    prior = {f"{p['period']}|{m['name']}": m for p in results.get("periods") or [] for m in p.get("measures") or []}
+    rows = state["values"]["KPI Summary"]["rows"]
+    if any(key not in prior for key in rows):
+        raise ValueError("The previous generated notes are needed to preserve edits to the result summary.")
+    spec["summary"] = 12
+    for key, row in rows.items():
+        row["summary"] = prior[key].get("summary_note", " || ".join(x for x in prior[key].get("note_parts") or [] if x))
 
 
 def _same(a: Any, b: Any) -> bool:
@@ -190,10 +206,23 @@ def fold(state: dict, grid: Grid, ledger, facts: dict, manual: dict, board_items
             for rid, rec in now["rows"].items():
                 old = before["rows"].get(rid) or {}
                 per, kpi = rid.split("|", 1)
-                if not _same(rec.get("why"), old.get("why")):
+                summary_changed = "summary" in rec and not _same(rec.get("summary"), old.get("summary"))
+                context_changed = not _same(rec.get("why"), old.get("why"))
+                if summary_changed:
+                    reasons = facts.setdefault("reasons", {})
+                    reasons.setdefault("_summaries", {})[rid] = rec.get("summary") or ""
+                    reasons.setdefault("_summary_authors", {})[rid] = "human"
+                    reasons.setdefault("_summary_bases", {})[rid] = (state["spec"][tab].get("note_bases") or {}).get(rid)
+                    said.append(f"{per} · {kpi}: result summary taken from the sheet")
+                if summary_changed or context_changed:
+                    basis = (state["spec"][tab].get("note_bases") or {}).get(rid)
+                    if basis:
+                        facts.setdefault("reasons", {}).setdefault("_human_reviews", {})[rid] = basis
+                if context_changed:
                     reasons = facts.setdefault("reasons", {})
                     reasons.setdefault(per, {})[kpi] = rec.get("why") or ""
                     reasons.setdefault("_authors", {})[rid] = "human"
+                    reasons.setdefault("_questions", {}).pop(rid, None)
                     said.append(f"{per} · {kpi}: reason taken from the sheet")
                 if not _same(rec.get("value"), old.get("value")) or not _same(rec.get("manual_why"), old.get("manual_why")):
                     if rec.get("value") in (None, ""):

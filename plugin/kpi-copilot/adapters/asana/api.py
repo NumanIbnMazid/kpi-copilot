@@ -48,6 +48,7 @@ PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 import board as B  # noqa: E402
 import connect     # noqa: E402
+import host_transport  # noqa: E402
 
 API = "https://app.asana.com/api/1.0"
 ADAPTER, VERSION = "asana", "2.0.0"
@@ -91,6 +92,12 @@ class Client:
         self.requests = 0
 
     def get(self, path: str, params: dict | None = None) -> dict:
+        if host_transport.enabled("asana"):
+            self.requests += 1
+            try:
+                return host_transport.call("asana", "GET", API + path, params=params)
+            except host_transport.TransportError as e:
+                raise AsanaError(str(e)) from e
         url = f"{API}{path}" + (("?" + urllib.parse.urlencode(params)) if params else "")
         for attempt in range(6):
             req = urllib.request.Request(url, headers={
@@ -315,7 +322,7 @@ def read(project: dict, profile: dict, cache: dict | None, progress=None) -> dic
     gid = str(project.get("tracker_ref") or trk.get("project_ref") or "")
     if not gid:
         raise B.ReaderError("The project has no tracker_ref - the long number in the Asana board's URL.")
-    token = find_token((trk.get("options") or {}).get("token_env"))
+    token = "host-session" if host_transport.enabled("asana") else find_token((trk.get("options") or {}).get("token_env"))
     if not token:
         raise B.ReaderError(NO_TOKEN)
     try:

@@ -109,7 +109,7 @@ def _velocity(s: dict) -> list[str]:
     if not s["points"]:
         team = (f"{n(s['team'])} hours of shared work such as bug fixing, QA checks and regression" if s["team"] else "")
         if s["basis"] == "dev+qa" and (s["dev"] or s["qa"]):
-            out.append(f"That is {n(s['dev'])} hours of development and {n(s['qa'])} hours of QA"
+            out.append(f"That is {n(s['dev'])} {w(s['dev'], 'hour')} of development and {n(s['qa'])} {w(s['qa'], 'hour')} of QA"
                        + (f", plus {team}" if team else "") + ".")
         elif team and s["dev"]:
             out.append(f"That is {n(s['dev'])} hours of development, plus {team}.")
@@ -145,8 +145,8 @@ def _comprehension(s: dict) -> list[str]:
         first = f"The team understood {yes} of the {den} items {tail}."
     b = s.get("blank") or 0
     if b:
-        first = first.replace("in this cycle", "with enough evidence to assess").replace(
-            f"of the {den} items", f"of the {den} assessed items")
+        first = first.replace("one item in this cycle", "one assessed item").replace(
+            f"{den} items", f"{den} assessed items")
     blank = (f"{b} other {w(b, 'item could', 'items could')} not be assessed because individual discussion "
              "history was unavailable.") if b else ""
     return [first, blank]
@@ -251,8 +251,10 @@ def _rework(s: dict) -> list[str]:
         return [f"None of the {k} completed {w(k, 'task')} records whether it was reopened after closing, so there "
                 f"is nothing to measure."]
     r, den = s["reopened"], s["den"]
-    first = (f"None of the {den} completed {w(den, 'task')} had to be reopened after being closed." if not r else
-             f"{r} of the {den} completed {w(den, 'task')} had to be reopened after being closed ({n(s['value'])}%).")
+    group = f"{den} assessed completed {w(den, 'task')}" if s.get("unjudged") else f"{den} completed {w(den, 'task')}"
+    first = (("The one assessed completed task was not reopened after closing." if den == 1 else
+              f"None of the {group} had to be reopened after being closed.") if not r else
+             f"{r} of the {group} had to be reopened after being closed ({n(s['value'])}%).")
     q = s.get("near") or 0
     near = (f"{q} {w(q, 'task')} failed QA while still being tested for the first time. That is normal testing "
             f"rather than rework, so {w(q, 'it is', 'they are')} not counted here.") if q else ""

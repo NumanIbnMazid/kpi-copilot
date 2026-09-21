@@ -29,7 +29,7 @@ from typing import Any
 
 import board as B
 
-RUBRIC_VERSION = "1.1"
+RUBRIC_VERSION = "1.2"
 
 RUBRIC = {
     "nature": (
@@ -68,15 +68,16 @@ RUBRIC = {
         "build - not the calendar alone. The team's own QA finding something after a handover is still QA."),
     "reasons": (
         "MUST: read the complete KPI note as a decision maker with no project background. Explain which work "
-        "is being measured, what happened, its effect on delivery, and any decision or evidence limit that "
-        "changes the interpretation. Use familiar words, explain project-specific terms, and describe the "
+        "is being measured, what happened, its effect on delivery, and any agreed decision. Put missing "
+        "evidence, measurement limitations and requests for clarification in review questions, not PMS notes. "
+        "Use familiar words, explain project-specific terms, and describe the "
         "work before referring to a ticket number. Do not infer a cause from a high ratio or a status change. "
         "Review Met and Not measured notes as carefully as missed KPIs. The 'why' is one to three plain "
         "sentences that tell a manager what they would otherwise "
         "have to ask - why the number is what it is, what happened, what was decided and by whom. It adds "
         "only new information: never repeat the count the note already printed, never restate the heading. "
         "Describe the work, not the person. Dates as mm/dd. No links, no em dashes, no filler. Use only the "
-        "context given; if it does not explain the number, say what is missing instead of inventing a cause."),
+        "context given; if it does not explain the number, return a review question instead of inventing a cause."),
 }
 
 FIELDS = {
@@ -137,13 +138,16 @@ def _notes_needed(results: dict, facts: dict, review: bool = False, kif: dict | 
     for per in results.get("periods") or []:
         name = per["period"]
         for m in per.get("measures") or []:
+            import note_policy
+            if review and (reasons.get("_human_reviews") or {}).get(f"{name}|{m['name']}") == note_policy.basis(m):
+                continue
             if not review and (m.get("status") != "Not met" or (reasons.get(name) or {}).get(m["name"])):
                 continue
             p = periods.get(name) or {}
             entry = {
                 "period": name, "kpi": m["name"], "status": m["status"], "value": m.get("value"),
                 "target": m.get("threshold"), "the_note_already_says": " || ".join(x for x in m.get("note_parts") or [] if x),
-                "counted": (m.get("counted_keys") or [])[:15],
+                "counted": (m.get("counted_keys") or [])[:15], "review_items": m.get("review_items") or [],
                 "context": {"period_story": p.get("notes") or "", "original_plan": p.get("plan_text") or "",
                             "dates": {k: p.get(k) or ((facts.get("periods") or {}).get("project") or {}).get(k)
                                       for k in ("client_date", "commit_date", "handover_date", "client_check")},
@@ -168,6 +172,7 @@ def _notes_needed(results: dict, facts: dict, review: bool = False, kif: dict | 
                         {"key": d.get("key"), "title": d.get("title"),
                          "why": d.get("rejection_reason") or ((d.get("basis") or {}).get("rejected") or {}).get("why")}
                         for d in (kif or {}).get("defects") or [] if d.get("period") == name and d.get("rejected") == "Yes"]
+                entry["result_summary"] = m.get("summary_note")
                 signature = hashlib.sha256(json.dumps({"note": entry, "version": RUBRIC_VERSION,
                     "style": (profile or {}).get("custom_instructions"),
                     "workflow": (profile or {}).get("workflow")}, sort_keys=True, default=str).encode()).hexdigest()

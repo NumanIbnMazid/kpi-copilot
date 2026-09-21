@@ -159,6 +159,11 @@ class Measure:
     counted_keys: list[str] = field(default_factory=list)
     note: str = ""
     note_parts: list[str] = field(default_factory=list)
+    generated_note: str = ""
+    summary_note: str = ""
+    context_note: str = ""
+    review_items: list[str] = field(default_factory=list)
+    publish_blocked: bool = False
     gaps: list[str] = field(default_factory=list)
     pms_value: float | None = None  # after clamping to the PMS range
     clamped: bool = False
@@ -470,6 +475,8 @@ class Engine:
 
         item_total = sum(effort(t) for t in (delivered if by_points else effort_rows))
         team_hours = float(period.get("team_hours") or 0) if not by_points else 0.0
+        if (self.profile.get("sources") or {}).get("team_hours_when") == "handover" and not period.get("handover_date"):
+            team_hours = 0.0
         total = item_total + team_hours
 
         gaps: list[str] = []
@@ -847,7 +854,7 @@ class Engine:
 
     def rework_rate(self, period: dict) -> Measure:
         name = period["name"]
-        completed = [t for t in self.deliverables_in(name) if t.get("closed")]
+        completed = [t for t in self.deliverables_in(name) if t.get("rework_closed", t.get("closed"))]
         reopened = [t for t in completed if t.get("reopened") == "Yes"]
         judged = [t for t in completed if t.get("reopened") in ("Yes", "No")]
         den = len(completed)
@@ -1017,8 +1024,7 @@ class Engine:
         return note_sentences.terminology((block.get(kpi_name) or block.get(kpi_name.lower()) or "").strip(), self.profile)
 
     def finish_note(self, m: Measure, period_name: str) -> None:
-        """Glue the parts. The reason is the only part a human writes, and its job is to add
-        what the numbers cannot say - never to repeat them.
+        """Join the editable summary and context, preserving their separate sheet fields.
 
         Two styles, one set of numbers. `sentences` (the default) says each part the way a
         person would; `fragments` is the older "heading || numbers || what was left out".
@@ -1033,7 +1039,26 @@ class Engine:
         if m.clamped and m.value is not None:
             m.note_parts.append(f"PMS limits the numeric field to {_n(m.pms_value)}; the calculated result "
                                 f"is {_n(m.value)}{m.unit}.")
-        parts = [p for p in (m.note_parts + [self._reason_for(period_name, m.name)]) if p and p.strip()]
+        import note_policy
+        generated, review = note_policy.split(" || ".join(m.note_parts))
+        if m.value is None:
+            review = list(dict.fromkeys(review + generated))
+            generated = []
+        m.generated_note = " || ".join(generated)
+        m.note_parts = generated
+        tag = f"{period_name}|{m.name}"
+        overrides = self.reasons.get("_summaries") or {}
+        summary = str(overrides[tag]) if tag in overrides else m.generated_note
+        summary_parts, summary_review = note_policy.split(summary)
+        context_parts, context_review = note_policy.split(self._reason_for(period_name, m.name))
+        m.summary_note = " || ".join(summary_parts)
+        m.context_note = " || ".join(context_parts)
+        m.review_items = list(dict.fromkeys(review + summary_review + context_review + m.gaps))
+        saved_basis = (self.reasons.get("_summary_bases") or {}).get(tag)
+        if tag in overrides and summary != m.generated_note and saved_basis != note_policy.basis(m.as_dict()):
+            m.review_items.append("The figures changed after the result summary was edited. Review the wording against the current figures.")
+            m.publish_blocked = True
+        parts = [p for p in (summary_parts + context_parts) if p and p.strip()]
         cleaned: list[str] = []
         for p in parts:
             p = _strip_links(p).strip().rstrip(".")
@@ -1097,15 +1122,27 @@ class Engine:
             else:
                 m.status = "Met" if m.value <= m.threshold else "Not met"
         if has_note:
-            m.note = _strip_links(str(entry["note"]))
-        elif has_value and m.computed_value != m.value:
+            import note_policy
+            good, review = note_policy.split(_strip_links(str(entry["note"])))
+            m.summary_note = " || ".join(good)
+            m.context_note = ""
+            m.review_items.extend(x for x in review if x not in m.review_items)
+            m.note = m.summary_note
+        if has_value and m.computed_value != m.value:
             # The note still describes what the data said. Leaving it beside a different value
             # is the one genuinely dishonest outcome here, so the note gains a final part
             # naming the figure a person recorded and why. Both readings stay visible.
             who = f" by {entry.get('by')}" if entry.get("by") else ""
-            m.note += (f" || Recorded as {_n(m.value)}{'%' if m.unit == '%' else ''}{who} rather than "
-                       f"the {_n(m.computed_value)}{'%' if m.unit == '%' else ''} above: {_strip_links(why).rstrip('.')}"
+            import note_policy
+            public_why, review_why = note_policy.split(_strip_links(why))
+            m.review_items.extend(x for x in review_why if x not in m.review_items)
+            cause = " ".join(public_why).rstrip('.')
+            detail = (f"Recorded as {_n(m.value)}{'%' if m.unit == '%' else ''}{who} rather than "
+                       + (f"the calculated {_n(m.computed_value)}{'%' if m.unit == '%' else ''}" if m.computed_value is not None
+                          else "a calculated value") + (f": {cause}" if cause else "")
                        + ("." if self.note_style == "sentences" else ""))
+            m.context_note = " || ".join(filter(None, [m.context_note, detail]))
+            m.note = " || ".join(filter(None, [m.note, detail]))
 
         m.overridden = True
         m.override_reason = why
@@ -1271,12 +1308,13 @@ def to_pms_payloads(results: list[PeriodResult], kif: dict) -> list[dict]:
                         "computed_value": m.computed_value,
                     }
                     for m in r.measures
-                    if m.value is not None and m.pms_id is not None
+                    if m.value is not None and m.pms_id is not None and not m.publish_blocked
                 ],
                 "skipped": [
-                    {"name": m.name, "reason": m.note or "Not measured"}
+                    {"name": m.name, "kpiId": m.pms_id, "reason": " || ".join(m.review_items) or "Not measured",
+                     "preserve_existing": m.publish_blocked}
                     for m in r.measures
-                    if m.value is None
+                    if m.value is None or m.publish_blocked
                 ],
             }
         )

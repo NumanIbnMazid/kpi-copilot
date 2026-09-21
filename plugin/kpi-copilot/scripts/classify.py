@@ -133,6 +133,11 @@ class Classifier:
 
         self.plan_rows = [dict(r, _src="plan") for r in ((self.facts.get("plan") or {}).get("items") or [])]
         self.est_rows = [dict(r, _src="estimates") for r in ((self.facts.get("estimates") or {}).get("items") or [])]
+        self.exact_scope_owners = {
+            idx: {i["id"] for i in self.board.get("items") or []
+                  if row.get("title") and B.norm(i.get("title") or "") == B.norm(row["title"])}
+            for idx, row in enumerate(self.plan_rows + self.est_rows)
+        }
         self.grain = ((self.facts.get("plan") or {}).get("grain") or self.project_cfg.get("deliverable_grain")
                       or "board-cards")
         self._matched: set[int] = set()
@@ -155,8 +160,9 @@ class Classifier:
                 self.questions.append({"id": f"judge:{item['id']}:{field}", "about": item.get("key") or item["title"],
                                        "question": f"{item.get('key') or item['title']}: {question} "
                                                    f"Missing context: {deferred['why']}", "options": options,
-                                       "proposal": prop["value"]})
+                                       "proposal": prop["value"], "blocking": field != "understood"})
                 prop["flag"] = "Waiting for a person: " + deferred["why"]
+                prop["value"] = None  # A deferred judgement is unknown, not the original guess.
                 return prop
             before = self.ledger.stale(item["id"], field, fp) if self.ledger else None
             self.queue.append({
@@ -178,7 +184,12 @@ class Classifier:
             if rk:
                 s = 1.0 if rk in (item.get("key"), item.get("id")) else 0.0
             elif row.get("title"):
+                owners = self.exact_scope_owners.get(idx) or set()
+                if owners and item["id"] not in owners:
+                    continue  # A similar QA/future card cannot claim another card's exact estimate.
                 s = _similar(item["title"], row["title"])
+                if len(owners) > 1:
+                    s = min(s, .7)  # Duplicate titles need an explicit source-to-ticket binding.
             if s > score:
                 best, score = dict(row, _idx=idx), s
         return (best, score) if score >= 0.62 else (None, score)
@@ -275,6 +286,18 @@ class Classifier:
             rx = _rx(rule.get("section"))
             if rx and rx.search(item.get("section") or "") and rule.get("period") in self.period_names:
                 return Proposal(rule["period"], f"column '{item.get('section')}'", 0.9)
+        # Some boards organize reports beneath milestone containers while all periods
+        # overlap on the calendar. Use the configured ancestor mapping before dates.
+        ancestors = {i["id"]: i for i in self.board.get("items") or []}
+        parent_id, seen = item.get("parent"), set()
+        while parent_id in ancestors and parent_id not in seen:
+            seen.add(parent_id)
+            parent = ancestors[parent_id]
+            for rule in (self.profile.get("periods") or {}).get("by_ancestor") or []:
+                rx = _rx(rule.get("title"))
+                if rx and rx.search(parent.get("title") or "") and rule.get("period") in self.period_names:
+                    return Proposal(rule["period"], f"parent grouping '{parent.get('title')}'", 0.95)
+            parent_id = parent.get("parent")
         if when:
             inside = [p for p in self.periods if (p.get("start") or "0") <= when <= (p.get("end") or "9")]
             if len(inside) == 1:
@@ -311,6 +334,9 @@ class Classifier:
 
         ttype = keep("type", nat)
         delivered, closed = self._delivered(item), self._closed(item)
+        if not delivered and scope_row and scope_row.get("delivered"):
+            delivered = B.day(scope_row["delivered"])
+        rework_closed = self._closed(item, rework=True)
         guess = self.period_of(item, delivered or B.day(item.get("created_at")), scope_row)
         if ttype == "Excluded":
             period = guess["value"]          # it reaches no denominator, so it is not worth a question
@@ -325,7 +351,8 @@ class Classifier:
             "planned": None, "hours_dev": None, "hours_qa": None, "hours_source": None,
             "story_points": _num((item.get("fields") or {}).get(self.trk.get("story_point_field") or "Story Points")),
             "assignee": item.get("assignee"), "created": B.day(item.get("created_at")),
-            "delivered": delivered, "closed": closed, "status": item.get("section"),
+            "delivered": delivered, "closed": closed, "rework_closed": rework_closed, "status": item.get("section"),
+            "delivery_evidence": (scope_row or {}).get("delivery_evidence"),
             "understood": None, "understood_evidence": None, "understood_why": None,
             "met_client_date": None, "client_date": None, "met_commitment": None, "commit_date": None,
             "reopened": None, "rework_evidence": None, "remarks": "", "_item": item["id"],
@@ -343,7 +370,7 @@ class Classifier:
             p = self.settle(item, "reopened", self._reopened(item, row),
                             "Was this item closed and then reopened (rework)? A QA failure while it was "
                             "still being tested for the first time is not rework.", ["Yes", "No"], "events")
-            row["reopened"] = keep("reopened", p) if closed or p["value"] == "Yes" else None
+            row["reopened"] = keep("reopened", p) if rework_closed or p["value"] == "Yes" else None
             if p.get("evidence") and row["reopened"] == "Yes":
                 row["rework_evidence"] = p["evidence"]
         if "comments" in self.caps or "status_history" in self.caps or item.get("comments"):
@@ -408,8 +435,10 @@ class Classifier:
             hit = B.day(item.get("completed_at"))
         return hit
 
-    def _closed(self, item: dict) -> str | None:
-        states = (self.wf.get("closed_when") or {}).get("values") or []
+    def _closed(self, item: dict, rework: bool = False) -> str | None:
+        states = ((self.wf.get("reopened_when") or {}).get("closed_values") if rework else None)
+        if states is None:
+            states = (self.wf.get("closed_when") or {}).get("values") or []
         if not states:
             return B.day(item.get("completed_at")) if item.get("completed") else None
         # A reopened item is no longer sitting in its closed state, but it still crossed
@@ -425,7 +454,7 @@ class Classifier:
 
     def _reopened(self, item: dict, row: dict) -> Proposal:
         cfg = self.wf.get("reopened_when") or {}
-        closed_states = (self.wf.get("closed_when") or {}).get("values") or []
+        closed_states = cfg.get("closed_values", (self.wf.get("closed_when") or {}).get("values")) or []
         back = cfg.get("values") or []
         hit = B.entered_after(item, closed_states, back) if closed_states and back else None
         if not hit and any(e.get("kind") == "reopened" for e in item.get("events") or []) and not closed_states:
@@ -593,10 +622,11 @@ class Classifier:
                                         member_source)
                     row.update(hours_dev=None, hours_qa=None, effort_group=parent["id"],
                                hours_source=f"Included in the group estimate on {parent.get('key')}")
-                    own_close = self._closed(item)
+                    own_close = self._closed(item, rework=True)
                     if group["inherit_delivery"] and not row.get("delivered"):
                         row["delivered"] = self._delivered(parent)
                         row["closed"] = self._closed(parent)
+                        row["rework_closed"] = self._closed(parent, rework=True)
                         row["delivery_evidence"] = parent.get("url")
                     if not own_close and (row.get("basis", {}).get("reopened", {}).get("by") or "rule") == "rule":
                         # A group failure does not establish which child required changes.
@@ -851,10 +881,11 @@ class Classifier:
     def _period_questions(self, defects: list[dict]) -> None:
         for p in self.periods:
             late = [d for d in defects if d["period"] == p["name"] and (d.get("reported_on") or "") > (p.get("end") or "9")]
-            if not p.get("handover_date") and p.get("end") and p["end"] < self.today:
+            expected = p.get("client_date") or self.project_dates.get("client_date") or p.get("end")
+            if not p.get("handover_date") and expected and expected < self.today:
                 self.questions.append({
                     "id": f"handover:{p['name']}", "about": p["name"],
-                    "question": f"{p['name']} ended on {_md(p['end'])} but has no handover date. When did its "
+                    "question": f"{p['name']} had a client delivery date of {_md(expected)}. When did its "
                                 f"build reach the client? It decides Escaped Defect Rate and the client-date "
                                 f"check.", "proposal": "Leave it as not handed over yet.",
                     "answer_shape": {"handover_date": "YYYY-MM-DD"},

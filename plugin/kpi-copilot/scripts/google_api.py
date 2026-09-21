@@ -147,6 +147,9 @@ def _service_account_path() -> Path | None:
 
 def how_signed_in() -> str:
     """'service-account', 'user' or '' - without touching the network."""
+    import host_transport
+    if host_transport.enabled("google"):
+        return "host-connector"
     if _service_account_path():
         return "service-account"
     if (config_dir() / "google_token.json").exists():
@@ -196,6 +199,13 @@ class Session:
 
     def call(self, method: str, url: str, body: Any = None, params: dict | None = None,
              raw: bool = False) -> Any:
+        import host_transport
+        if host_transport.enabled("google"):
+            self.identity = "connected Google account"
+            try:
+                return host_transport.call("google", method, url, body, params, raw)
+            except host_transport.TransportError as e:
+                raise GoogleError(str(e)) from e
         if params:
             url += ("&" if "?" in url else "?") + urllib.parse.urlencode(params, doseq=True)
         data = json.dumps(body).encode("utf-8") if body is not None else None

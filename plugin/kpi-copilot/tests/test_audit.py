@@ -190,6 +190,181 @@ class AuditTests(unittest.TestCase):
     def ws(self):
         return kpi.Workspace(self.args)
 
+    def test_rework_boundary_is_independent_of_qa_effort_completion(self):
+        snap, profile, facts = self.grouped_example()
+        snap['items'] = [snap['items'][0]]
+        snap['items'][0]['subtasks'] = 0
+        snap['items'][0]['events'] = [
+            {'kind':'section','at':'2025-03-03','from':'Doing','to':'QA'},
+            {'kind':'section','at':'2025-03-04','from':'QA','to':'Doing'}]
+        snap['items'][0]['section'] = 'Doing'
+        facts['estimates']['items'] = []
+        profile['conventions']['grouping'] = {}
+        profile['workflow']['reopened_when']['closed_values'] = ['QA','Done']
+        kif, _ = classify.to_kif(snap, profile, {'name':'Example'}, facts, None, '2025-03-08')
+        task = kif['tasks'][0]
+        self.assertIsNone(task['closed'])
+        self.assertEqual(task['rework_closed'], '2025-03-03')
+        self.assertEqual(task['reopened'], 'Yes')
+        engine = kpi_engine.Engine(kif, profile, kpi._registry(self.ws()))
+        self.assertEqual(engine.velocity(kif['periods'][0]).value, 12)
+        self.assertEqual(engine.rework_rate(kif['periods'][0]).value, 100)
+        self.assert_grouped_formulas(kif, profile)
+
+    def test_shared_effort_can_wait_for_client_handover(self):
+        snap, profile, facts = self.grouped_example()
+        profile['sources']['team_hours_when'] = 'handover'
+        facts['periods']['periods'][0].update(handover_date=None, team_hours=9)
+        kif, _ = classify.to_kif(snap, profile, {'name':'Example'}, facts, None, '2025-03-08')
+        engine = kpi_engine.Engine(kif, profile, kpi._registry(self.ws()))
+        self.assertEqual(engine.velocity(kif['periods'][0]).value, 28)
+        self.assert_grouped_formulas(kif, profile)
+        kif['periods'][0]['handover_date'] = '2025-03-08'
+        self.assertEqual(engine.velocity(kif['periods'][0]).value, 37)
+
+    def test_configured_ancestor_wins_over_overlapping_dates(self):
+        snap, profile, facts = self.grouped_example()
+        profile['conventions']['grouping'] = {}
+        profile['periods'] = {'by_ancestor':[{'title':r'Milestone\s*1', 'period':'First'}]}
+        snap['items'][0]['title'] = 'Bug reporting - Milestone 1'
+        facts['periods']['periods'] = [{'name':name,'start':'2025-03-01','end':'2025-03-20'} for name in ['First','Second']]
+        classifier = classify.Classifier(snap, profile, {'name':'Example'}, facts, None, '2025-03-08')
+        result = classifier.period_of(snap['items'][1], '2025-03-04', None, report=True)
+        self.assertEqual(result['value'], 'First')
+        self.assertGreater(result['confidence'], .9)
+
+    def test_review_diagnostics_do_not_remove_real_delivery_results(self):
+        import note_policy
+        good, review = note_policy.split('Three items were delivered. Individual histories are unavailable. || '
+                                         'Five items lack individual discussion history. || '
+                                         'Delivery cannot yet be confirmed. || The build was two days late.')
+        self.assertEqual(good, ['Three items were delivered.', 'The build was two days late.'])
+        self.assertEqual(len(review), 3)
+
+    def test_edited_summary_survives_and_stale_summary_is_not_published(self):
+        import note_policy
+        snap, profile, facts = self.grouped_example()
+        kif, _ = classify.to_kif(snap, profile, {'name':'Example'}, facts, None, '2025-03-08')
+        engine = kpi_engine.Engine(kif, profile, kpi._registry(self.ws()))
+        first = engine.run()[0].measures[0]
+        tag = 'Cycle|' + first.name
+        engine.reasons.update({'_summaries':{tag:'The delivery represents 28 estimated hours.'},
+                               '_summary_bases':{tag:note_policy.basis(first.as_dict())}})
+        result = engine.run()
+        self.assertFalse(result[0].measures[0].publish_blocked)
+        self.assertIn('represents 28',result[0].measures[0].note)
+        kif['periods'][0]['team_hours'] = 4
+        result = engine.run()
+        self.assertTrue(result[0].measures[0].publish_blocked)
+        payload = kpi_engine.to_pms_payloads(result, kif)[0]
+        self.assertNotIn(first.name,[k['name'] for k in payload['kpis']])
+        self.assertTrue(next(k for k in payload['skipped'] if k['name']==first.name)['preserve_existing'])
+
+    def test_both_note_fields_are_read_back_including_intentional_blank(self):
+        spec = {'kind':'summary','first':4,'last':4,'period':1,'kpi':3,'summary':12,'why':13,
+                'manual_value':17,'manual_why':18,'note_bases':{'Cycle|Velocity':'basis'}}
+        state = {'spec':{'KPI Summary':spec},'values':{'KPI Summary':{'rows':{'Cycle|Velocity':
+                 {'summary':'Old summary','why':'Old context','value':None,'manual_why':None}}}}}
+        cells = {1:'Cycle',3:'Velocity',12:'User summary',13:''}
+        facts = {}
+        sheet_readback.fold(state, lambda tab,r,c:cells.get(c), ledger.Ledger(self.base/'notes.json'),facts,{}, {})
+        self.assertEqual(facts['reasons']['_summaries']['Cycle|Velocity'],'User summary')
+        self.assertEqual(facts['reasons']['Cycle']['Velocity'],'')
+        self.assertEqual(facts['reasons']['_summary_bases']['Cycle|Velocity'],'basis')
+
+    def test_nested_project_registry_uses_global_ids_and_explicit_thresholds(self):
+        default = json.loads(kpi_registry.DEFAULT.read_text())
+        rows = [{'id':900,'threshold':None,'kpi':{'id':17,'name':'Defect Rate','threshold':20,
+                 'isMinimumThreshold':False,'minValue':0,'maxValue':100}}]
+        result = kpi_registry.merge(rows, default)
+        metric = next(k for k in result['kpis'] if k['key']=='defect_rate')
+        self.assertEqual(metric['pms_id'],17)
+        self.assertEqual(metric['threshold'],20)
+        self.assertEqual(kpi_registry.project_thresholds(rows)[0],{})
+        rows[0]['threshold'] = 15
+        self.assertEqual(kpi_registry.project_thresholds(rows)[0]['defect_rate']['threshold'],15)
+
+    def test_pms_partial_update_clears_unknown_but_preserves_stale_edited_note(self):
+        import os
+        self.profile_data['output']['mode']='assisted-push'
+        self.profile.write_text(yaml.safe_dump(self.profile_data))
+        payload=self.base/'payload.json'
+        payload.write_text(json.dumps([{'projectId':101,'periodId':7,'name':'Cycle','description':'Cycle',
+            'kpis':[{'name':'Velocity','kpiId':1,'value':10,'note':'Ten estimated hours.'}],
+            'skipped':[{'name':'Defect Rate','kpiId':5,'reason':'Review estimates'},
+                       {'name':'CR Rate','kpiId':9,'reason':'Review edited note','preserve_existing':True}]}]))
+        before={'7':{'Defect Rate':{'value':10,'note':'Old'},'CR Rate':{'value':20,'note':'Keep'}}}
+        after={'7':{'Velocity':{'value':10,'note':'Ten estimated hours.'},
+                    'Defect Rate':{'value':None,'note':None},'CR Rate':before['7']['CR Rate']}}
+        sent=[]
+        def api(base,path,**kw):
+            if kw.get('method')=='PUT': sent.append(kw); return {}
+            if path.endswith('/periods'): return {'data':[{'id':7,'projectId':101,'name':'Cycle'}]}
+            return {'data':{'id':7,'updatedAt':'2025-03-08T00:00:00Z'}}
+        with patch.dict(os.environ,{'PMS_TOKEN':'test-only'}), patch.object(pms_push,'read_current',side_effect=[before,after]), patch.object(pms_push,'_api',side_effect=api):
+            result=pms_push.main(['--profile',str(self.profile),'--payloads',str(payload),'--apply'])
+        self.assertEqual(result,0)
+        self.assertNotIn('kpis',sent[0]['body'])
+        self.assertEqual(sent[0]['body']['periodKpis'][-1],{'kpiId':5,'value':None,'note':None})
+        self.assertNotIn(9,[k['kpiId'] for k in sent[0]['body']['periodKpis']])
+        self.assertEqual(sent[0]['extra']['Last-Modified'],'2025-03-08T00:00:00Z')
+
+    def test_host_transport_rejects_credentials_before_writing_request(self):
+        import os, time, host_transport
+        (self.base/'session.json').write_text(json.dumps({'services':['pms'],'expires_at':time.time()+60}))
+        with patch.dict(os.environ,{'KPI_HOST_BRIDGE':str(self.base)}):
+            with self.assertRaises(host_transport.TransportError):
+                host_transport.call('pms','GET','https://pms.example/api/projects',headers={'Cookie':'secret'})
+        self.assertEqual(list(self.base.glob('*.request.json')),[])
+
+    def test_optional_connected_host_javascript_guards(self):
+        import subprocess
+        node=shutil.which('node')
+        if not node:
+            self.skipTest('Node is optional for non-host command-line runs')
+        result=subprocess.run([node,str(ROOT/'tests/test_host_transport.mjs')],capture_output=True,text=True)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+
+    def test_configured_google_sheet_is_authority_even_with_local_baseline(self):
+        ws=self.ws()
+        ws.profile['output'].update(workbook='google-sheets',workbook_file='fictional-remote-sheet-1234567890')
+        state={'destination':{'kind':'local','path':str(self.base/'stale.xlsx')},'values':{},'spec':{}}
+        with patch.object(sheet_readback,'load_state',return_value=state), patch.object(kpi.G,'how_signed_in',return_value='host'), \
+             patch.object(sheet_google,'read_grid',return_value='fresh-grid') as remote, \
+             patch.object(sheet_readback,'fold',return_value=['latest notes']) as fold:
+            self.assertEqual(kpi.read_back(ws,{},self.args),['latest notes'])
+        remote.assert_called_once_with('fictional-remote-sheet-1234567890',[])
+        self.assertEqual(fold.call_args.args[1],'fresh-grid')
+
+    def test_unreadable_google_never_falls_back_to_local_for_push(self):
+        ws=self.ws()
+        state={'destination':{'kind':'google','id':'remote'},'values':{},'spec':{}}
+        with patch.object(sheet_readback,'load_state',return_value=state), patch.object(kpi.G,'how_signed_in',return_value='host'), \
+             patch.object(sheet_google,'read_grid',side_effect=RuntimeError('unavailable')), patch.object(sheet_xlsx,'read_grid') as local:
+            with self.assertRaisesRegex(SystemExit,'Nothing will overwrite'):
+                kpi.read_back(ws,{},self.args)
+        local.assert_not_called()
+
+    def test_authoritative_source_delivery_survives_a_feedback_status(self):
+        snap, profile, facts=self.grouped_example()
+        snap['items']=[snap['items'][0]]
+        snap['items'][0].update(events=[],section='Feedback',subtasks=0)
+        profile['conventions']['grouping']={}
+        facts['estimates']['items']=[]
+        facts['plan']['items'][0].update(delivered='2025-03-06',delivery_evidence='Recorded handover')
+        kif,_=classify.to_kif(snap,profile,{'name':'Example'},facts,None,'2025-03-08')
+        self.assertEqual(kif['tasks'][0]['delivered'],'2025-03-06')
+        self.assertIsNone(kif['tasks'][0]['closed'])
+        self.assertEqual(kif['tasks'][0]['delivery_evidence'],'Recorded handover')
+
+    def test_exact_source_match_cannot_be_reused_by_a_similar_card(self):
+        snap, profile, facts=self.grouped_example()
+        facts['plan']['items']=[{'title':'Original feature','dev_hours':12,'qa_hours':4}]
+        snap['items'][1]['title']='[QA] Original feature'
+        classifier=classify.Classifier(snap,profile,{'name':'Example'},facts,None,'2025-03-08')
+        self.assertEqual(classifier.match_scope(snap['items'][0])[0]['title'],'Original feature')
+        self.assertIsNone(classifier.match_scope(snap['items'][1])[0])
+
     def test_google_creates_all_tabs_before_writing_cross_tab_formulas(self):
         dashboard, config = sheet_model.Tab('Dashboard'), sheet_model.Tab('Config')
         dashboard.put(1, 1, f="='Config'!A1")
@@ -626,6 +801,35 @@ class AuditTests(unittest.TestCase):
         with patch.object(pms_push,'_api',return_value=raw):
             self.assertEqual(pms_push.read_current('https://pms.example.com',101,None)['7']['Velocity']['value'],0)
 
+    def test_pms_null_period_placeholder_is_empty_not_malformed(self):
+        placeholder={'id':None,'name':None,'description':None,'updatedAt':None,
+                     'periodKpiValue':{'value':None,'note':None,'updatedAt':None}}
+        raw={'data':[{'kpi':{'name':'Velocity'},'periods':[placeholder]}]}
+        with patch.object(pms_push,'_api',return_value=raw):
+            self.assertEqual(pms_push.read_current('https://pms.example.com',101,None),{})
+            placeholder['periodKpiValue']['value']=0
+            with self.assertRaisesRegex(ValueError,'identity'):
+                pms_push.read_current('https://pms.example.com',101,None)
+
+    def test_pms_create_uses_period_kpis_and_verifies(self):
+        import os
+        self.profile_data['output']['mode']='assisted-push'
+        self.profile.write_text(yaml.safe_dump(self.profile_data))
+        payload=self.base/'payload.json'
+        payload.write_text(json.dumps([{'projectId':101,'name':'Cycle','description':'Delivery',
+            'kpis':[{'name':'Velocity','kpiId':1,'value':10,'note':'Ten estimated hours.'}]}]))
+        sent=[]
+        def api(base,path,**kw):
+            if kw.get('method')=='POST':
+                sent.append(kw['body']); return {'data':{'id':7}}
+            return {'data':[]}
+        after={'7':{'Velocity':{'value':10,'note':'Ten estimated hours.'}}}
+        with patch.dict(os.environ,{'PMS_TOKEN':'test-only'}), patch.object(pms_push,'read_current',side_effect=[{},after]), patch.object(pms_push,'_api',side_effect=api):
+            result=pms_push.main(['--profile',str(self.profile),'--payloads',str(payload),'--apply','--create-periods'])
+        self.assertEqual(result,0)
+        self.assertEqual(set(sent[0]),{'name','description','periodKpis'})
+        self.assertEqual(sent[0]['periodKpis'][0]['value'],10)
+
     def test_minimal_profile_and_local_targets(self):
         path=self.base/'minimal.yaml'
         profile_tool.init(path,None)
@@ -749,7 +953,9 @@ class AuditTests(unittest.TestCase):
         payload=self.base/'payload.json'; payload.write_text(json.dumps([{'projectId':101,'periodId':7,'name':'Cycle',
             'kpis':[{'name':'Velocity','kpiId':1,'value':10,'note':'10 points'}]}]))
         log=self.base/'push.json'
-        with patch.dict(os.environ,{'PMS_TOKEN':'test-only'}), patch.object(pms_push,'read_current',side_effect=[{},None]), patch.object(pms_push,'_api',return_value={'projectId':101}):
+        responses=[{'data':[{'id':7,'projectId':101,'name':'Cycle'}]},
+                   {'data':{'id':7,'updatedAt':'2026-01-01T00:00:00Z'}}, {}]
+        with patch.dict(os.environ,{'PMS_TOKEN':'test-only'}), patch.object(pms_push,'read_current',side_effect=[{},None]), patch.object(pms_push,'_api',side_effect=responses):
             result=pms_push.main(['--profile',str(self.profile),'--payloads',str(payload),'--apply','--log',str(log)])
         self.assertNotEqual(result,0)
         self.assertIn('mismatch',json.loads(log.read_text())['results'][0]['result'])

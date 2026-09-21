@@ -33,7 +33,7 @@ import re
 from typing import Any
 from kpi_registry import NAME_TO_KEY
 
-MODEL_VERSION = "2.0"
+MODEL_VERSION = "2.2"
 LAST = 999            # formulas look down to here, so a row added by hand is still counted
 SPARE = 40            # formatted, formula-filled rows past the data
 MAX_PERIODS = 12      # dashboard slots
@@ -183,6 +183,7 @@ TASK_COLS = [
     ("effort_group", "Estimate held on group", 22, "data", ""),
     ("group_effort_missing", "Group estimate not yet delivered", 15, "calc", ""),
     ("estimate_missing", "Required estimate missing", 15, "calc", ""),
+    ("rework_closed", "Rework close boundary", 14, "data", ""),
 ]
 DEFECT_COLS = [
     ("n", "#", 4, "calc", "c"), ("period", "Period", 14, "in", ""), ("key", "Ticket", 11, "data", ""),
@@ -433,6 +434,7 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
             "client_date": t.get("client_date"),
             "team_committed": None if excl else ("Yes" if (t.get("commit_date") or t.get("met_commitment")) else "No"),
             "commit_date": t.get("commit_date"), "reopened": t.get("reopened"),
+            "rework_closed": t.get("rework_closed", t.get("closed")),
             "rework_evidence": plain(t.get("rework_evidence")),
             "rework_link": {"v": "Open", "link": rlink, "style": "link"} if rlink and t.get("rework_evidence") else None,
             "remarks": plain(t.get("remarks")) or (t.get("exclude_reason") if excl else ""),
@@ -545,12 +547,12 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     # ---- KPI Summary ----------------------------------------------------------------------
     sm = Tab("KPI Summary")
     sm.put(1, 1, "KPI Summary", "title")
-    sm.put(2, 1, "Grey numbers are formulas over the registers and move when a yellow cell changes. Write the reason in "
-                 "the yellow column; the note for PMS is built from both, without links. 'Since the last run' speaks up "
-                 "when the sheet no longer matches what was computed - run again before pushing.", "sub")
+    sm.put(2, 1, "Edit either yellow note column. The result summary starts with suggested wording; your edits are kept. "
+                 "The PMS note combines the summary and context. Review items stay on Open Questions. "
+                 "Every push reads this sheet again before preparing the values and notes.", "sub")
     heads = [("Period", 14), ("#", 4), ("KPI", 22), ("PMS KPI ID", 9), ("Numerator", 11), ("Denominator", 12),
              ("Value", 10), ("Target", 8), ("Min / Max", 7), ("Status", 16), ("Needs a reason?", 10),
-             ("What the numbers say (auto)", 58), ("Why / context (you write)", 70),
+             ("Result summary (editable)", 58), ("Why / context (editable)", 70),
              ("Note sent to PMS (auto, no links)", 70), ("Computed by the run", 11), ("Since the last run", 24),
              ("Set value by hand", 10), ("Why set by hand", 30)]
     sm.heights[3] = 31.5
@@ -558,7 +560,7 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         sm.put(3, i, h, "head")
         sm.widths[i] = w
     sm.freeze = (3, 3)
-    tP, tTy, tDl, tCl = (_rng("Task Register", T[k], 4) for k in ("period", "type", "delivered", "closed"))
+    tP, tTy, tDl, tCl = (_rng("Task Register", T[k], 4) for k in ("period", "type", "delivered", "rework_closed"))
     tUn, tMc, tMm, tRe = (_rng("Task Register", T[k], 4) for k in ("understood", "met_client_date", "met_commitment", "reopened"))
     tHr, tSp = _rng("Task Register", T["hours"], 4), _rng("Task Register", T["story_points"], 4)
     dP, dRj, dPh, dCt = (_rng("Defect Register", D[k], 4) for k in ("period", "rejected", "phase", "counts"))
@@ -566,10 +568,13 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     tEo = _rng("Task Register", T["effort_only"], 4)
     tEg = _rng("Task Register", T["effort_group"], 4)
     deliv = f'COUNTIFS({live},{tDl},">0")'
+    shared = f'N(IFERROR(INDEX({PM},MATCH($A{{r}},{PN},0)),0))'
+    if (profile.get("sources") or {}).get("team_hours_when") == "handover":
+        shared = f'IF(COUNTIFS({PN},$A{{r}},{PH},">0")>0,{shared},0)'
     num = {
         "Velocity": f'=IF({ref["velocity_unit"]}="Story Points",SUMIFS({tSp},{live},{tDl},">0"),'
                     f'SUMIFS({tHr},{live},{tDl},">0",{tEg},"No group")+SUMIFS({tHr},{tP},$A{{r}},{tEo},"Yes",{tDl},">0")'
-                    f'+N(IFERROR(INDEX({PM},MATCH($A{{r}},{PN},0)),0)))',
+                    f'+{shared})',
         "Task Comprehension": f'=COUNTIFS({live},{tUn},"Yes")',
         "Client Expectation": f'=COUNTIFS({live},{tMc},"Yes")',
         "Delivery Commitment": f'=COUNTIFS({live},{tMm},"Yes")',
@@ -601,6 +606,7 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     reasons, manual = ctx.get("reasons") or {}, ctx.get("manual") or {}
     r = 3
     summary_rows = []
+    note_bases = {}
     for perres in results.get("periods") or []:
         for m in sorted(perres.get("measures") or [], key=lambda x: display_order.index(x["name"]) if x["name"] in display_order else 99):
             r += 1
@@ -618,14 +624,16 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
             sm.put(r, 10, None, "calc_c", f=f'=IF(G{r}="","Not measured",IF(H{r}="","Measured",IF(I{r}="Min",'
                                             f'IF(G{r}>=H{r},"Met","Below minimum"),IF(G{r}<=H{r},"Met","Above maximum"))))')
             sm.put(r, 11, None, "calc_c", f=f'=IF(OR(J{r}="Below minimum",J{r}="Above maximum"),"Yes","No")')
-            auto = " || ".join(x for x in (m.get("note_parts") or []) if x and x.strip())
+            auto = m.get("summary_note", " || ".join(x for x in (m.get("note_parts") or []) if x and x.strip()))
             note_text = auto + " " + plain((reasons.get(pn) or {}).get(name))
             sm.heights[r] = max(45, min(250, 15 * (len(note_text) // 65 + 2)))
-            sm.put(r, 12, auto, "calc")
+            sm.put(r, 12, auto, "in")
             man = (manual.get(pn) or {}).get(name) or {}
             from note_sentences import terminology
-            sm.put(r, 13, terminology(plain((reasons.get(pn) or {}).get(name)), profile), "in")
-            sm.put(r, 14, None, "calc", f=f'=L{r}&IF(TRIM(M{r})="",""," || "&TRIM(M{r}))')
+            sm.put(r, 13, m.get("context_note", terminology(plain((reasons.get(pn) or {}).get(name)), profile)), "in")
+            sm.put(r, 14, None, "calc", f=f'=L{r}&IF(TRIM(M{r})="","",IF(TRIM(L{r})="",""," || ")&TRIM(M{r}))')
+            import note_policy
+            note_bases[f"{pn}|{name}"] = note_policy.basis(m)
             shown = m.get("value")
             sm.put(r, 15, shown, "calc_r")
             sm.put(r, 16, None, "calc", f=f'=IF(AND(G{r}="",O{r}=""),"",IF(AND(ISNUMBER(G{r}),ISNUMBER(O{r})),'
@@ -640,7 +648,7 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     sm.when(4, 13, last_s, 13, '=AND(K4="Yes",M4="")', fill="FFC7CE")
     sm.when(4, 16, last_s, 16, '=P4<>""', fill=AMBER)
     sm.readback = {"kind": "summary", "first": 4, "last": last_s, "period": 1, "kpi": 3, "why": 13,
-                   "manual_value": 17, "manual_why": 18}
+                   "summary": 12, "note_bases": note_bases, "manual_value": 17, "manual_why": 18}
 
     # ---- Dashboard ------------------------------------------------------------------------
     db = Tab("Dashboard")

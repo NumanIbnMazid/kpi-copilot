@@ -22,6 +22,9 @@ workbook. You decide whether to enter the results yourself or approve sending th
   a person's correction takes precedence.
 - Writes one formatted `.xlsx`, or updates one Google Sheet. Formulas, frozen headings,
   editable yellow cells, evidence links, a dashboard and open questions support review.
+- Preserves edits to both the result summary and context, reads the authoritative sheet
+  again before every push, and keeps measurement follow-ups in Open Questions. See
+  [review and connected delivery](docs/15-Review-and-connected-delivery.md).
 - Reports missing data as **Not measured**. A first draft may contain flagged proposals;
   resolve the review queue before sending values to PMS.
 

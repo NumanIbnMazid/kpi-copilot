@@ -38,6 +38,7 @@ MODES_THAT_MAY_WRITE = {"assisted-push", "auto-push"}
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from profile_lib import load as load_profile, resolve as resolve_profile  # noqa: E402
+import host_transport
 
 
 
@@ -70,6 +71,8 @@ def _clean(note: str) -> str:
 def _api(base: str, path: str, method: str = "GET", body: dict | None = None,
          token: str | None = None, extra: dict | None = None) -> Any:
     url = base.rstrip("/") + path
+    if host_transport.enabled("pms"):
+        return host_transport.call("pms", method, url, body=body, headers=extra)
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = urllib.request.Request(url, data=data, method=method,
                                  headers={"Accept": "application/json", "Content-Type": "application/json"})
@@ -95,9 +98,16 @@ def read_current(base: str, project_id: int, token: str | None) -> dict | None:
     current: dict = {}
     for kpi in (data if isinstance(data, list) else data.get("kpis") or data.get("data") or []):
         for per in (kpi.get("periods") or []):
-            pid = per.get("periodId") or (per.get("period") or {}).get("id")
+            pid = per.get("periodId") or (per.get("period") or {}).get("id") or per.get("id")
             val = per.get("periodKpiValue") or {}
-            current.setdefault(str(pid), {})[kpi.get("name")] = {
+            name = (kpi.get("kpi") or kpi).get("name")
+            # A project with no periods can return an all-null placeholder.
+            if (pid is None and all(v is None for key, v in per.items() if key != "periodKpiValue")
+                    and all(v is None for v in val.values())):
+                continue
+            if pid is None or not name:
+                raise ValueError("PMS returned a period without its identity")
+            current.setdefault(str(pid), {})[name] = {
                 "value": val.get("value"), "note": val.get("note"),
             }
     return current
@@ -122,6 +132,24 @@ def diff_lines(payload: dict, current: dict) -> list[str]:
     return out
 
 
+def bind_periods(base: str, project_id: int, payloads: list, token: str | None) -> None:
+    raw = _api(base, f"/api/projects/{project_id}/periods", token=token)
+    periods = raw if isinstance(raw, list) else raw.get("data")
+    if not isinstance(periods, list):
+        raise ValueError("PMS returned an invalid project period list")
+    for p in payloads:
+        matches = [x for x in periods if (str(x.get("id")) == str(p.get("periodId"))
+                   if p.get("periodId") else x.get("name") == p.get("name"))]
+        if len(matches) > 1:
+            raise ValueError("More than one PMS period matches the requested period")
+        if matches:
+            if str(matches[0].get("projectId")) != str(project_id):
+                raise ValueError("PMS period belongs to a different project")
+            p["periodId"] = matches[0]["id"]
+        elif p.get("periodId"):
+            raise ValueError("The requested period is not in this project's period list")
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Show or send KPI values to PMS.")
     ap.add_argument("--payloads", required=True, type=Path)
@@ -129,6 +157,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--project", help="Which project in the profile. Its account may set a different output mode.")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--create-periods", action="store_true",
+                    help="Create missing named periods; requires explicit authorization like any PMS write.")
     ap.add_argument("--clipboard", action="store_true",
                     help="Print a block to paste into PMS by hand. The review-only path.")
     ap.add_argument("--log", type=Path)
@@ -144,9 +174,8 @@ def main(argv: list[str] | None = None) -> int:
     token = os.environ.get("PMS_TOKEN")
 
     if a.apply:
-        if any(p.get("skipped") for p in payloads):
-            print("Refusing to write an incomplete KPI set: this PMS endpoint may replace the period. "
-                  "Resolve missing measures or use the reviewed manual-entry output.", file=sys.stderr)
+        if not any(p.get("kpis") for p in payloads):
+            print("No measured KPIs are available to send. Review the sheet's questions.", file=sys.stderr)
             return 2
         if profile.get("targets"):
             print("Refusing to write: local review targets are active. Set the intended targets in PMS, "
@@ -159,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
                 p.get("projectId") != project["pms_project_id"] for p in payloads):
             print("Refusing to write: payload project does not match the selected profile project.", file=sys.stderr)
             return 2
-        ids = [p.get("periodId") for p in payloads]
+        ids = [p.get("periodId") or p.get("name") for p in payloads]
         if len(set(ids)) != len(ids):
             print("Refusing to write: more than one payload targets the same period.", file=sys.stderr)
             return 2
@@ -194,15 +223,20 @@ def main(argv: list[str] | None = None) -> int:
     # -- diff ------------------------------------------------------------------------
     project_id = next((p.get("projectId") for p in payloads if p.get("projectId")), None)
     current = read_current(base, project_id, token) if project_id else {}
+    try:
+        bind_periods(base, project_id, payloads, token)
+    except Exception as exc:
+        print(f"Could not verify PMS periods: {exc}", file=sys.stderr)
+        return 2
 
     print(f"PMS {base}   project {project_id}   mode '{mode}'\n")
     blocked = False
     for p in payloads:
         print(f"=== {p['name']}  (period {p.get('periodId') or 'MISSING'}) ===")
         if not p.get("periodId"):
-            print("  This period has no PMS period id, so it cannot be updated. Create the period in PMS "
-                  "first, then put its id in the profile.")
-            blocked = True
+            print("  A new period will be created." if a.create_periods else
+                  "  This period is not in PMS. Authorize --create-periods to create it.")
+            blocked = blocked or not a.create_periods
         print("\n".join(diff_lines(p, current)) or "  nothing to send")
         print()
 
@@ -225,7 +259,7 @@ def main(argv: list[str] | None = None) -> int:
     if current is None:
         print("Refusing to write: current PMS values could not be read. Restore access and review a fresh diff.", file=sys.stderr)
         return 2
-    if not token:
+    if not token and not host_transport.enabled("pms"):
         print("No PMS_TOKEN in the environment, so this script cannot write. Configure API access "
               "privately or use the reviewed manual-entry output; a browser login is not an API token.", file=sys.stderr)
         return 2
@@ -233,25 +267,51 @@ def main(argv: list[str] | None = None) -> int:
     # -- write, then read back --------------------------------------------------------
     results, failures = [], 0
     for p in payloads:
-        pid = p["periodId"]
+        pid = p.get("periodId")
         try:
-            period = _api(base, f"/api/periods/{pid}", token=token)
-            owner = period.get("projectId") or (period.get("project") or {}).get("id")
-            if str(owner) != str(project_id):
-                raise ValueError("PMS did not confirm that this period belongs to the selected project")
-            last_modified = period.get("updatedAt")
+            if not p.get("kpis"):
+                results.append({"period": p["name"], "periodId": pid, "result": "no measured values"})
+                continue
             body = {
                 "name": p["name"],
                 "description": p["description"],
-                "kpis": [{"kpiId": k["kpiId"], "value": k["value"], "note": k["note"]} for k in p["kpis"]],
+                "periodKpis": [{"kpiId": k["kpiId"], "value": k["value"], "note": k["note"]} for k in p["kpis"]],
             }
-            _api(base, f"/api/periods/{pid}/kpis", method="PUT", body=body, token=token,
-                 extra={"Last-Modified": last_modified} if last_modified else None)
+            # The project-period API applies only supplied KPI fields. A blank current
+            # measure must not leave a previously published number masquerading as current.
+            # Null is the API's explicit blank, never a fabricated zero. Unrelated KPIs stay.
+            clearing = [k for k in p.get("skipped", []) if not k.get("preserve_existing") and k.get("kpiId") is not None and
+                        (current.get(str(pid), {}).get(k["name"], {}).get("value") is not None or
+                         current.get(str(pid), {}).get(k["name"], {}).get("note"))] if pid else []
+            body["periodKpis"].extend({"kpiId": k["kpiId"], "value": None, "note": None} for k in clearing)
+            if pid:
+                raw = _api(base, f"/api/projects/{project_id}/periods/{pid}", token=token)
+                period = raw.get("data", raw)
+                if str(period.get("id")) != str(pid):
+                    raise ValueError("PMS did not confirm the requested period identity")
+                last_modified = period.get("updatedAt")
+                if not last_modified:
+                    raise ValueError("PMS did not provide a concurrency timestamp")
+                _api(base, f"/api/projects/{project_id}/periods/{pid}", method="PUT", body=body, token=token,
+                     extra={"Last-Modified": last_modified})
+            else:
+                raw = _api(base, f"/api/projects/{project_id}/periods", method="POST", body=body, token=token)
+                created = raw.get("data", raw) if isinstance(raw, dict) else {}
+                pid = created.get("id") if isinstance(created, dict) else None
+                if not pid:
+                    # Some PMS versions return only an acknowledgement. Resolve exactly
+                    # once by name; never retry an uncertain POST and create a duplicate.
+                    raw = _api(base, f"/api/projects/{project_id}/periods", token=token)
+                    matches = [x for x in raw.get("data", []) if x.get("name") == p["name"]]
+                    if len(matches) != 1:
+                        raise ValueError("Period creation could not be verified; inspect PMS before retrying")
+                    pid = matches[0]["id"]
+                p["periodId"] = pid
         except Exception as e:  # noqa: BLE001
             print(f"  {p['name']}: write failed ({type(e).__name__}: {e})", file=sys.stderr)
             failures += 1
             results.append({"period": p["name"], "periodId": pid, "result": f"failed: {e}"})
-            continue
+            break
 
         after = (read_current(base, p.get("projectId"), token) or {}).get(str(pid), {})
         mismatched = [
@@ -259,6 +319,9 @@ def main(argv: list[str] | None = None) -> int:
             if after.get(k["name"], {}).get("value") != k["value"]
             or _clean(after.get(k["name"], {}).get("note") or "") != k["note"]
         ]
+        mismatched.extend(k["name"] for k in clearing
+                          if after.get(k["name"], {}).get("value") is not None or
+                          after.get(k["name"], {}).get("note"))
         if mismatched:
             print(f"  {p['name']}: written, but read-back disagrees on {', '.join(mismatched)}", file=sys.stderr)
             failures += 1
@@ -269,6 +332,8 @@ def main(argv: list[str] | None = None) -> int:
             "result": "verified" if not mismatched else f"mismatch: {', '.join(mismatched)}",
             "kpis": [{"name": k["name"], "value": k["value"]} for k in p["kpis"]],
         })
+        if mismatched:
+            break  # Do not continue writing after the API contract fails verification.
 
     log = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
            "pms": base, "project": project_id, "mode": mode, "results": results}
