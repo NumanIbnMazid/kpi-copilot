@@ -1,4 +1,10 @@
-# Product audit — September 2026
+# Product audit — historical September 2026 snapshot
+
+[Documentation](README.md) · [Current setup](02-Start-Here.md) · [Contributor checks](07-Extending.md)
+
+This page records an earlier audit and its evidence at that time. Test totals, release
+status and external acceptance gaps below are historical; they are not current CI or
+live-service status. Use the current user guides for installation and operation.
 
 The existing architecture is worth retaining: one Python pipeline, a private profile, a
 review workbook, and a batch of unresolved decisions for the assistant. A separate app or
@@ -6,10 +12,6 @@ large hosted platform would add deployment and credential management before impr
 core experience. This revision adds a small optional local MCP interface and fixes concrete
 reliability problems. It is a release candidate, not evidence that every live integration
 has passed acceptance.
-
-Work is tracked on the [repository-linked project board](https://github.com/users/NumanIbnMazid/projects/18).
-Statuses are Todo, In Progress, Blocked, In Review and Done. Code awaiting review remains
-In Review; external acceptance gaps remain open.
 
 ## Authoritative definitions and reference workbook
 

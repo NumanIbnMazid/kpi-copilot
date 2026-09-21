@@ -34,6 +34,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import re
 import shutil
 from datetime import date, datetime
 from pathlib import Path
@@ -174,6 +175,33 @@ def _find_header(rows: list[list[Any]], wanted: list[str]) -> tuple[int, dict[st
     return None
 
 
+def links(path: Path, spec: dict) -> list[dict]:
+    """Expose source-row hyperlinks for bounded setup and exact ticket bindings."""
+    if path.suffix.lower() not in (".xlsx", ".xlsm"):
+        return []
+    from openpyxl import load_workbook
+    title_header = (spec.get("columns") or {}).get("title")
+    if not title_header:
+        return []
+    workbook = load_workbook(path, data_only=False)
+    result = []
+    for sheet in workbook.worksheets:
+        if spec.get("tab") and spec["tab"] != sheet.title:
+            continue
+        rows = list(sheet.iter_rows())
+        for index, row in enumerate(rows[:40]):
+            col = next((i for i, c in enumerate(row) if B.norm(str(c.value or "")) == B.norm(title_header)), None)
+            if col is None:
+                continue
+            for line in rows[index + 1:]:
+                cell = line[col]
+                if cell.hyperlink and cell.hyperlink.target:
+                    result.append({"title": cell.value, "url": cell.hyperlink.target})
+            break
+    workbook.close()
+    return result
+
+
 def table(path: Path, spec: dict) -> tuple[list[dict], str]:
     """Rows of {field: value} from one mapped table. Returns (rows, problem)."""
     cols: dict[str, str] = spec.get("columns") or {}
@@ -282,6 +310,11 @@ def facts_from_mapping(status: dict, cfg: dict, facts: dict) -> list[str]:
                 return [f"timeline: {problem}"]
             types = [B.norm(t) for t in (mp["events"].get("handover_types") or ["Handover", "Delivery", "Release"])]
             done = [B.norm(t) for t in (mp["events"].get("done_states") or ["Done", "Complete", "Completed"])]
+            handover_pattern = mp["events"].get("handover_event_pattern")
+            if handover_pattern:
+                # A tracker may call a move to QA or DevOps a handover as well. Only
+                # the configured client-delivery events may populate handover_date.
+                rows = [r for r in rows if re.search(handover_pattern, str(r.get("event") or ""))]
             for p in per.get("periods") or []:
                 mine = [r for r in rows if B.norm(str(r.get("period") or "")) == B.norm(p.get("name") or "")
                         and any(t in B.norm(str(r.get("type") or "")) for t in types)]

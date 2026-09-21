@@ -33,7 +33,7 @@ import re
 from typing import Any
 from kpi_registry import NAME_TO_KEY
 
-MODEL_VERSION = "2.0"
+MODEL_VERSION = "2.3"
 LAST = 999            # formulas look down to here, so a row added by hand is still counted
 SPARE = 40            # formatted, formula-filled rows past the data
 KPI_ORDER = ["Velocity", "Task Comprehension", "Client Expectation", "Delivery Commitment", "Defect Rate",
@@ -173,13 +173,20 @@ TASK_COLS = [
     ("client_expected", "Client-Expected?", 10, "in", ""), ("client_date", "Client Expected Date", 11, "in", ""),
     ("met_client_date", "Met Client Date?", 10, "calc", "c"), ("team_committed", "Team Committed?", 10, "in", ""),
     ("commit_date", "Commitment Date", 11, "in", ""), ("met_commitment", "Met Commitment?", 10, "calc", "c"),
-    ("reopened", "Reopened after closing?", 9, "in", ""), ("rework_evidence", "Rework Evidence", 34, "data", ""),
+    ("reopened", "Reopened after closing?", 9, "in", ""),
+    ("reopen_count", "Reopening Events", 9, "data", "r"),
+    ("rework_evidence", "Rework Evidence", 34, "data", ""),
     ("rework_link", "Rework Link", 9, "data", ""), ("remarks", "Remarks and sources", 44, "data", ""),
     ("hours_dev", "Dev Hours", 8, "in", "r"), ("hours_qa", "QA Hours", 8, "in", "r"),
     ("board_status", "Board Column", 16, "data", ""), ("check", "Check (how this row was decided)", 40, "data", ""),
     ("handover", "Period handover", 11, "calc", ""), ("client_check", "Client date check", 10, "calc", ""),
     ("item", "Row ID", 10, "calc", ""),
     ("delivery_unknown", "Delivery evidence missing", 10, "data", ""),
+    ("effort_only", "Group estimate only", 12, "data", ""),
+    ("effort_group", "Estimate held on group", 22, "data", ""),
+    ("group_effort_missing", "Group estimate not yet delivered", 15, "calc", ""),
+    ("estimate_missing", "Required estimate missing", 15, "calc", ""),
+    ("rework_closed", "Rework close boundary", 14, "data", ""),
 ]
 DEFECT_COLS = [
     ("n", "#", 4, "calc", "c"), ("period", "Period", 14, "in", ""), ("key", "Ticket", 11, "data", ""),
@@ -335,6 +342,12 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         ref[key] = f"Config!$C${r}"
 
     r += 2
+    group_cfg = ((profile.get("conventions") or {}).get("grouping") or {})
+    if group_cfg.get("split_source_children") or group_cfg.get("linked_members"):
+        cfg.put(r, 2, "Grouped delivery tickets", "label")
+        cfg.put(r, 3, "Count member tickets; exclude parents from counts", "data")
+        cfg.put(r, 7, "Each approved group estimate is held once. Individual rework is unknown without child history.", "note")
+        r += 2
     cfg.band(r, "KPI TARGETS  (source and any local review override are shown beside each target)", 2, 9, "soft")
     r += 1
     for i, h in enumerate(["KPI", "Unit", "PMS KPI ID", "Type", "Target", "Formula (PMS definition)",
@@ -431,11 +444,15 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
             "client_date": t.get("client_date"),
             "team_committed": None if excl else ("Yes" if (t.get("commit_date") or t.get("met_commitment")) else "No"),
             "commit_date": t.get("commit_date"), "reopened": t.get("reopened"),
+            "reopen_count": t.get("reopen_count"),
+            "rework_closed": t.get("rework_closed", t.get("closed")),
             "rework_evidence": plain(t.get("rework_evidence")),
             "rework_link": {"v": "Open", "link": rlink, "style": "link"} if rlink and t.get("rework_evidence") else None,
             "remarks": plain(t.get("remarks")) or (t.get("exclude_reason") if excl else ""),
             "hours_dev": t.get("hours_dev"), "hours_qa": t.get("hours_qa"), "board_status": t.get("status"),
             "check": t.get("check"), "item": t.get("_row") or t.get("_item"),
+            "effort_only": "Yes" if t.get("effort_only") else "No",
+            "effort_group": t.get("effort_group") or "No group",
             "delivery_unknown": "Yes" if (t.get("client_date") or t.get("commit_date")) and t.get("met_client_date") is None and t.get("met_commitment") is None and not t.get("delivered") else "No",
         })
     n_tasks = len(trows)
@@ -454,6 +471,15 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         "client_check": f'=IF(B{{r}}="","",IF(COUNTIFS({PN},$B{{r}},{PC},"Handover")>0,"Handover",'
                         f'IF(COUNTIFS({PN},$B{{r}},{PC},"Delivery")>0,"Delivery",{ref["client_check"]})))',
     }
+    group_ids = _rng("Task Register", T["item"], 4)
+    group_delivered = _rng("Task Register", T["delivered"], 4)
+    # Whether a delivered child belongs to a group with an indivisible, still incomplete
+    # estimate. Keep Velocity unknown rather than showing a partial budget as zero.
+    for r, t in enumerate(kif.get("tasks") or [], 4):
+        if t.get("effort_group"):
+            tk.put(r, _n(TASK_COLS, "group_effort_missing"), None, "calc",
+                   f=f'=IF(AND({T["delivered"]}{r}>0,COUNTIFS({group_ids},{T["effort_group"]}{r},'
+                     f'{group_delivered},">0")=0),"Yes","No")')
     dl, ho = T["delivered"], T["handover"]
     done_c = f'IF({T["client_check"]}{{r}}="Delivery",{dl}{{r}},IF(OR({dl}{{r}}="",N({ho}{{r}})=0),"",MAX({dl}{{r}},{ho}{{r}})))'
     done_m = f'IF({ref["commit_on"]}="Handover",IF(OR({dl}{{r}}="",N({ho}{{r}})=0),"",MAX({dl}{{r}},{ho}{{r}})),{dl}{{r}})'
@@ -461,10 +487,19 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     def ontime(gate: str, due: str, done: str) -> str:
         return (f'=IF(OR(B{{r}}="",{T["type"]}{{r}}="Excluded",{gate}{{r}}<>"Yes",{due}{{r}}="",'
                 f'AND({T["delivery_unknown"]}{{r}}="Yes",{dl}{{r}}="")),"",'
-                f'IF({done}="",IF(IFERROR(INDEX(Periods!${P["as_of"]}$5:${P["as_of"]}${last_p},MATCH(B{{r}},{PN},0)),{ref["as_of"]})<={due}{{r}},"Pending","No"),IF({done}<={due}{{r}},"Yes","No")))')
+                f'IF(N({done})=0,IF(IFERROR(INDEX(Periods!${P["as_of"]}$5:${P["as_of"]}${last_p},MATCH(B{{r}},{PN},0)),{ref["as_of"]})<={due}{{r}},"Pending","No"),IF({done}<={due}{{r}},"Yes","No")))')
 
     tf["met_client_date"] = ontime(T["client_expected"], T["client_date"], done_c)
     tf["met_commitment"] = ontime(T["team_committed"], T["commit_date"], done_m)
+    # Keep required-estimate checks beside each row. This avoids array coercion of blank
+    # dates and text in SUMPRODUCT, which differs across spreadsheet calculation engines.
+    tf["estimate_missing"] = (
+        f'=IF(OR(B{{r}}="",N({dl}{{r}})=0),"No",IF({ref["velocity_unit"]}="Story Points",'
+        f'IF(AND({T["type"]}{{r}}<>"Excluded",LEN({T["story_points"]}{{r}})=0),"Yes","No"),'
+        f'IF(AND(OR(AND({T["type"]}{{r}}<>"Excluded",{T["effort_group"]}{{r}}="No group"),'
+        f'{T["effort_only"]}{{r}}="Yes"),OR(LEN({T["hours_dev"]}{{r}})=0,'
+        f'AND({ref["hours_basis"]}="Dev + QA",N({T["closed"]}{{r}})>0,'
+        f'LEN({T["hours_qa"]}{{r}})=0))),"Yes","No")))')
     _fill_row_formulas(tk, TASK_COLS, 4, last_t, tf)
     pick = f"Periods!$B$5:$B${last_p}"
     for key, vals in (("type", ["Task", "CR", "Scope", "Excluded"]),):
@@ -523,12 +558,12 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     # ---- KPI Summary ----------------------------------------------------------------------
     sm = Tab("KPI Summary")
     sm.put(1, 1, "KPI Summary", "title")
-    sm.put(2, 1, "Grey numbers are formulas over the registers and move when a yellow cell changes. Write the reason in "
-                 "the yellow column; the note for PMS is built from both, without links. 'Since the last run' speaks up "
-                 "when the sheet no longer matches what was computed - run again before pushing.", "sub")
+    sm.put(2, 1, "Edit either yellow note column. The result summary starts with suggested wording; your edits are kept. "
+                 "The PMS note combines the summary and context. Review items stay on Open Questions. "
+                 "Every push reads this sheet again before preparing the values and notes.", "sub")
     heads = [("Period", 14), ("#", 4), ("KPI", 22), ("PMS KPI ID", 9), ("Numerator", 11), ("Denominator", 12),
              ("Value", 10), ("Target", 8), ("Min / Max", 7), ("Status", 16), ("Needs a reason?", 10),
-             ("What the numbers say (auto)", 58), ("Why / context (you write)", 70),
+             ("Result summary (editable)", 58), ("Why / context (editable)", 70),
              ("Note sent to PMS (auto, no links)", 70), ("Computed by the run", 11), ("Since the last run", 24),
              ("Set value by hand", 10), ("Why set by hand", 30)]
     sm.heights[3] = 31.5
@@ -536,22 +571,32 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         sm.put(3, i, h, "head")
         sm.widths[i] = w
     sm.freeze = (3, 3)
-    tP, tTy, tDl, tCl = (_rng("Task Register", T[k], 4) for k in ("period", "type", "delivered", "closed"))
+    tP, tTy, tDl, tCl = (_rng("Task Register", T[k], 4) for k in ("period", "type", "delivered", "rework_closed"))
     tUn, tMc, tMm, tRe = (_rng("Task Register", T[k], 4) for k in ("understood", "met_client_date", "met_commitment", "reopened"))
+    tRc = _rng("Task Register", T["reopen_count"], 4)
     tHr, tSp = _rng("Task Register", T["hours"], 4), _rng("Task Register", T["story_points"], 4)
+    tEm = _rng("Task Register", T["estimate_missing"], 4)
+    tGm = _rng("Task Register", T["group_effort_missing"], 4)
     dP, dRj, dPh, dCt = (_rng("Defect Register", D[k], 4) for k in ("period", "rejected", "phase", "counts"))
     live = f'{tP},$A{{r}},{tTy},"<>Excluded"'
+    tEo = _rng("Task Register", T["effort_only"], 4)
+    tEg = _rng("Task Register", T["effort_group"], 4)
     deliv = f'COUNTIFS({live},{tDl},">0")'
+    shared = f'N(IFERROR(INDEX({PM},MATCH($A{{r}},{PN},0)),0))'
+    if (profile.get("sources") or {}).get("team_hours_when") == "handover":
+        shared = f'IF(COUNTIFS({PN},$A{{r}},{PH},">0")>0,{shared},0)'
     num = {
-        "Velocity": f'=IF({ref["velocity_unit"]}="Story Points",SUMIFS({tSp},{live},{tDl},">0"),'
-                    f'SUMIFS({tHr},{live},{tDl},">0")+N(IFERROR(INDEX({PM},MATCH($A{{r}},{PN},0)),0)))',
+        "Velocity": f'=IF({ref["velocity_unit"]}="Story Points",SUMIFS({tSp},{live},{tDl},">0",{tEm},"<>Yes"),'
+                    f'SUMIFS({tHr},{live},{tDl},">0",{tEm},"<>Yes",{tGm},"<>Yes",{tEg},"No group")+'
+                    f'SUMIFS({tHr},{tP},$A{{r}},{tEo},"Yes",{tDl},">0",{tEm},"<>Yes",{tGm},"<>Yes")'
+                    f'+{shared})',
         "Task Comprehension": f'=COUNTIFS({live},{tUn},"Yes")',
         "Client Expectation": f'=COUNTIFS({live},{tMc},"Yes")',
         "Delivery Commitment": f'=COUNTIFS({live},{tMm},"Yes")',
         "Defect Rate": f'=COUNTIFS({dP},$A{{r}},{dCt},"Yes")',
         "Escaped Defect Rate": f'=COUNTIFS({dP},$A{{r}},{dRj},"<>Yes",{dPh},"Post-release")',
         "Defect Rejection Rate": f'=COUNTIFS({dP},$A{{r}},{dRj},"Yes")',
-        "Rework Rate": f'=COUNTIFS({live},{tCl},">0",{tRe},"Yes")',
+        "Rework Rate": f'=SUMIFS({tRc},{live},{tDl},">0",{tCl},">0",{tEo},"<>Yes",{tRe},"Yes")',
         "CR Rate": f'=COUNTIFS({tP},$A{{r}},{tTy},"CR")',
     }
     den = {
@@ -561,25 +606,26 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         "Defect Rate": f"={deliv}",
         "Escaped Defect Rate": f'=COUNTIFS({dP},$A{{r}},{dRj},"<>Yes")',
         "Defect Rejection Rate": f"=COUNTIFS({dP},$A{{r}})",
-        "Rework Rate": f'=E{{r}}+COUNTIFS({live},{tCl},">0",{tRe},"No")',
+        "Rework Rate": (f'=COUNTIFS({live},{tDl},">0",{tCl},">0",{tEo},"<>Yes",{tRe},"Yes")+'
+                        f'COUNTIFS({live},{tDl},">0",{tCl},">0",{tEo},"<>Yes",{tRe},"No")'),
         "CR Rate": f'=IF(OR({ref["cr_den"]}="Whole project",COUNTIFS({tP},$A{{r}},{tTy},"Task")=0),'
                    f'COUNTIFS({tTy},"Task",{_rng("Task Register", T["item"], 4)},"<>history:*"),COUNTIFS({tP},$A{{r}},{tTy},"Task"))',
     }
     ratio = '=IF(Q{r}<>"",Q{r},IF(N(F{r})=0,"",ROUND(E{r}/F{r}*100,2)))'
     val = {n: ratio for n in KPI_ORDER}
-    dev_col = _rng("Task Register", T["hours_dev"], 4)
-    qa_col = _rng("Task Register", T["hours_qa"], 4)
-    missing_points = f'SUMPRODUCT(({tP}=$A{{r}})*({tTy}<>"Excluded")*({tDl}>0)*(LEN({tSp})=0))'
-    missing_hours = (f'SUMPRODUCT(({tP}=$A{{r}})*({tTy}<>"Excluded")*({tDl}>0)*(LEN({dev_col})=0))+'
-                     f'IF({ref["hours_basis"]}="Dev + QA",SUMPRODUCT(({tP}=$A{{r}})*({tTy}<>"Excluded")*'
-                     f'({tDl}>0)*({tCl}>0)*(LEN({qa_col})=0)),0)')
-    val["Velocity"] = (f'=IF(Q{{r}}<>"",Q{{r}},IF(OR({deliv}=0,IF({ref["velocity_unit"]}="Story Points",'
-                       f'{missing_points},{missing_hours})>0),"",ROUND(E{{r}},2)))')
+    missing_estimate = f'COUNTIFS({tP},$A{{r}},{_rng("Task Register", T["estimate_missing"], 4)},"Yes")'
+    missing_group = f'COUNTIFS({tP},$A{{r}},{_rng("Task Register", T["group_effort_missing"], 4)},"Yes")'
+    if (profile.get("sources") or {}).get("missing_estimate") == "skip":
+        val["Velocity"] = f'=IF(Q{{r}}<>"",Q{{r}},IF({deliv}=0,"",ROUND(E{{r}},2)))'
+    else:
+        val["Velocity"] = (f'=IF(Q{{r}}<>"",Q{{r}},IF(OR({deliv}=0,{missing_estimate}>0,'
+                           f'AND({ref["velocity_unit"]}<>"Story Points",{missing_group}>0)),"",ROUND(E{{r}},2)))')
     val["Escaped Defect Rate"] = (f'=IF(Q{{r}}<>"",Q{{r}},IF(OR(N(F{{r}})=0,N(IFERROR(INDEX({PH},MATCH($A{{r}},{PN},0)),0))=0),'
                                   f'"",ROUND(E{{r}}/F{{r}}*100,2)))')
     reasons, manual = ctx.get("reasons") or {}, ctx.get("manual") or {}
     r = 3
     summary_rows = []
+    note_bases = {}
     for perres in results.get("periods") or []:
         for m in sorted(perres.get("measures") or [], key=lambda x: display_order.index(x["name"]) if x["name"] in display_order else 99):
             r += 1
@@ -605,13 +651,22 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
             sm.put(r, 10, None, "calc_c", f=f'=IF(G{r}="","Not measured",IF(H{r}="","Measured",IF(I{r}="Min",'
                                             f'IF(G{r}>=H{r},"Met","Below minimum"),IF(G{r}<=H{r},"Met","Above maximum"))))')
             sm.put(r, 11, None, "calc_c", f=f'=IF(OR(J{r}="Below minimum",J{r}="Above maximum"),"Yes","No")')
-            auto = " || ".join(x for x in (m.get("note_parts") or []) if x and x.strip())
+            auto = m.get("summary_note", " || ".join(x for x in (m.get("note_parts") or []) if x and x.strip()))
             note_text = auto + " " + plain((reasons.get(pn) or {}).get(name))
             sm.heights[r] = max(45, min(250, 15 * (len(note_text) // 65 + 2)))
-            sm.put(r, 12, auto, "calc")
+            sm.put(r, 12, auto, "in")
             man = (manual.get(pn) or {}).get(name) or {}
-            sm.put(r, 13, plain((reasons.get(pn) or {}).get(name)), "in")
-            sm.put(r, 14, None, "calc", f=f'=L{r}&IF(TRIM(M{r})="",""," || "&TRIM(M{r}))')
+            period = next((p for p in kif.get("periods") or [] if p.get("name") == pn), {})
+            reviewed_override = ((name == "Client Expectation" and period.get("client_expectation_override")) or
+                                 (name == "Delivery Commitment" and period.get("delivery_commitment_override")))
+            if reviewed_override and not man and m.get("value") is not None:
+                man = {"value": m.get("value"),
+                       "why": "The period result was confirmed in the review sheet."}
+            from note_sentences import terminology
+            sm.put(r, 13, m.get("context_note", terminology(plain((reasons.get(pn) or {}).get(name)), profile)), "in")
+            sm.put(r, 14, None, "calc", f=f'=L{r}&IF(TRIM(M{r})="","",IF(TRIM(L{r})="",""," || ")&TRIM(M{r}))')
+            import note_policy
+            note_bases[f"{pn}|{name}"] = note_policy.basis(m)
             shown = m.get("value")
             sm.put(r, 15, shown, "calc_r")
             sm.put(r, 16, None, "calc", f=f'=IF(AND(G{r}="",O{r}=""),"",IF(AND(ISNUMBER(G{r}),ISNUMBER(O{r})),'
@@ -630,7 +685,7 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     sm.when(4, 13, last_s, 13, '=AND(K4="Yes",M4="")', fill="FFC7CE")
     sm.when(4, 16, last_s, 16, '=P4<>""', fill=AMBER)
     sm.readback = {"kind": "summary", "first": 4, "last": last_s, "period": 1, "kpi": 3, "why": 13,
-                   "manual_value": 17, "manual_why": 18}
+                   "summary": 12, "note_bases": note_bases, "manual_value": 17, "manual_why": 18}
 
     from period_views import build as period_views
     db, overview = period_views(periods, display_order, ctx, LAST)
@@ -731,7 +786,7 @@ HOW_COUNTED = {
     "Defect Rate": "Defect Register rows with Counts in Defect Rate = Yes ÷ delivered Task Register rows.",
     "Escaped Defect Rate": "Post-release reports that were not rejected ÷ all reports that were not rejected. Blank until the period is handed over.",
     "Defect Rejection Rate": "Defect Register rows with Rejected = Yes ÷ all Defect Register rows.",
-    "Rework Rate": "Closed rows with Reopened = Yes ÷ closed rows with Reopened = Yes or No.",
+    "Rework Rate": "Reopening events after the configured close boundary ÷ completed rows assessed for rework.",
     "CR Rate": "Rows with Item Type = CR ÷ rows with Item Type = Task (the whole project's, when the period has none).",
 }
 
@@ -749,7 +804,7 @@ README = [
     ("", "PMS Push Log: what was sent to PMS and when."),
     ("", ""),
     ("h", "How to read and change it"),
-    ("", "Yellow cells are yours: change one and every formula follows at once. The next run reads your change back and keeps it - it is never overwritten."),
+    ("", "Yellow cells are yours. Current-period formulas follow your edits; archived results remain saved until you refresh that period. The next run reads your changes back and keeps them."),
     ("", "White cells were read from the tracker, the plan or the estimates. Grey cells are worked out. Editing either achieves nothing; the next run rebuilds them."),
     ("", "The Check column says how a row was decided when it was not obvious: a tag read tolerantly ('read [Exisiting] as Existing'), a loose match to the plan, a call an assistant made and why. Disagree by changing the yellow cell."),
     ("", "Dates: a date on the task wins, then the period date, then the project date in Config. Leave a cell empty to use the next level."),

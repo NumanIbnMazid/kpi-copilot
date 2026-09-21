@@ -99,6 +99,36 @@ class HistoryTests(unittest.TestCase):
             path=Path(tmp)/'cells.json';path.write_text(json.dumps({'spreadsheetId':'wrong','sheets':[]}))
             with self.assertRaisesRegex(ValueError,'different spreadsheet'):G.connector_grid(path,'expected')
 
+    def test_historical_corrections_refresh_date_results_but_cannot_bypass_scope(self):
+        kif, _, _ = sample('2026-01-01', 'First')
+        row = kif['tasks'][0]
+        row.update(delivered='2026-01-07', commit_date='2026-01-06', met_commitment='No',
+                   exclude_reason='assignee is outside the configured project team', type='Excluded')
+        rid = H.row_id(H.period_key(kif['periods'][0]), 'tasks', row, 0)
+        H.apply_edits(kif, {'history_edits':{rid:{'type':'Task','delivered':'2026-01-05'}}}, {}, '2026-01-08')
+        self.assertEqual(row['met_commitment'], 'Yes')
+        self.assertEqual(row['type'], 'Excluded')
+
+    def test_connector_uses_precise_values_and_preserves_dates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'cells.json'
+            doc = {'spreadsheetId':'example','sheets':[{'properties':{'title':'Review'},'data':[{'rowData':[{'values':[
+                {'formattedValue':'1,234.57','effectiveValue':{'numberValue':1234.567}},
+                {'formattedValue':'01/02/2026','effectiveValue':{'numberValue':46024},
+                 'effectiveFormat':{'numberFormat':{'type':'DATE'}}},
+                {'formattedValue':'0.00%','effectiveValue':{'numberValue':0}}
+            ]}]}]}]}
+            path.write_text(json.dumps(doc))
+            grid = G.connector_grid(path,'example')
+            self.assertEqual(grid('Review',1,1),1234.567)
+            self.assertEqual(grid('Review',1,2),'01/02/2026')
+            self.assertEqual(grid('Review',1,3),0)
+            doc['sheets'][0]['data'][0]['rowData'][0]['values'][0] = {
+                'effectiveValue':{'errorValue':{'type':'REF'}}}
+            path.write_text(json.dumps(doc))
+            with self.assertRaisesRegex(ValueError,'Formula error'):
+                G.connector_grid(path,'example')
+
     def test_filters_merges_and_formats_exist_in_both_writers(self):
         tabs=M.build(*sample('2026-01-01','First'))
         dash=tabs[0]

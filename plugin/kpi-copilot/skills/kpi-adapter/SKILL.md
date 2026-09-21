@@ -31,16 +31,14 @@ than half an hour:
 
 Usually not, and saying so saves a week.
 
-The `csv` adapter works with an export from any tracker on earth. A team can be producing
-real KPIs this afternoon with it. A native adapter buys exactly two things:
+A mapped CSV export can be enough when the needed fields are present. A native reader
+can add direct refreshes, history and comment evidence that an export lacks. Neither route
+can supply an agreement or estimate nobody recorded.
 
-1. **Status history**, which is what lets Delivery Commitment, Rework Rate and Task
-   Comprehension be computed instead of reported as "Not measured".
-2. **No manual export step** each cycle.
-
-So ask: how often will they run this, and do they need the three history-based KPIs? A team
-running monthly who are content with six of nine KPIs should use `csv` and move on. Say that
-plainly rather than building something to be helpful.
+Check the required KPIs against the actual export before proposing an adapter. There is no
+guaranteed six-of-nine coverage. If the export already supports the team's needs and manual
+refresh is acceptable, use it. Build an adapter when missing API evidence or repeated export
+work justifies the maintenance.
 
 ## If it is needed
 
@@ -69,7 +67,7 @@ The four that need real thought:
 
 | KIF field | The question to answer |
 |---|---|
-| `delivered` | Which status transition means "we handed this to QA"? Not "closed" - that is later, and using it flatters every delivery number |
+| `delivered` | Which event fulfills the agreed delivery promise? QA handoff and closure can differ; closure is valid when that is the actual promise |
 | `reopened` | Closed, then moved back. A QA failure during the first test round is **not** rework. Getting this wrong is the most common adapter bug |
 | `understood` | Did they have to go back to the client about the requirement? A blocked-on-build is not a comprehension problem |
 | `type` | Task, CR, Scope or Excluded. Excluded rows stay in the document with a reason |

@@ -1,21 +1,24 @@
 # Adapting it to your workflow
 
+[Documentation](README.md) · [Field guide](16-Configuration-Field-Guide.md)
+
 The design assumption is that your workflow is not going to change, and should not have to.
-Everything that differs between two project leads lives in one profile. Targets live in PMS,
-where they are configurable per project. Only the counting is fixed.
+Project-specific behavior lives in the profile. Official targets come from the refreshed
+PMS registry; labelled local review targets are also supported. Shared formulas and evidence
+requirements keep differences visible.
 
 This document covers what you can change, how, and where the line is.
 
 ---
 
-## The four tiers
+## What you can change
 
 | Tier | What it covers | How it behaves |
 |---|---|---|
 | **Yours** | Tracker, states, naming, sources, periods, output, house style | Change freely |
 | **Yours, in the sheet** | Judgements, item types, periods, hours, dates, the Why text — and any figure, as a recorded hand-set value | Edit the yellow cell. The numbers move at once; the next run reads it back and keeps it |
 | **Recorded** | Project facts the defaults get wrong | Allowed, applied, and printed in every run summary |
-| **Set in PMS** | The targets for each KPI, per project | Change them in PMS; the next run reads them and marks them as this project's own |
+| **Targets** | Official project targets or labelled local review targets | Refresh the PMS registry for official targets; local targets need a reason and block submission until reconciled |
 | **Fixed** | The KPI list, the ids, the counting behind each ratio | Not configurable. This is what makes two projects comparable |
 
 The line is drawn where it is because a Defect Rate of 12% has to *mean* the same thing on two
@@ -66,7 +69,8 @@ projects:
     velocity_unit: Story Points
 ```
 
-A lead with one client and one tracker writes neither block and never notices this exists.
+A single-client profile can omit accounts, but still needs a projects entry. Account
+inheritance changes settings, not folder nesting; see the [sample folder layout](../samples/README.md).
 
 ### Merge rules
 
@@ -104,8 +108,12 @@ as `Excluded` evidence and cannot enter a numerator or denominator.
 Every command takes `--project`. With several projects, leaving it out is an error naming
 the ones it knows, rather than a guess:
 
+Commands below start at the repository root with its Python environment. On Windows,
+use `.\.venv\Scripts\python.exe` instead of `.venv/bin/python`. Replace profile paths with
+your actual private profile location.
+
 ```bash
-python3 scripts/profile_lib.py --profile profile.yaml --list
+.venv/bin/python plugin/kpi-copilot/scripts/profile_lib.py --profile profile.yaml --list
 ```
 
 ```
@@ -135,12 +143,13 @@ laid out for a person: one tab per topic, one row per setting, every row with a 
 description.
 
 ```bash
-python3 scripts/workbook.py build --profile profile.yaml --out "KPI Profile Workbook.xlsx"
-python3 scripts/workbook.py read  --xlsx "KPI Profile Workbook.xlsx" --out profile.yaml
+.venv/bin/python plugin/kpi-copilot/scripts/workbook.py build --profile profile.yaml --out "KPI Profile Workbook.xlsx"
+.venv/bin/python plugin/kpi-copilot/scripts/workbook.py read  --xlsx "KPI Profile Workbook.xlsx" --out profile.yaml
 ```
 
-The workbook is generated from the schema, so the two views cannot drift. Edit whichever you
-prefer.
+The workbook is generated from the schema. Import edits explicitly with `workbook.py read`,
+validate the profile, then rebuild the companion workbook. There is no continuous sync.
+This Profile Workbook is separate from the KPI Tracker used to review results.
 
 Put the workbook where your team keeps things. A profile only one person can open is a
 profile that dies when they go on leave.
@@ -178,7 +187,7 @@ sentence saying what it is for:
 | chat-devqa | chat | Northwind Dev-QA | AAAAexampleDevQA | Day-to-day delivery chatter: builds, QA rounds, environment problems. Best source for when something reached QA | evidence, handover |
 | plan-pdf | document | Project Plan | drive.google.com/… | The agreed scope and original milestone dates. When the board and the plan disagree, the plan is what the client signed | scope, estimates |
 
-Two reasons it matters. Claude uses it to find things without being told each time. And when
+Two reasons it matters. The assistant uses it to find things without being told each time. And when
 somebody new picks up the account, this table is the fastest explanation of the project that
 exists — faster than a handover call.
 
@@ -210,8 +219,8 @@ workflow:
 
 Three notes worth reading twice:
 
-- **`delivered_when` is not `closed_when`.** Using the closed state here flatters every
-  delivery figure, because closed is later than handed-to-QA.
+- **`delivered_when` is not `closed_when`.** They may be the same only when the agreed delivery event is final closure. Choose the
+  promise being measured; QA handoff is not a universal definition of delivery.
 - **`ignore_first_qa_fail`** is what stops Rework Rate counting normal testing. A QA failure
   while an item is still being tested for the first time is not rework.
 - **`from_date`** exists because teams change process mid-project. Without it, a change in
@@ -246,11 +255,12 @@ output:
   mode: assisted-push      # review-only | dry-run | assisted-push | auto-push
   unattended: false
   workbook: google-sheets  # or xlsx, or none
-  workbook_location: <drive folder id, SharePoint path, or a local folder>
+  workbook_location: <Google Drive folder link or id>
   notify: chat-devqa
 ```
 
-`auto-push` and `unattended` are legacy compatibility settings. They do not authorize a
+`notify` is metadata; the Python runner does not send messages. An assistant needs explicit
+authorization to message a destination. `auto-push` and `unattended` are legacy compatibility settings. They do not authorize a
 write. Every submission requires explicit approval of the current preview in conversation.
 
 ---
@@ -275,7 +285,7 @@ custom_instructions:
 
 **Style is free.** Say how you want things worded and it is followed.
 
-**The glossary is more useful than it looks.** It stops a note being technically correct and
+**The glossary explains project terminology.** It stops a note being technically correct and
 still misleading, which is the failure mode nobody catches in review.
 
 ### Rule overrides
@@ -294,10 +304,11 @@ For project facts the defaults get wrong:
 numbers, not in a footnote. Anybody reading those values needs to know up front that a local
 rule shaped them.
 
-Supported rules: `delivered_signal`, `client_date_source`, `commit_date_source`,
-`cr_denominator`, `exclude_key`, `include_key`, `defect_phase`, `hours_source`,
-`period_of_key`, `velocity_team_hours`. An `expires` date makes a run warn when an override
-has gone stale.
+Accepted rule names and actual application are distinct. The engine directly applies
+`cr_denominator`, `exclude_key`, `include_key`, `defect_phase` and `velocity_team_hours`.
+Other named overrides can record guidance; use the concrete workflow/source/period fields
+for reliable behavior and check the reported applied/unapplied result. An `expires` date
+can flag stale guidance. See [custom instructions](reference/08-custom-instructions.md).
 
 ### Project targets
 
@@ -320,13 +331,13 @@ make different workflows explicit instead of hiding them in the numbers.
 
 ---
 
-## Two complete examples
+## Engine fixtures and runnable samples
 
 Same engine, same nine KPIs, nothing in common otherwise.
 
 | | `examples/northwind-q3` | `examples/acme-jira` |
 |---|---|---|
-| Tracker | Asana, read in the browser | Jira, via CSV export |
+| Tracker | Legacy prebuilt Asana KIF fixture | Jira-style CSV export |
 | Chat | Google Chat | Slack |
 | Plan | PDF on Drive | Confluence page |
 | Periods | Delivery cycles | Sprints |
@@ -334,11 +345,13 @@ Same engine, same nine KPIs, nothing in common otherwise.
 | Working file | Google Sheets | Local xlsx |
 | Output | Push after approval | Review only, typed in by hand |
 
-Run either:
+These older fixtures exercise the engine. For the complete run, folder layout and
+downloadable workbooks, use the [sample pack](../samples/README.md). The command below
+calculates only the first fixture:
 
 ```bash
-python3 scripts/kpi_engine.py --kif examples/northwind-q3/run.kif.json \
-  --profile examples/northwind-q3/profile.yaml --reasons examples/northwind-q3/reasons.yaml
+.venv/bin/python plugin/kpi-copilot/scripts/kpi_engine.py --kif plugin/kpi-copilot/examples/northwind-q3/run.kif.json \
+  --profile plugin/kpi-copilot/examples/northwind-q3/profile.yaml --reasons plugin/kpi-copilot/examples/northwind-q3/reasons.yaml
 ```
 
 ---
@@ -346,10 +359,34 @@ python3 scripts/kpi_engine.py --kif examples/northwind-q3/run.kif.json \
 ## Checking your profile
 
 ```bash
-python3 scripts/profile_tool.py validate --profile profile.yaml
-python3 scripts/profile_tool.py explain  --key workflow.delivered_when
+.venv/bin/python plugin/kpi-copilot/scripts/profile_tool.py validate --profile profile.yaml
+.venv/bin/python plugin/kpi-copilot/scripts/profile_tool.py explain  --key workflow.delivered_when
 ```
 
 `validate` checks more than the schema: a tool id referenced from Sources that does not exist
 in Tools, an output mode that contradicts itself, a regex that does not compile, a
 `delivered_when` with no states in it. Each one is reported as a sentence, not a stack trace.
+## Grouped delivery tickets and client vocabulary
+
+Configure `conventions.grouping.split_source_children: true` for a client that counts the
+individual tickets inside an approved plan or estimate group. The parent is excluded from
+ticket counts. Its approved hours are held once on an effort-only row, rather than copied
+or arbitrarily divided across its members. The group budget reaches Velocity once every
+member has delivery evidence. Incomplete groups retain their budget without claiming partial
+completion hours that the source does not provide.
+
+`exclude_member_patterns` omits specification/admin cards from that expansion. Description
+links are ambiguous, so non-subtask membership must be recorded explicitly as
+`linked_members: {DEMO-10: [DEMO-11, DEMO-12]}` at the project level. Missing members and
+overlapping budgets stop the run with a repair instruction. An approved defect-fix ticket
+can occur once in the delivery register and once in the defect register; defect policy still
+decides whether it contributes to Defect Rate.
+
+Set `inherit_parent_delivery: true` only when the parent's handoff covers all member work.
+The child keeps its own handoff when available. A parent QA failure does not automatically
+mark every child as reworked; missing individual history remains an explicit evidence gap.
+
+`conventions.additional_request_label: Additional Request` controls the vocabulary in notes.
+Internal `CR` types and PMS KPI identifiers stay stable. Workflow settings can supply a
+`delivered_when.label` and `reopened_when.note` so the generated notes explain the configured
+delivery and rework boundaries in ordinary language.

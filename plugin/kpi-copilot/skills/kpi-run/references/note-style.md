@@ -3,6 +3,19 @@
 Management reads the notes, not the spreadsheet. A number without a note is a number nobody
 can act on, and a note that reads like machine output gets skimmed and then distrusted.
 
+**Must have: write for a decision maker who has no project background.** A reader must be
+able to understand the result, what work is involved, what happened, and how it affects the
+delivery or decision without asking the project team to translate it. Describe work before
+using ticket references. Explain local terms such as a QA handoff counting as closure.
+Never turn an estimate row into a claimed ticket count, or a high defect ratio into a
+percentage of faulty features. Use the client's configured name for additional work.
+
+The queue requests review of every KPI note, including Met and Not measured. Read the
+complete generated note with its evidence and earlier explanation, rewrite the explanation
+where needed, and return its `review_signature`. An empty explanation is acceptable when
+the generated text already answers the reader's questions. An unknown cause stays unknown.
+The review is reused only while the evidence, generated wording and explanation still match.
+
 ## The format
 
 ```
@@ -10,9 +23,11 @@ what the numbers say, in sentences || what was left out || why
 ```
 
 `||` reads as a line break in the PMS note field. Everything before the last part is
-generated, as whole sentences a person might have written. The last part - the **why** - is
-the only part a person (or the assistant, from `judge/queue.json`) writes, and it lives in the
-project's `facts/reasons.yaml` and in the yellow column of KPI Summary.
+generated initially, as whole sentences a person might have written. Both **Result summary**
+and **Why / context** are editable yellow columns in KPI Summary. Edits are kept in the
+project's `facts/reasons.yaml`. Every push rereads the configured Google Sheet (or the local
+workbook when that is the configured destination); it never substitutes an older local copy.
+Changed figures require renewed review of an edited summary.
 
 Example:
 
@@ -56,9 +71,10 @@ Read it.
 is still pending, with dates: "5 more items are not due until 09/22 to 09/24, so they are not
 in this figure."
 
-**A bare zero or a bare blank.** Say why: "Nothing to measure yet: all 6 items are still
-ahead of 09/22 and the handover has not happened." "Not handed over to the client yet, so
-there is nothing to measure."
+**A bare zero or an unsupported claim.** Explain a measured zero with its actual scope.
+When a KPI needs more information, leave it unmeasured and add an actionable question to
+Open Questions. Missing evidence, unavailable history and requests to confirm dates belong
+there, not in PMS notes. Do not replace a gap with a plausible number or invented cause.
 
 **Filler.** No "it should be noted that", no "in order to", no em dashes.
 
@@ -67,7 +83,7 @@ there is nothing to measure."
 **No links in a PMS note.** PMS shows plain text; a URL there is noise, and the push strips
 any that slip through.
 
-Links belong in the workbook, on the words they support: write `[the 08/12 handover](url)`,
+Links belong in the workbook, on the words they support: write `[the 08/12 handover](https://tracker.example.com/release/demo)`,
 not a bare URL at the end of a sentence. The workbook is where somebody goes to check a
 number; PMS is where somebody goes to read the result.
 

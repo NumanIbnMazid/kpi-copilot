@@ -1,36 +1,40 @@
-# Templates
+# Workbooks and templates
 
-The workbooks are **generated**, not committed — a binary in git goes stale the moment the
-schema changes, and these are rebuilt from the schema every time.
+[Documentation](../docs/README.md) · [Sample pack](../samples/README.md)
+
+For ready-to-open examples, use the [four fictional workbooks](../samples/README.md#download-and-inspect).
+They include two configuration workbooks and two KPI Tracker workbooks, with a matching
+client/project folder layout and an explanation of the sample results.
+
+- **KPI Profile Workbook:** editable settings for the tool. After editing it, ask the
+  assistant to import and validate it; the YAML profile is what a run actually reads.
+- **KPI Tracker:** calculated results and review inputs for one project. Yellow review
+  cells are read back during the next run. Grey formula cells are calculated.
+
+## Generate a fresh profile workbook
+
+These are optional commands for the assistant or a maintainer. Run from the repository
+root after [installation](../docs/12-Installation.md). On Windows, replace `.venv/bin/python`
+with `.\.venv\Scripts\python.exe`. Replace `/private/kpi-work` with a real private folder
+outside this repository, and create that folder first.
 
 ```bash
-cd plugin/kpi-copilot
-
-# A blank profile workbook, to fill in by hand
-python3 scripts/profile_tool.py init --out /tmp/blank.yaml
-python3 scripts/workbook.py build --profile /tmp/blank.yaml \
-  --out "../../templates/KPI Profile Workbook (blank).xlsx"
-
-# The same thing, filled in from an example
-python3 scripts/workbook.py build --profile examples/northwind-q3/profile.yaml \
-  --out "../../templates/KPI Profile Workbook (filled example).xlsx"
-
-# One lead, two clients, two trackers
-python3 scripts/workbook.py build --profile examples/multi-account/profile.yaml \
-  --out "../../templates/KPI Profile Workbook (two clients).xlsx"
-
-# The board as the only source of truth, with a bounded scan
-python3 scripts/workbook.py build --profile examples/tracker-only/profile.yaml \
-  --out "../../templates/KPI Profile Workbook (tracker only).xlsx"
-
-# The KPI tracker sheet, from a whole run on the example board (offline, no credentials)
-cp -r examples/northwind-board /tmp/nw
-python3 scripts/kpi.py run --profile /tmp/nw/profile.yaml --project northwind-q3 \
-  --board /tmp/nw/board.json --today 2026-09-18
-open "/tmp/nw/northwind-q3/KPI Tracker - Northwind Q3 Release Items.xlsx"
+.venv/bin/python plugin/kpi-copilot/scripts/profile_tool.py init --out /private/kpi-work/profile.yaml
+.venv/bin/python plugin/kpi-copilot/scripts/workbook.py build --profile /private/kpi-work/profile.yaml --out "/private/kpi-work/KPI Profile Workbook.xlsx"
 ```
 
-The tracker sheet is a working surface, not a report: grey cells are live formulas, and
-whatever is typed into yellow cells is read back by the next run and kept. The same
-description is written to a Google Sheet, updated in place, when the profile asks for one.
-See [docs/04-Daily-Use.md](../docs/04-Daily-Use.md).
+The starter is a setup scaffold; fill it with your actual project settings before a run.
+Build from an existing private profile to get its filled-in workbook instead.
+
+## Regenerate the committed samples
+
+```bash
+.venv/bin/python samples/build_samples.py --out samples/workbooks
+```
+
+This uses only synthetic local inputs and the shipped workbook writers. It rebuilds the
+four files in `samples/workbooks/`. See the [sample README](../samples/README.md) for copying
+the fictional workspace and running it yourself without an account connection.
+
+Create live KPI Trackers with `kpi.py run`; do not assemble or upload their tabs manually.
+The [daily-use guide](../docs/04-Daily-Use.md) explains review edits and Google output.

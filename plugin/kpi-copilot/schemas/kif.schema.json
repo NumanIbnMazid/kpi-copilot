@@ -309,6 +309,14 @@
             ],
             "description": "Counted into Velocity only once the item's QA is done."
           },
+          "effort_only": {
+            "type": "boolean",
+            "description": "Excluded grouping row that holds one approved estimate for its member tickets. Included in Velocity only, never in ticket counts."
+          },
+          "effort_group": {
+            "type": ["string", "null"],
+            "description": "Parent item ID holding this ticket's aggregate estimate; the member's blank hours do not mean zero."
+          },
           "hours_source": {
             "type": [
               "string",

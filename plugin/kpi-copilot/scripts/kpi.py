@@ -205,9 +205,18 @@ def read_back(ws: Workspace, board_items: dict, args) -> list[str]:
         return []
     dest = state.get("destination") or {}
     try:
+        previous_results = sorted((ws.dir / "runs").glob("*/results.json"))
+        if previous_results:
+            R.upgrade_summary(state, json.loads(previous_results[-1].read_text()))
+        output = ws.profile.get("output") or {}
+        configured_id = G.file_id(output.get("workbook_file")) if output.get("workbook") != "xlsx" else None
+        if configured_id:
+            if dest.get("kind") == "google" and dest.get("id") != configured_id:
+                raise ValueError("The configured Google Sheet differs from the previous review sheet. Reconcile its edits before changing destinations.")
+            dest = {**dest, "kind": "google", "id": configured_id}
         if getattr(args, "review_file", None):
             import sheet_google
-            fid = dest.get("id") or G.file_id((ws.profile.get("output") or {}).get("workbook_file"))
+            fid = configured_id or dest.get("id")
             grid = sheet_google.connector_grid(Path(args.review_file), fid)
         elif dest.get("kind") == "google":
             if args.offline or not G.how_signed_in():
@@ -306,7 +315,7 @@ def legacy_kif(ws: Workspace, args, kif_path: Path) -> int:
 def compute(ws: Workspace, kif_path: Path) -> dict:
     ws.run_dir.mkdir(parents=True, exist_ok=True)
     reasons_path = ws.run_dir / "reasons.used.yaml"
-    _yaml_dump(reasons_path, {k: v for k, v in (ws.facts.get("reasons") or {}).items() if not k.startswith("_")})
+    _yaml_dump(reasons_path, ws.facts.get("reasons") or {})
     val = _module(HERE / "validate_kif.py", "kpic_validate")
     code, text = _quiet(val.main, ["--kif", str(kif_path)])
     if code != 0:
@@ -391,7 +400,10 @@ def publish(ws: Workspace, kif: dict, results: dict, ctx: dict, args) -> tuple[d
                 import sheet_google
                 saved = ws.dir / "workbook_destination.json"
                 prev = json.loads(saved.read_text()) if saved.exists() else (ws.previous_sheet_state or {}).get("destination") or {}
-                g = sheet_google.publish(tabs, out_cfg, title, prev.get("id") if prev.get("kind") == "google" else None)
+                publish_cfg = dict(out_cfg)
+                if (ws.previous_sheet_state or {}).get("model") != sheet_model.MODEL_VERSION:
+                    publish_cfg["full_refresh"] = True
+                g = sheet_google.publish(tabs, publish_cfg, title, prev.get("id") if prev.get("kind") == "google" else None)
                 dest = {**g, "path": str(local)}
                 H.save(ws.dir / "workbook_destination.json", dest)
                 said.append(("Created" if g["created"] else "Updated") + f" the Google Sheet as {g['as']}: {g['url']}")
@@ -454,7 +466,7 @@ def cmd_run(args) -> int:
     statuses: list[dict] = []
     mode = (ws.profile.get("sources") or {}).get("mode") or "tracker-first"
     if mode != "tracker-only":
-        statuses = S.pull(ws.profile, ws.dir, ws.base, offline=args.offline or args.rejudge_only, project=ws.project)
+        statuses = S.pull(ws.profile, ws.dir, ws.base, offline=args.offline, project=ws.project)
         for st in statuses:
             notes += S.facts_from_mapping(st, (ws.profile.get("sources") or {}).get(st["role"]) or {}, ws.facts)
         notes += S.staleness(statuses, ws.facts)
@@ -476,7 +488,7 @@ def cmd_run(args) -> int:
     clock.lap("classify")
 
     import workbook_history
-    workbook_history.apply_edits(kif, ws.facts)
+    workbook_history.apply_edits(kif, ws.facts, ws.profile, ws.today)
     kif_path.write_text(json.dumps(kif, indent=1, ensure_ascii=False), encoding="utf-8")
 
     # 5. count -------------------------------------------------------------------------------
@@ -486,7 +498,12 @@ def cmd_run(args) -> int:
         missing = ((ws.facts.get("reasons") or {}).get("_questions") or {}).get(tag)
         if missing:
             work["questions"].append({"id": "reason:" + tag, "about": note["period"],
-                                      "question": f"{note['period']} · {note['kpi']}: {missing}"})
+                                      "question": f"{note['period']} · {note['kpi']}: {missing}", "blocking": False})
+    import note_policy
+    for period in results.get("periods") or []:
+        for measure in period.get("measures") or []:
+            work["questions"].extend(note_policy.question(period["period"], measure["name"], detail)
+                                     for detail in measure.get("review_items") or [])
     moved, values = what_moved(ws, results)
     clock.lap("compute")
 
@@ -515,7 +532,8 @@ def cmd_run(args) -> int:
     clock.lap("sheet")
 
     # 7. what needs a brain --------------------------------------------------------------------
-    queue = J.build_queue(work, results, ws.facts, ws.dir, [p.get("name") for p in kif.get("periods") or []])
+    queue = J.build_queue(work, results, ws.facts, ws.dir, [p.get("name") for p in kif.get("periods") or []],
+                          kif=kif, profile=ws.profile)
     qpath = J.write_queue(queue, ws.dir) if (queue["items"] or queue["notes"]) else None
     if not qpath and (ws.dir / "judge" / "queue.json").exists():
         (ws.dir / "judge" / "queue.json").unlink()
@@ -596,7 +614,7 @@ def report(ws, results, kif, work, queue, qpath, questions, edits, notes, said, 
     if qpath:
         n_i, n_n = len(queue["items"]), len(queue["notes"])
         what = " and ".join(x for x in (f"{n_i} card{'s' if n_i != 1 else ''} to judge" if n_i else "",
-                                        f"{n_n} missed KPI{'s' if n_n != 1 else ''} needing a reason" if n_n else "") if x)
+                                        f"{n_n} KPI note{'s' if n_n != 1 else ''} to review for clarity and evidence" if n_n else "") if x)
         print(f"  Assistant: {what}. Read {qpath} once, write {ws.dir / 'judge' / 'answers.json'} in the shape it shows,\n"
               f"  then run:  python3 {Path(__file__).name} judge --profile {ws.profile_path} --project {ws.pid}\n"
               f"  Do not open the board or search anywhere else - everything needed is in that file.")
@@ -615,7 +633,7 @@ def report(ws, results, kif, work, queue, qpath, questions, edits, notes, said, 
     (ws.dir / "next.json").write_text(json.dumps({
         "sheet": dest.get("url") or dest.get("path"), "queue": str(qpath) if qpath else None,
         "to_judge": len(queue["items"]), "notes_needed": len(queue["notes"]),
-        "questions": [{"id": q["id"], "question": q["question"]} for q in open_q],
+        "questions": [{"id": q["id"], "question": q["question"], "blocking": q.get("blocking", True)} for q in open_q],
         "source_blockers": getattr(ws, "source_blockers", []),
         "sheet_pending": sheet_pending,
         "payloads": str(ws.run_dir / "payloads.json"),
@@ -792,6 +810,24 @@ def cmd_push(args) -> int:
     nxt = ws.dir / "next.json"
     n = json.loads(nxt.read_text(encoding="utf-8")) if nxt.exists() else {}
     payload = Path(n.get("payloads") or runs[-1])
+    if args.apply and n.get("input_digest") != input_digest(ws):
+        raise SystemExit("Inputs changed since the run. Run again before sending to PMS.")
+    if args.offline:
+        if args.apply:
+            raise SystemExit("Cannot send to PMS with --offline. Reconnect the configured review sheet before sending.")
+    else:
+        snap = B.load(ws.dir / "cache" / "board.json") or {}
+        edits = read_back(ws, {i["id"]: i for i in snap.get("items") or []}, args)
+        if ws.preserve_sheet:
+            raise SystemExit("The configured review sheet could not be read. Restore its connection before preparing a push.")
+        if edits:
+            ws.save()
+            args.rejudge_only = True
+            if cmd_run(args):
+                return 2
+            ws = Workspace(args)
+            n = json.loads(nxt.read_text(encoding="utf-8"))
+            payload = Path(n["payloads"])
     if args.apply:
         if args.offline:
             raise SystemExit("Cannot send to PMS with --offline. Prepare a dry run, review it and explicitly approve online delivery.")
@@ -799,17 +835,24 @@ def cmd_push(args) -> int:
             raise SystemExit("Inputs changed or the run predates review checks. Run again and review the refreshed sheet before sending.")
         if n.get("payload_digest") != hashlib.sha256(payload.read_bytes()).hexdigest():
             raise SystemExit("The payload changed after the run. Recompute and review before sending.")
-        if any(n.get(k) for k in ("notes_needed", "to_judge", "questions", "source_blockers", "sheet_pending")):
+        if any(n.get(k) for k in ("notes_needed", "to_judge", "source_blockers", "sheet_pending")) or any(
+                q.get("blocking", True) for q in n.get("questions") or []):
             raise SystemExit("This run still needs review: resolve NEXT, refresh the sheet, then approve sending to PMS.")
-        snap = B.load(ws.dir / "cache" / "board.json") or {}
-        edits = read_back(ws, {i["id"]: i for i in snap.get("items") or []}, args)
-        if edits or ws.preserve_sheet:
-            ws.save()
-            raise SystemExit("The review sheet changed or cannot be read. Run again, review the updated values, then approve sending.")
     push = _module(HERE / "pms_push.py", "kpic_push")
     argv = ["--payloads", str(payload), "--profile", str(ws.profile_path), "--project", ws.pid,
             "--log", str(payload.parent / "push_log.json"), "--apply" if args.apply else "--dry-run"]
-    return push.main(argv)
+    if getattr(args, "create_periods", False):
+        argv.append("--create-periods")
+    code = push.main(argv)
+    if args.apply and code == 0:
+        log = json.loads((payload.parent / "push_log.json").read_text())
+        ids = {x["period"]: x["periodId"] for x in log.get("results", [])
+               if x.get("result") == "verified" and x.get("periodId")}
+        for period in (ws.facts.get("periods") or {}).get("periods") or []:
+            if period.get("name") in ids:
+                period["pms_period_id"] = ids[period["name"]]
+        ws.save()
+    return code
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -847,6 +890,7 @@ def main(argv: list[str] | None = None) -> int:
     common(sub.add_parser("doctor", help="Can it reach what it needs?"))
     p = common(sub.add_parser("push", help="Send the last run to PMS (dry run unless --apply)."))
     p.add_argument("--apply", action="store_true")
+    p.add_argument("--create-periods", action="store_true", help="Create missing periods when explicitly authorized.")
     au = common(sub.add_parser("auth", help="Connect a service - or, with none named, see what needs connecting and how."))
     au.add_argument("what", nargs="?", choices=["asana", "jira", "github", "google"])
     au.add_argument("--route", choices=["browser", "token", "cli"], help="Default: the best one available on this machine.")

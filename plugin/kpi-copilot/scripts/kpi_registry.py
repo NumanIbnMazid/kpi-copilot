@@ -79,6 +79,10 @@ def fetch_project(base_url: str, project_id: int, token: str | None) -> list[dic
     """A project's own KPI settings. PMS lets a threshold be set per project, so this is where
     a real target comes from - the company-wide list is only the fallback."""
     url = base_url.rstrip("/") + f"/api/projects/{project_id}/kpis?includePeriods=false"
+    import host_transport
+    if host_transport.enabled("pms"):
+        raw = host_transport.call("pms", "GET", url)
+        return raw if isinstance(raw, list) else (raw.get("kpis") or raw.get("data") or [])
     req = urllib.request.Request(url, headers={"Accept": "application/json"})
     if token:
         req.add_header("Authorization", f"Bearer {token}")
@@ -93,17 +97,20 @@ def project_thresholds(rows: list[dict]) -> tuple[dict, list[str]]:
     the engine can tell "this project chose 25" from "nobody set one"."""
     out, unknown = {}, []
     for row in rows:
-        name = str(row.get("name") or row.get("kpiName") or "").strip()
+        definition = row.get("kpi") or row
+        name = str(definition.get("name") or definition.get("kpiName") or "").strip()
         key = NAME_TO_KEY.get(name.lower())
         if not key:
             if name:
                 unknown.append(name)
             continue
-        threshold = next((row[k] for k in ("threshold", "minValue", "maxValue") if row.get(k) is not None), None)
+        threshold = row.get("threshold") if row.get("kpi") else next((row[k] for k in ("threshold", "minValue", "maxValue") if row.get(k) is not None), None)
         if threshold is None:
             continue
         entry = {"threshold": threshold}
-        if row.get("maxValue") is not None and row.get("minValue") is None:
+        if "isMinimumThreshold" in definition:
+            entry["direction"] = "higher-is-better" if definition["isMinimumThreshold"] else "lower-is-better"
+        elif row.get("maxValue") is not None and row.get("minValue") is None:
             entry["direction"] = "lower-is-better"
         elif row.get("minValue") is not None:
             entry["direction"] = "higher-is-better"
@@ -116,6 +123,9 @@ def fetch(base_url: str, token: str | None) -> Any:
     session is what has access, and the run reads the page instead. This path exists for
     machines that do hold a service token."""
     url = base_url.rstrip("/") + "/api/kpis"
+    import host_transport
+    if host_transport.enabled("pms"):
+        return host_transport.call("pms", "GET", url)
     req = urllib.request.Request(url, headers={"Accept": "application/json"})
     if token:
         req.add_header("Authorization", f"Bearer {token}")
@@ -131,6 +141,7 @@ def merge(pms_rows: list[dict], fallback: dict) -> dict:
     out, unknown = [], []
 
     for row in pms_rows:
+        row = row.get("kpi") or row
         name = str(row.get("name") or row.get("kpiName") or "").strip()
         key = NAME_TO_KEY.get(name.lower())
         if not key:
@@ -144,11 +155,14 @@ def merge(pms_rows: list[dict], fallback: dict) -> dict:
             "threshold": threshold if threshold is not None else base.get("threshold"),
             "description_pms": row.get("description") or base.get("description_pms", ""),
         })
-        if row.get("maxValue") is not None and row.get("minValue") is None:
+        if "isMinimumThreshold" in row:
+            base["direction"] = "higher-is-better" if row["isMinimumThreshold"] else "lower-is-better"
+        elif row.get("maxValue") is not None and row.get("minValue") is None:
             base["direction"] = "lower-is-better"
         elif row.get("minValue") is not None:
             base["direction"] = "higher-is-better"
-        rng = row.get("range") or ([0, 1000] if key == "velocity" else [0, 100])
+        rng = row.get("range") or ([row.get("minValue", 0), row.get("maxValue", 100)]
+            if "isMinimumThreshold" in row else ([0, 1000] if key == "velocity" else [0, 100]))
         base["range"] = rng
         out.append(base)
         by_key.pop(key, None)

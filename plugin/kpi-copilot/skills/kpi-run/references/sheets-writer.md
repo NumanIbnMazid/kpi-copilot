@@ -1,41 +1,45 @@
-# The KPI sheet in Google Sheets
+# Writing and refreshing Google Sheets
 
-The run writes the workbook itself, in both places. You never paste into a sheet, build a
-tab or fix formatting by hand; if you find yourself doing that, stop and read this.
+Use `kpi.py run` to build the review workbook. Do not rebuild tabs, paste tables or upload a
+replacement manually. The runner uses the same workbook model for local Excel and Google.
 
-## How it works
-
-`scripts/sheet_model.py` describes the workbook once - tabs, cells, styles, live formulas,
-dropdowns, colour rules. Two writers render the same description:
-
-- `sheet_xlsx.py` - always, to `<project>/KPI Tracker - <name>.xlsx`
-- `sheet_google.py` - when `output.workbook` is `google-sheets`, straight through the Sheets
-  API, in one atomic update. Same spreadsheet every run, so the link never changes:
-
-| Profile setting | What happens |
+| Profile setting | Meaning |
 |---|---|
-| `output.workbook_file: <link or id>` | That Google Sheet is updated in place |
-| `output.workbook_location: <folder link or id>` | The first run creates `[KPI Tracker] <project>` there; the saved destination ID pins later runs to it |
-| neither | Local workbook only |
+| `output.workbook: xlsx` | Local output at `<profile folder>/<project id>/KPI Tracker - <name>.xlsx` |
+| `output.workbook: google-sheets` | Local output plus connected Google delivery |
+| `output.workbook_file` | The dedicated Google Sheet link or ID to update |
+| `output.workbook_location` | A Drive folder for first creation; the saved destination ID pins later runs |
+| `output.workbook_name` | Name used for creation/discovery; can include `{project}` |
 
-Tabs the tool owns are rebuilt; tabs a person added are left alone. Whatever was typed into
-yellow cells is read back **before** the rebuild and kept.
+The current runner still writes local output for legacy `workbook: none`. A Drive folder
+setting does not move that local file. Use a dedicated KPI Sheet; an unrelated reference
+workbook is not a safe destination.
 
-## Connecting Google (once, by the person)
+## Connect and verify
+
+From the plugin root, using the configured Python environment:
 
 ```bash
-python3 scripts/kpi.py auth google
+python3 scripts/kpi.py auth --profile /absolute/path/profile.yaml --project sample-release
+python3 scripts/kpi.py doctor --profile /absolute/path/profile.yaml --project sample-release
 ```
 
-It opens a consent page and stores a refresh token in `~/.config/kpi-copilot/`, readable
-only by them. It needs an OAuth client of type *Desktop app* saved as
-`~/.config/kpi-copilot/google_client.json` - one client is enough for a whole company, and
-an internal (Workspace) app needs no review. For a scheduled, unattended run use a service
-account instead: put its key at `~/.config/kpi-copilot/google_service_account.json` and
-share the Drive folder with the account's address.
+The authentication command reports available routes and what each requires. For browser
+sign-in, an approved OAuth client must already be configured. The person grants consent;
+the assistant never handles tokens, service-account keys or consent on their behalf.
+Google account access in an assistant's UI does not automatically connect the Python runner.
+A supported host transport is a separate integration route, not a generic login shortcut.
 
-`python3 scripts/kpi.py doctor --profile … --project …` says whether Google is connected.
-Never handle the token or key yourself.
+## Preserve the review before writing
+
+The runner reads supported yellow inputs before rebuilding managed tabs. User-added tabs
+are retained when they do not use managed tab names. Publication validates the write and
+reads it back; do not call delivery complete based only on a local file or attempted write.
+
+When an existing Google review sheet cannot be read, it cannot safely be replaced using
+an older local copy. Follow the reported stop or separate-preview path, restore access, and
+rerun against the authoritative review. A local preview is not evidence of synchronization.
+Do not suggest **Import → Replace spreadsheet** to work around a failed connection.
 
 ## Google connected through the assistant's host
 
@@ -45,7 +49,7 @@ without putting credentials in the local runtime. Use the normal model and write
 1. Read live spreadsheet metadata including conditional formats. Save its structured JSON
    response to a private `metadata.json`. Read CellData for the populated review tabs,
    including hidden row identities, and save the full structured response to `review.json`.
-   Include `formattedValue,userEnteredValue,effectiveValue`; do not carry the grid through
+   Include `formattedValue,userEnteredValue,effectiveValue,effectiveFormat.numberFormat`; do not carry the grid through
    the assistant's conversation. Use the existing sheet baseline to determine the bounds.
 2. Run `kpi.py run --profile … --project … --review-file review.json --no-publish` with
    the source arguments for the requested period. This consumes the live edits first.
@@ -73,12 +77,17 @@ Register and summary filters expose the evidence without a separate set of tabs 
 Historical review edits stay scoped to that period. Refresh the historical period from its
 sources to recompute its saved result. Include the year when labels would otherwise repeat.
 
-## If something looks wrong
+## Common issues
 
-| What you see | Why, and what to do |
+| Situation | Action |
 |---|---|
-| `#ERROR!` or `#NAME?` in grey cells of an existing sheet | The spreadsheet's locale uses `;` between arguments. File > Settings > Locale > United States (or UK), run again. A sheet the tool creates is set correctly |
-| "Google cannot find that file (404)" | Signed in as a service account that the file is not shared with. Share the file or folder with its address |
-| "may not do that (403)" | Viewer rights only. Ask the owner for Editor |
-| A tab the person built is gone | It had the same name as one the tool owns (Dashboard, Config, Periods, Task Register, Defect Register, KPI Summary, Open Questions, Run Log, PMS Push Log, Read Me). Version history has it; rename theirs |
-| "Since the last run" says the sheet changed | Somebody edited a yellow cell after the run. Run again before pushing |
+| 404 / cannot find sheet | Confirm the selected account can access the exact sheet or folder. |
+| 403 / permission denied | Confirm editor rights for output and appropriate API access. |
+| Formula/locale problem | Inspect the actual error and locale; do not change values to hide it. |
+| Expected local edits did not win | Check whether the configured Google sheet is the authoritative review surface. |
+| A manual tab conflicts with a managed name | Recover it from version history if needed and rename it before rerunning. |
+| Push says review changed | Refresh the authoritative workbook, reconcile the changed result and review again. |
+
+For user-facing instructions see
+[Daily use](https://github.com/NumanIbnMazid/kpi-copilot/blob/main/docs/04-Daily-Use.md) and
+[review preservation](https://github.com/NumanIbnMazid/kpi-copilot/blob/main/docs/15-Review-and-connected-delivery.md).

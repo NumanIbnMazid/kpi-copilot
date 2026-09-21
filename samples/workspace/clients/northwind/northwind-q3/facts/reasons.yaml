@@ -1,0 +1,32 @@
+# FICTIONAL TRAINING NOTES, derived only from the accompanying synthetic board and tables.
+# These demonstrate context writing; the workbooks remain drafts requiring review.
+Initial Scope:
+  Task Comprehension: >-
+    The shared-room booking requirement did not say which booking should take priority.
+    The client clarified that recurring bookings win. The CSV export task was blocked
+    by unavailable staging access, which did not require an explanation of the requirement.
+  Defect Rate: >-
+    The included reports concern recurring-booking warnings, filter retention and the
+    export date filter. Existing issues, suggestions and the rejected test-harness report
+    remain visible in the register under the agreed exclusions.
+  Escaped Defect Rate: >-
+    After the 08/12 handover, the client reported that the CSV export ignored its date filter.
+    The report was closed on 08/25. The available record does not establish why testing missed it.
+  Defect Rejection Rate: >-
+    The duplicate-email report came from the test harness rather than the product, so it
+    was rejected. The decision is recorded in the report's comment.
+  Rework Rate: >-
+    The saved-filter task passed QA on 08/04 and reopened on 08/07 when a tablet restart
+    exposed the reset. It returned to closed on 08/11. The other two QA failures occurred
+    before their first closure and remain ordinary testing.
+  CR Rate: >-
+    Single sign-on repair and extra room-profile fields were approved on 07/31 and 08/10
+    in the fictional estimates table. They are recorded as Additional Requests rather
+    than silently added to the original plan.
+Additional Requests 1:
+  Velocity: >-
+    Both development items reached QA. The reminder-email item also completed QA; the
+    calendar-sync item had not, so its QA estimate is not yet credited.
+  Defect Rate: >-
+    The reports concern a wrong room in a reminder email and cancelled bookings remaining
+    after synchronization. The latter remained open at the sample reporting date.

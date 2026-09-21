@@ -147,6 +147,9 @@ def _service_account_path() -> Path | None:
 
 def how_signed_in() -> str:
     """'service-account', 'user' or '' - without touching the network."""
+    import host_transport
+    if host_transport.enabled("google"):
+        return "host-connector"
     if _service_account_path():
         return "service-account"
     if (config_dir() / "google_token.json").exists():
@@ -196,6 +199,34 @@ class Session:
 
     def call(self, method: str, url: str, body: Any = None, params: dict | None = None,
              raw: bool = False) -> Any:
+        import host_transport
+        if host_transport.enabled("google"):
+            self.identity = "connected Google account"
+            try:
+                # A workbook rebuild can exceed a megabyte. Connected-host transports pass
+                # requests through a bounded message channel, so keep each message modest.
+                # Order is preserved: sheet creation requests already precede formulas and
+                # formatting in sheet_google.publish(). Native OAuth keeps the single atomic
+                # Sheets request below.
+                requests = body.get("requests") if isinstance(body, dict) else None
+                if method == "POST" and url.endswith(":batchUpdate") and isinstance(requests, list):
+                    chunks, chunk, size = [], [], 0
+                    for request in requests:
+                        n = len(json.dumps(request, ensure_ascii=False))
+                        if chunk and (len(chunk) >= 1000 or size + n > 500_000):
+                            chunks.append(chunk)
+                            chunk, size = [], 0
+                        chunk.append(request)
+                        size += n
+                    if chunk:
+                        chunks.append(chunk)
+                    result: Any = {}
+                    for part in chunks:
+                        result = host_transport.call("google", method, url, {**body, "requests": part}, params, raw)
+                    return result
+                return host_transport.call("google", method, url, body, params, raw)
+            except host_transport.TransportError as e:
+                raise GoogleError(str(e)) from e
         if params:
             url += ("&" if "?" in url else "?") + urllib.parse.urlencode(params, doseq=True)
         data = json.dumps(body).encode("utf-8") if body is not None else None

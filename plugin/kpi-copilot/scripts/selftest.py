@@ -132,10 +132,11 @@ def main() -> int:
     m = measure(mixed, "Initial Scope", "Delivery Commitment")
     check("an item with no commitment is out of the denominator", m["denominator"] == 5,
           f"got {m['denominator']}, expected 5 of 7 deliverables")
-    check("...and the note says how many were left out",
-          "made no commitment on" in m["note"], m["note"])
+    check("...and the review sheet explains the missing commitment dates",
+          any("No commitment date is recorded for 2 other items" in x for x in m["review_items"])
+          and "No commitment date is recorded" not in m["note"])
     check("the heading is about commitments, not about QA",
-          "commitments it made" in m["note"] and "QA" not in m["note"], m["note"])
+          "recorded commitment dates" in m["note"] and "QA" not in m["note"], m["note"])
 
     none_committed = json.loads((EX / "northwind-q3" / "run.kif.json").read_text())
     for t in none_committed["tasks"]:
@@ -149,8 +150,8 @@ def main() -> int:
     m = measure(nc, "Initial Scope", "Delivery Commitment")
     check("no commitments at all is Not measured, not 0%", m["status"] == "Not measured",
           f"{m['status']} = {m['value']}")
-    check("...and says why, in terms of reliability",
-          "nothing to measure reliability against" in m["note"], m["note"])
+    check("...and records the reason as a review item",
+          any("nothing to measure reliability against" in x for x in m["review_items"]) and not m["note"])
 
     allcfg = yaml.safe_load((EX / "northwind-q3" / "profile.yaml").read_text())
     allcfg["workflow"]["commitment"] = {"scope": "all-deliverables", "met_when": "handover"}
@@ -167,7 +168,7 @@ def main() -> int:
     m = measure(sav, "Initial Scope", "Escaped Defect Rate")
     check("the denominator is valid defects, not delivered items",
           m["denominator"] == 5, f"got {m['denominator']}, expected 5 non-rejected reports of 6")
-    check("rejected reports are in neither half", "rejected report is in neither half" in m["note"], m["note"])
+    check("rejected reports are excluded from both counts", "rejected report is excluded from both counts" in m["note"], m["note"])
     m2 = measure(sav, "Additional Requests 1", "Escaped Defect Rate")
     check("no handover still means Not measured", m2["status"] == "Not measured", m2["status"])
 
@@ -221,7 +222,7 @@ def main() -> int:
           all(part.strip().endswith(".") for n in notes if n for part in n.split(" || ")),
           next((part for n in notes for part in n.split(" || ") if not part.strip().endswith(".")), ""))
     check("no note opens with a heading: the first part says the number", all(any(ch.isdigit() for ch in n.split(" || ")[0])
-          or "othing" in n or "No " in n or "None " in n or "not been handed over" in n or "Everything" in n for n in notes if n),
+          or "othing" in n or "No " in n or "None " in n or "handover has not been recorded" in n or "not been handed over" in n or "Everything" in n for n in notes if n),
           next((n for n in notes if n and not any(ch.isdigit() for ch in n.split(" || ")[0])), ""))
     import yaml as _y
     fp = _y.safe_load((EX / "northwind-q3" / "profile.yaml").read_text())
@@ -231,7 +232,7 @@ def main() -> int:
     a = {(p["period"], m["name"]): m["value"] for p in sav["periods"] for m in p["measures"]}
     b = {(p["period"], m["name"]): m["value"] for p in frag["periods"] for m in p["measures"]}
     check("the older fragment style is still there for anyone who prefers it",
-          measure(frag, "Initial Scope", "Velocity")["note"].startswith("Work finished in this cycle ||"))
+          measure(frag, "Additional Requests 1", "Velocity")["note"].startswith("Work finished in this cycle ||"))
     check("...and the style changes the wording only, never a figure", a == b)
 
     print("\nCustom instructions")
@@ -432,6 +433,20 @@ def main() -> int:
     missing = lost(a, b)
     check("workbook round trip loses nothing that was written",
           not missing, "; ".join(f"{p}: {o!r} -> {n!r}" for p, o, n in missing[:4]))
+    local_profile = json.loads(json.dumps(a))
+    local_profile["organization"]["pms_base_url"] = ""
+    local_profile["output"]["mode"] = "review-only"
+    (tmp / "local-profile.yaml").write_text(yaml.safe_dump(local_profile))
+    built = run(["scripts/workbook.py", "build", "--profile", str(tmp / "local-profile.yaml"),
+                 "--out", str(tmp / "local-profile.xlsx")])
+    imported = run(["scripts/workbook.py", "read", "--xlsx", str(tmp / "local-profile.xlsx"),
+                    "--out", str(tmp / "local-back.yaml")])
+    checked = run(["scripts/profile_tool.py", "validate", "--profile", str(tmp / "local-back.yaml")])
+    restored = yaml.safe_load((tmp / "local-back.yaml").read_text())
+    check("a local-only profile stays valid after workbook import with a blank PMS address",
+          built.returncode == imported.returncode == checked.returncode == 0
+          and restored["organization"].get("pms_base_url") == ""
+          and not lost(local_profile, restored), checked.stdout + checked.stderr)
     r = run(["scripts/workbook.py", "tracker", "--results", str(tmp / "sav.results.json"),
              "--kif", str(EX / "northwind-q3" / "run.kif.json"), "--out", str(tmp / "tracker.xlsx")])
     check("tracker workbook builds", r.returncode == 0, r.stderr)
@@ -896,6 +911,15 @@ def pipeline_tests(tmp: Path) -> None:
           kif["periods"][0]["handover_date"] == "2026-08-12", str(kif["periods"][0].get("handover_date")))
     rework = next(t for t in kif["tasks"] if t["key"] == "NW-104")
     check("closed and then reopened is rework", rework["reopened"] == "Yes")
+    historical = classify.Classifier.__new__(classify.Classifier)
+    historical.wf = {"closed_when": {"values": ["Ready for QA"]}}
+    check("a reopened card keeps its historical close even while it is back in progress",
+          historical._closed({"section": "Testing Failed", "events": [
+              {"kind": "section", "from": "In Progress", "to": "Ready for QA",
+               "at": "2026-09-10T09:00:00Z"},
+              {"kind": "section", "from": "Ready for QA", "to": "Testing Failed",
+               "at": "2026-09-17T09:00:00Z"},
+          ]}) == "2026-09-10")
     first = next(t for t in kif["tasks"] if t["key"] == "NW-103")
     check("a QA failure during the first round is not", first["reopened"] == "No" and "first time" in (first["rework_evidence"] or ""))
 
@@ -969,7 +993,7 @@ def pipeline_tests(tmp: Path) -> None:
     check("dates are dates", tr.cell(4, heads["Delivered"].column).number_format == "yyyy-mm-dd"
           and hasattr(tr.cell(4, heads["Delivered"].column).value, "year"))
     check("the numbers are live formulas over the registers", str(sm["E5"].value).startswith("=COUNTIFS(") and str(sm["G5"].value).startswith("=IF("))
-    check("the note for PMS follows the reason as it is typed", sm["N5"].value == '=L5&IF(TRIM(M5)="",""," || "&TRIM(M5))')
+    check("the note for PMS follows both editable fields without a leading separator", sm["N5"].value == '=L5&IF(TRIM(M5)="","",IF(TRIM(L5)="",""," || ")&TRIM(M5))')
     check("the engine's own figure sits beside each live one", isinstance(sm["O5"].value, (int, float)) and "Run again before pushing" in str(sm["P5"].value))
     every = [str(c.value) for w in wb.worksheets for row in w.iter_rows() for c in row if isinstance(c.value, str) and c.value.startswith("=")]
     check("no formula relies on how a spreadsheet treats an empty cell in a criterion", not any('"<>"' in f for f in every))

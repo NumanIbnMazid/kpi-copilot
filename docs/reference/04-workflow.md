@@ -1,5 +1,7 @@
 # Workflow — what your states mean
 
+[Documentation](../README.md) · [Field guide](../16-Configuration-Field-Guide.md)
+
 The most important section in the profile. It is what turns "a column called In Test" into a
 number comparable across the company.
 
@@ -39,9 +41,9 @@ meaning of "delivered on time" for a commitment.
 | `from_date` | Apply this rule only from a date onward, when the process changed mid-project |
 | `fallback_values` | The rule before `from_date` |
 
-**Do not put your closed state here.** Closed comes later than the point work was actually
-delivered, and using it flatters every delivery figure. Name the state that means development
-is finished and testing can start — or whatever "delivered" genuinely means on your board.
+**Use the event actually promised.** Delivery might mean QA handoff, final acceptance or
+client handover. The closed state is appropriate only when closure fulfills that agreement.
+Choosing a later event changes dates; it does not inherently improve the score.
 
 `from_date` exists because teams change process mid-project. Without it, a change in
 September retroactively rewrites six months of delivery dates.
@@ -92,7 +94,7 @@ So two things need saying, because teams differ on both.
 | Field | Default | What it is |
 |---|---|---|
 | `scope` | `committed-only` | `committed-only` counts just the items the team negotiated a date for — what PMS asks for. `all-deliverables` treats every item as committed, for a team that commits to the whole scope as one piece |
-| `met_when` | `delivery` | What keeping a commitment means, as a phrase that goes into the note. `delivery` uses your delivery event; `handover` means the build reached the client; `completion` means the item was closed. Anything else is used as written |
+| `met_when` | `delivery` | What keeping a commitment means, as a phrase that goes into the note. `delivery` uses your delivery event; `handover` means the build reached the client; `completion` means the item was closed. Other wording is descriptive; it does not add a new event detector |
 
 ```yaml
 # A team that promises dates per item, delivered to QA
@@ -115,7 +117,7 @@ measured", not 0%.
 
 | Symptom | Usually |
 |---|---|
-| Delivery Commitment is suspiciously high | `delivered_when` names the closed state |
+| Delivery Commitment differs from the agreement | The configured event or commitment date does not match the actual promise |
 | Rework Rate is far too high | `ignore_first_qa_fail` is off, or `reopened_when` includes a state reached before closing |
 | Task Comprehension is too low | `clarification_when` is catching build and environment blocks — check `exclude_reasons` |
 | Delivery Commitment counts fewer items than expected | Correct. It counts commitments, not deliverables |
@@ -123,5 +125,8 @@ measured", not 0%.
 
 ## See also
 
-- `skills/kpi-run/references/kpi-rules.md` — the counting rules in full
+- [KPI rules](../../plugin/kpi-copilot/skills/kpi-run/references/kpi-rules.md) — the counting rules in full
 - [03-tracker-and-conventions.md](03-tracker-and-conventions.md) · [all-fields.md](all-fields.md)
+
+`reopened_when.closed_values` can set a separate rework closure boundary. Keep that
+meaning explicit in the notes; see the [field guide](../16-Configuration-Field-Guide.md).

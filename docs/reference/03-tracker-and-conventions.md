@@ -1,5 +1,7 @@
 # Tracker and conventions
 
+[Documentation](../README.md) · [Field guide](../16-Configuration-Field-Guide.md)
+
 Which adapter reads your board, and how your team names things.
 
 ---
@@ -14,7 +16,7 @@ tracker:
   estimate_field: Estimated Time
   story_point_field: Story Points
   key_field: TKT
-  options: {}                     # adapter-specific
+  options: {}                     # adapter-specific; see each reader README
 ```
 
 | Field | What it is |
@@ -31,12 +33,12 @@ tracker:
 
 | Adapter | Reads | Signing in | Gives you |
 |---|---|---|---|
-| `asana` | The board through Asana's API, straight to disk; only changed cards on a rerun | a token, a browser sign-in, or a signed-in tab | Everything, including history |
-| `jira` | Jira Cloud, Server or Data Center through the REST API, changelog included | an API token, a browser sign-in (Cloud), or a signed-in tab | Everything, including history |
-| `github` | A repository's issues - and a Projects board's Status, if you name one - through GraphQL | GitHub's own `gh` login, or a token | Everything, including history |
-| `csv` | An export from **any** tracker | Nothing | Six of nine KPIs; the three needing history say "Not measured" and why |
+| `asana` | Board and readable task history, cached where supported | token, browser authorization, signed-in export or integrated host transport | Available fields/events; missing evidence remains visible |
+| `jira` | Jira Cloud, Server or Data Center through the REST API, changelog included | an API token, a browser sign-in (Cloud), or a signed-in tab | Available fields and paginated history; account permissions still apply |
+| `github` | A repository's issues - and a Projects board's Status, if you name one - through GraphQL | GitHub's own `gh` login, or a token | Available fields and paginated history; account permissions still apply |
+| `csv` | An export from **any** tracker | Nothing | Results depend on exported fields; unsupported measures say Not measured |
 
-`python3 scripts/kpi.py auth` lists the ways to sign in for your profile and machine, best
+`.venv/bin/python plugin/kpi-copilot/scripts/kpi.py auth` lists the ways to sign in for your profile and machine, best
 first, with what each costs to set up and how fast it is. A token never passes through the
 assistant, whichever you choose.
 
@@ -70,7 +72,7 @@ tracker:
 ```
 
 Column names are guessed from the header row, so `columns` is usually empty or nearly so.
-→ `adapters/csv/README.md`
+→ [CSV adapter](../../plugin/kpi-copilot/adapters/csv/README.md)
 
 ---
 
@@ -145,5 +147,17 @@ backslashes survive: `'TKT-\d+'`, not `"TKT-\d+"`.
 ## See also
 
 - [04-workflow.md](04-workflow.md) — what your states mean, which matters more than naming
-- `adapters/_contract.md` — writing an adapter
+- [Adapter contract](../../plugin/kpi-copilot/adapters/_contract.md) — writing an adapter
 - [all-fields.md](all-fields.md)
+
+## Scoped and grouped work
+
+`conventions.assignee_include` restricts a mixed board to explicitly named assignees,
+case-insensitively. Excluded and unassigned rows stay visible.
+
+For delivery tickets grouped under one estimate, see
+[grouped delivery settings](../05-Adapting-To-Your-Workflow.md#grouped-delivery-tickets-and-client-vocabulary).
+Count the members and hold the shared estimate once; do not duplicate parent effort.
+
+Some accepted defect signals and source options require adapter-specific support.
+Read the implementation notes before relying on `separate-board` or arbitrary field signals.

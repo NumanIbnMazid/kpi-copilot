@@ -1,5 +1,7 @@
 # Setup prompts you can adapt
 
+[Documentation](README.md) · [Sample files](../samples/README.md) · [Field guide](16-Configuration-Field-Guide.md)
+
 Begin with [Your first KPI run](02-Start-Here.md) if you have not connected the tool yet.
 These are fictional examples, not required forms. Describe only the sources and rules your
 team actually uses. The assistant proposes a profile and asks about gaps.

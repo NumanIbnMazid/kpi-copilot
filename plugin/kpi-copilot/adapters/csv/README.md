@@ -33,23 +33,26 @@ reporter, created, resolved, estimate, story points, sprint, labels, url and res
 | KPI | Effect |
 |---|---|
 | Delivery Commitment | Needs a commitment date and a delivery date per item, or it says "Not measured" |
-| Rework Rate | Says "Not measured" unless the export records reopens |
-| Task Comprehension | Says "Not measured" unless the export records clarifications |
+| Rework Rate | Native status history is unavailable; a documented review answer or another supported input is needed |
+| Task Comprehension | Comment/history evidence is unavailable; do not treat an absent clarification as false |
 
-The other six work normally. The adapter declares this, the engine reports it, and the notes
-say it in plain English. Nothing is guessed.
+There is no guaranteed count of measurable KPIs. Client Expectation needs an agreed date,
+Escaped Defect Rate needs release evidence, and Velocity needs usable estimates. The
+[fictional CSV sample](https://github.com/NumanIbnMazid/kpi-copilot/tree/main/samples) shows
+four measured KPIs and five gaps for its supplied inputs.
 
 Some trackers can export a "date moved to <status>" column. If yours can, map it to
 `delivered` and the delivery half starts working. Delivery Commitment also needs to know
-which items the team committed to - export a commitment-date column if you have one, or set
+which items the team committed to - record the commitment in supported period/item facts or review inputs, or set
 `workflow.commitment.scope: all-deliverables` if the team commits to the whole scope.
 
 ## Dates
 
-Recognises `YYYY-MM-DD`, `DD/MM/YYYY`, `MM/DD/YYYY`, `DD-Mon-YYYY` and the usual ISO
-timestamps. Anything it cannot parse becomes null rather than a wrong date.
+Prefer unambiguous `YYYY-MM-DD`. The parser also tries day/month/year before month/day/year,
+so `03/04/2026` is ambiguous and can be interpreted differently from the export source.
+Normalize the export date format before running. Unparseable dates become null.
 
 ## When to move to a native adapter
 
-When the manual export becomes annoying, or when the three history-based KPIs matter enough
+When the manual export becomes annoying, or when the missing history/evidence matter enough
 to justify the work. Not before. `/kpi-copilot:kpi-adapter` walks it.

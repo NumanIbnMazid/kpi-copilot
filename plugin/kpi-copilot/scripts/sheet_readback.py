@@ -82,6 +82,8 @@ def _read(name: str, spec: dict, grid: Grid) -> dict:
             if per and kpi:
                 rows[f"{per}|{kpi}"] = {"why": grid(name, r, spec["why"]), "value": grid(name, r, spec["manual_value"]),
                                         "manual_why": grid(name, r, spec["manual_why"])}
+                if spec.get("summary"):
+                    rows[f"{per}|{kpi}"]["summary"] = grid(name, r, spec["summary"])
         return {"rows": rows}
     if kind == "questions":
         return {"rows": {str(grid(name, r, spec["id"])): {"answer": grid(name, r, spec["answer"])}
@@ -121,6 +123,20 @@ def load_state(path: Path) -> dict | None:
         return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
     except (OSError, json.JSONDecodeError) as e:
         raise SystemExit(f"Cannot read sheet baseline {path}. Restore it before refreshing the review sheet: {e}") from e
+
+
+def upgrade_summary(state: dict, results: dict) -> None:
+    """Capture edits to column L even when upgrading a workbook that called it automatic."""
+    spec = (state.get("spec") or {}).get("KPI Summary") or {}
+    if not spec or spec.get("summary"):
+        return
+    prior = {f"{p['period']}|{m['name']}": m for p in results.get("periods") or [] for m in p.get("measures") or []}
+    rows = state["values"]["KPI Summary"]["rows"]
+    if any(key not in prior for key in rows):
+        raise ValueError("The previous generated notes are needed to preserve edits to the result summary.")
+    spec["summary"] = 12
+    for key, row in rows.items():
+        row["summary"] = prior[key].get("summary_note", " || ".join(x for x in prior[key].get("note_parts") or [] if x))
 
 
 def _same(a: Any, b: Any) -> bool:
@@ -194,10 +210,23 @@ def fold(state: dict, grid: Grid, ledger, facts: dict, manual: dict, board_items
             for rid, rec in now["rows"].items():
                 old = before["rows"].get(rid) or {}
                 per, kpi = rid.split("|", 1)
-                if not _same(rec.get("why"), old.get("why")):
+                summary_changed = "summary" in rec and not _same(rec.get("summary"), old.get("summary"))
+                context_changed = not _same(rec.get("why"), old.get("why"))
+                if summary_changed:
+                    reasons = facts.setdefault("reasons", {})
+                    reasons.setdefault("_summaries", {})[rid] = rec.get("summary") or ""
+                    reasons.setdefault("_summary_authors", {})[rid] = "human"
+                    reasons.setdefault("_summary_bases", {})[rid] = (state["spec"][tab].get("note_bases") or {}).get(rid)
+                    said.append(f"{per} · {kpi}: result summary taken from the sheet")
+                if summary_changed or context_changed:
+                    basis = (state["spec"][tab].get("note_bases") or {}).get(rid)
+                    if basis:
+                        facts.setdefault("reasons", {}).setdefault("_human_reviews", {})[rid] = basis
+                if context_changed:
                     reasons = facts.setdefault("reasons", {})
                     reasons.setdefault(per, {})[kpi] = rec.get("why") or ""
                     reasons.setdefault("_authors", {})[rid] = "human"
+                    reasons.setdefault("_questions", {}).pop(rid, None)
                     said.append(f"{per} · {kpi}: reason taken from the sheet")
                 if not _same(rec.get("value"), old.get("value")) or not _same(rec.get("manual_why"), old.get("manual_why")):
                     if rec.get("value") in (None, ""):
@@ -298,9 +327,10 @@ def fold(state: dict, grid: Grid, ledger, facts: dict, manual: dict, board_items
                     for x in extra:
                         if x.get("key") == rec.get("key") and x.get("title") == rec.get("title"):
                             x[k] = _iso(v)
-                elif "#estimate-" in rid:
+                elif "#estimate-" in rid or rid.endswith("#defect"):
                     # Separately estimated deliverables may share a card, not their review edits.
-                    ledger.set(rid, f"set:{k}", _iso(v), "human", why,
+                    val = PHASE_IN.get(v, v) if k == "phase" else FINAL_IN.get(v, v) if k == "final_status" else _iso(v)
+                    ledger.set(rid, f"set:{k}", val, "human", why,
                                key=key, title=rec.get("title"), who=who)
                 elif k in judged:
                     val = PHASE_IN.get(v, v) if k == "phase" else v
@@ -329,7 +359,8 @@ def _file_answer(qid: str, answer: Any, ledger, facts: dict) -> None:
         item_id, field = qid[6:].rsplit(":", 1)
         allowed = ([p["name"] for p in (facts.get("periods") or {}).get("periods") or []]
                    if field == "period" else judge.FIELDS.get(field))
-        if not allowed or answer not in allowed:
+        answer = _allowed_answer(answer, allowed, field)
+        if answer is None:
             raise ValueError(f"{qid}: choose one of {', '.join(allowed or [])}")
         ledger.set(item_id, field, answer, "human", "Answered the open question")
         ledger.forget(item_id, "deferred:" + field)
@@ -345,3 +376,26 @@ def _file_answer(qid: str, answer: Any, ledger, facts: dict) -> None:
                           "answered in the sheet")
         return
     ledger.set_answer(qid, iso, "human", "answered in the sheet")
+
+
+def _allowed_answer(answer: Any, allowed: list[str] | None, field: str) -> str | None:
+    """Accept an unambiguous human sentence as well as a dropdown's exact value.
+
+    Open Questions is intentionally a prose-friendly surface. Requiring somebody to replace
+    "count this as understood" with the literal word ``Yes`` loses a valid decision and can
+    stop every later sheet edit from being read. Keep this deliberately narrow: only exact
+    choices, or the two plain-English forms of the understood judgement, are normalised.
+    """
+    if not allowed:
+        return None
+    raw = str(answer).strip()
+    exact = {str(value).casefold(): str(value) for value in allowed}
+    if raw.casefold() in exact:
+        return exact[raw.casefold()]
+    if field == "understood" and {value.casefold() for value in allowed} == {"yes", "no"}:
+        words = " ".join(raw.casefold().replace("'", "").split())
+        if "not understood" in words or "count" in words and "as misunderstood" in words:
+            return exact["no"]
+        if "count" in words and "understood" in words:
+            return exact["yes"]
+    return None

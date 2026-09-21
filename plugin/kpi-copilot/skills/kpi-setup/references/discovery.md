@@ -1,61 +1,49 @@
-# Discovery: what to read off a board before asking anything
+# Discover the workflow before proposing settings
 
-The setup interview should feel like a conversation with someone who already looked. Spend
-five minutes reading their tracker first, then present what you found as statements to
-correct.
+Use the configured adapter to collect a board snapshot on disk. Follow the setup skill and
+read its compact outputs; do not browse cards one by one or pass the whole board through
+conversation. For an unsupported tracker, start with a CSV export or the adapter skill.
 
-## What you are trying to learn
+## What to establish
 
-| Profile field | What to look for |
+| Setting | Evidence needed |
 |---|---|
-| `conventions.key_pattern` | Open ten issues. What do their identifiers look like? `TKT-3175`, `ACME-101`, a bare number? |
-| `workflow.*.values` | The board's columns or statuses, in order. Which one means "dev is finished and QA can start"? |
-| `conventions.defect_by` | Are defects an issue type, a label, a title pattern, or a separate board? |
-| `conventions.exclude_patterns` | Scan titles for things that are not deliverables: "Sprint Goal", "QA Checklist", "Milestone 2", "[Duplicate]", umbrella cards |
-| `conventions.cr_marker` | How is an approved addition marked? A label, a `[CR]` prefix, a field, or only in an estimates sheet? |
-| `tracker.estimate_field` | Which field holds effort, and in what unit |
-| `periods.model` | Sprints? Fix versions? Milestone cards? Nothing at all? |
-| `conventions.client_names` | Who on the board is on the client side |
+| `conventions.key_pattern` | The identifier convention in the collected records |
+| `workflow.*.values` | Observed states, plus the person's agreement on what delivery and closure mean |
+| `conventions.defect_by` | The field, issue type, label or title pattern actually used for reports |
+| `conventions.exclude_patterns` | Explicit patterns for grouping and administrative records; inspect excluded results |
+| `conventions.cr_marker` | The agreed marker for approved additional scope, not every request for a change |
+| Estimate fields and units | The tracker or named source carrying the approved hours or story points |
+| `periods.model` | The reporting groups and their known boundaries |
+| `conventions.client_names` | Confirmed client-side participants; ask if roles are not established |
 
-## Per tracker
+An observed state name is evidence of a workflow, not proof of a promise. Do not assume that
+Ready for QA, Done or Closed is always the right delivery event.
 
-**Asana.** Sections are the workflow states. The ticket key is usually a custom field.
-Delivery is the first move into a QA-ish section. Asana's own "complete" flag often means
-merged rather than accepted, so ask. Story history is on the task.
+## What the shipped readers can contribute
 
-**Jira.** Statuses and the workflow scheme. The changelog gives full history. `issuetype`
-distinguishes Bug from Story. Sprints are a custom field (`customfield_100xx`), and fix
-versions are an alternative period model. Estimates come back in **seconds**.
+- **Asana:** fields, sections/status changes, completions and comments, subject to access and
+  the selected options. Unchanged history may be reused from cache.
+- **Jira:** workflow history, comments, types, resolution and estimates. The reader converts
+  native original-estimate seconds to hours. Confirm configured point fields and scope.
+- **GitHub:** issue history and, when configured and available, Projects status/number fields.
+  Do not treat it as inherently history-free. Unsupported history must be reported.
+- **CSV:** fields present in the export, without native event history or comments. An explicit
+  delivered column can help with dates, but does not recreate all missing evidence.
 
-**ClickUp / Linear / Monday / Azure DevOps.** All have statuses and some form of history.
-Check whether history is on the list endpoint or needs a call per item - that decides whether
-a native adapter is worth writing at all.
+Consult each adapter README for limits. There is no guaranteed number of measurable KPIs
+for an arbitrary export.
 
-**Trello / GitHub Issues / a spreadsheet.** Usually no usable history. Start with `csv` and
-be straight about which three KPIs will say "Not measured".
+## Propose a mapping for correction
 
-## Present it as statements, not questions
+For a fictional example:
 
-> Here is what I read off your board. Correct anything wrong.
->
-> - Your columns: Backlog, In Progress, **In Test**, Testing Failed, **Done**.
-> - **Delivered** = first time an item reaches *In Test* (your delivery event).
-> - **Closed** = *Done*.
-> - **Reopened** = out of *Done* back into *In Progress*.
-> - **Defects** = issue type *Bug*. *Improvement* is reported, not counted.
-> - **Keys** look like `NW-1234`.
-> - **Not deliverables**: 4 cards titled "Sprint Goal" or "QA Checklist".
+> The collected records use Backlog, In Progress, In Test and Done. I propose In Test as
+> delivery and Done as final closure, if the team's promise is to hand completed development
+> to QA. Bugs are issue type Bug; Improvements remain visible but do not count as defects.
+> Sprint Goal records are excluded. Please correct the delivery promise or any mapping.
 
-## What is genuinely worth asking
-
-Only the things the board cannot tell you:
-
-1. When two states both look like "delivered", which one is it really?
-2. What does the team commit to, and what counts as keeping that commitment? Does every item
-   carry a commitment, or only some?
-2. Does the tracker's "complete" flag mean merged, or accepted?
-3. Where does the agreed scope live, if not on the board?
-4. When the plan says one date and the client said another, which is the agreed one?
-5. What should happen at the end: a sheet they type in, or a push they approve?
-
-Five questions, one round. Everything else you can read or default.
+Distinguish observations from assumptions. Ask one grouped set of questions about unresolved
+agreement: the promised outcome, scope source, who agreed dates, client handover, missing
+estimates and output destination. Keep proposed rules reviewable before saving the profile.
+Use [the fictional worked example](worked-example.md) for a complete configuration story.

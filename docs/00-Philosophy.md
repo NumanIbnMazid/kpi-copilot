@@ -1,5 +1,7 @@
 # Philosophy
 
+[Documentation](README.md) · [First run](02-Start-Here.md)
+
 The core document. Everything else in this project is downstream of what is written here.
 
 If you are picking this up to extend it, change a rule, add a tracker, or decide whether some
@@ -53,7 +55,8 @@ A missing number prompts a question. A wrong number gets quoted in a review, def
 on, and discovered six months later by somebody who then distrusts everything else.
 
 So the tool refuses to guess. When an adapter cannot observe what a KPI needs, the KPI comes
-back **"Not measured"** with a sentence saying why — never a plausible zero.
+back **"Not measured"** in the review sheet, with an actionable question — never a plausible
+zero. PMS receives supported results and delivery context, not data-collection diagnostics.
 
 This has a cost that is worth naming: a team on a weak tracker will see three of nine KPIs
 unmeasured, and that looks worse than a full set. It is not worse. Six honest numbers beat
@@ -71,7 +74,9 @@ the other, or the difference is printed where a reader will see it.
 This single rule produced most of the design:
 
 - The sheet and PMS cannot disagree, because what reaches PMS is always regenerated from the
-  current inputs — never typed separately.
+  current inputs — never typed separately. Before every push the configured review sheet is
+  read again: Google Sheets when configured, otherwise the local workbook. An unavailable
+  Google Sheet is not permission to substitute an older local copy.
 - A hand-set value never replaces the computed one; both are kept, the reason is printed
   above the numbers, and the note itself says a person recorded a different figure.
 - A target set for one project is marked, so nobody comparing two projects mistakes a local
@@ -150,6 +155,19 @@ makes the tool honest with itself: a rule that cannot point at evidence is a rul
 guessing.
 
 ### 9. Generated text is read as English, by a person, before anyone sees it
+
+**Must have: every PMS note must make sense to a decision maker who knows nothing about
+the project.** State the result and what was measured, explain the work and events that
+matter, and describe the effect on delivery and any agreed decision. Explain local workflow
+terms before relying on them. A ticket number, a status name, or a technically correct ratio
+is not an explanation. Where the evidence cannot establish a cause, raise a review question
+in the sheet; do not invent one or put collection diagnostics into PMS notes. This applies
+to met and unmeasured KPIs as well as missed targets. Both the result summary and context
+are editable. Preserve a person's wording; require renewed review if its figures change.
+
+Every generated note goes through the assistant's evidence-based clarity review. The tool
+records that review and asks again when its facts, wording or explanation change. Company
+and client vocabulary is configurable, but readability and factual accuracy are mandatory.
 
 Notes are read by management. A note that says "1 observations" tells the reader that nobody
 is looking at the output — and once they believe that, they stop trusting the numbers too.

@@ -8,8 +8,8 @@ python3 scripts/kpi.py run --profile profile.yaml --project <id>          # uses
 
 | | |
 |---|---|
-| First read | a hundred issues per request with their changelog attached; an unusually long history or comment thread costs one more request |
-| Every read after | only issues updated since the cached snapshot |
+| Data collection | Refresh project/query membership and follow issue, history and comment pagination |
+| Reruns | Do not assume an updated-only read; membership must reflect deletions and changes of scope |
 | What it produces | a **board snapshot** (`scripts/board.py`). No judgement |
 | What it can see | status history, comments, assignee, original estimate (as hours), story points, labels, issue type, resolution, created and resolved dates, reporter |
 
@@ -25,7 +25,7 @@ off its parent.
 ```yaml
 tracker:
   adapter: jira
-  url: https://acme.atlassian.net
+  url: https://jira.example.com       # replace with your actual deployment
   story_point_field: Story Points      # looked up by name; no custom-field id needed
   options:
     jql: 'project = ACME AND fixVersion = "4.2"'     # optional; default is the whole project
@@ -56,13 +56,13 @@ report. Put your own words under `conventions.tags.rejected` if they differ.
    set up, the fastest at run time, and the one for an unattended schedule.
 2. **Sign in in your browser** (Cloud) - `python3 scripts/kpi.py auth jira --route browser`;
    click Accept. Needs an Atlassian OAuth app your company registers once
-   (`docs/03-Prerequisites.md`).
+   ([prerequisites](https://github.com/NumanIbnMazid/kpi-copilot/blob/main/docs/03-Prerequisites.md)).
 3. **No credential at all** - in a signed-in Jira tab (yours, or your assistant's built-in
    browser), run `browser_snapshot.js`, then `kpiSnapshot('project = ACME')`. It *downloads*
    `jira-raw.json`; pass it with `kpi.py run … --from-raw ~/Downloads/jira-raw.json`. Slower,
    and somebody has to be there, but it works where tokens are forbidden.
 
-All three end in the same snapshot through the same code, so they cannot disagree.
+All three end in the same snapshot through the same code, so equivalent complete responses use the same parser. Access, timing and completeness can still differ.
 
 ## The older converter
 

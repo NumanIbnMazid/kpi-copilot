@@ -159,6 +159,11 @@ class Measure:
     counted_keys: list[str] = field(default_factory=list)
     note: str = ""
     note_parts: list[str] = field(default_factory=list)
+    generated_note: str = ""
+    summary_note: str = ""
+    context_note: str = ""
+    review_items: list[str] = field(default_factory=list)
+    publish_blocked: bool = False
     gaps: list[str] = field(default_factory=list)
     pms_value: float | None = None  # after clamping to the PMS range
     clamped: bool = False
@@ -439,16 +444,38 @@ class Engine:
         unit = (self.kif["project"].get("velocity_unit") or "Estimated Hours")
         by_points = unit == "Story Points"
         delivered = self.delivered_in(name)
+        # Group members count as separate tickets, but their approved budget lives once
+        # on the excluded parent. It is not a zero-hour estimate for each child.
+        effort_rows = ([t for t in delivered if not t.get("effort_group")] +
+                       [t for t in self.tasks_in(name) if t.get("effort_only") and t.get("delivered")])
         basis = (self.sources.get("hours_basis") or "dev")
 
-        missing = [t for t in delivered if
+        missing = [t for t in (delivered if by_points else effort_rows) if
                    (t.get("story_points") is None if by_points else
                     t.get("hours_dev") is None or
                     (basis == "dev+qa" and t.get("closed") and t.get("hours_qa") is None))]
-        if missing:
+        if not by_points:
+            eligible_groups = {t.get("_item") for t in effort_rows if t.get("effort_only")}
+            missing.extend(t for t in delivered if t.get("effort_group") and t["effort_group"] not in eligible_groups)
+        missing_policy = self.sources.get("missing_estimate") or "withhold"
+        if missing and missing_policy != "skip":
             why = (f"Velocity is not measured in {'story points' if by_points else 'hours'}: "
                    f"{len(missing)} of {len(delivered)} delivered items lack the required estimate. "
-                   "Fill the missing estimates; blank does not mean zero.")
+                   "Record the missing estimate or finish the group whose estimate cannot be split; blank does not mean zero.")
+            m = self._measure("velocity", value=None, unit=unit, numerator=None, denominator=None, gaps=[why])
+            m.note_parts = [self._heading("velocity", period), why, ""]
+            m._say = {"kpi": "velocity", "empty": why}
+            return m
+
+        missing_rows = {t.get("_row") or t.get("_item") for t in missing}
+        measured_delivered = [t for t in delivered if (t.get("_row") or t.get("_item")) not in missing_rows]
+        effort_rows = [t for t in effort_rows if (t.get("_row") or t.get("_item")) not in missing_rows]
+        partial_gap = (f"{len(missing)} of {len(delivered)} delivered items have no usable estimate and are "
+                       "excluded from the known-hours total. Review whether an estimate source should be added."
+                       if missing else "")
+        if missing and not measured_delivered:
+            why = (f"Velocity is not measured in {'story points' if by_points else 'hours'} because none of the "
+                   f"{len(delivered)} delivered items has a usable estimate.")
             m = self._measure("velocity", value=None, unit=unit, numerator=None, denominator=None, gaps=[why])
             m.note_parts = [self._heading("velocity", period), why, ""]
             m._say = {"kpi": "velocity", "empty": why}
@@ -461,16 +488,13 @@ class Engine:
             qa = float(t.get("hours_qa") or 0) if basis == "dev+qa" and t.get("closed") else 0.0
             return dev + qa
 
-        item_total = sum(effort(t) for t in delivered)
+        item_total = sum(effort(t) for t in (measured_delivered if by_points else effort_rows))
         team_hours = float(period.get("team_hours") or 0) if not by_points else 0.0
+        if (self.profile.get("sources") or {}).get("team_hours_when") == "handover" and not period.get("handover_date"):
+            team_hours = 0.0
         total = item_total + team_hours
 
-        gaps: list[str] = []
-        if not by_points and not any(t.get("hours_dev") for t in delivered) and delivered:
-            gaps.append(
-                "No effort figures were available for the delivered items, so Velocity counts only team-level effort."
-            )
-
+        gaps: list[str] = [partial_gap] if partial_gap else []
         if not delivered:
             numbers = self._nothing_yet(period, name)
             m = self._measure("velocity", value=None, unit=unit, numerator=0, denominator=0, gaps=gaps)
@@ -478,9 +502,9 @@ class Engine:
             m._say = {"kpi": "velocity", "none": True, "rows": len(self.deliverables_in(name))}
             return m
 
-        n_plan = sum(1 for t in delivered if t.get("type") == "Task")
-        n_cr = sum(1 for t in delivered if t.get("type") == "CR")
-        n_scope = sum(1 for t in delivered if t.get("type") == "Scope")
+        n_plan = sum(1 for t in measured_delivered if t.get("type") == "Task")
+        n_cr = sum(1 for t in measured_delivered if t.get("type") == "CR")
+        n_scope = sum(1 for t in measured_delivered if t.get("type") == "Scope")
         mix = []
         if n_plan:
             mix.append(f"{n_plan} from the plan")
@@ -490,13 +514,13 @@ class Engine:
             mix.append(f"{n_scope} in-scope {_plural(n_scope, 'item')}")
 
         unit_word = "story points" if by_points else "h"
-        head = f"{_n(total)} {unit_word} across {_items_word(len(delivered))}"
+        head = f"{_n(total)} {unit_word} across {_items_word(len(measured_delivered))}"
         numbers = head + (": " + ", ".join(mix) if mix and len(mix) > 1 else "")
 
         detail = []
         if not by_points and basis == "dev+qa":
-            dev = sum(float(t.get("hours_dev") or 0) for t in delivered)
-            qa = sum(float(t.get("hours_qa") or 0) for t in delivered if t.get("closed"))
+            dev = sum(float(t.get("hours_dev") or 0) for t in effort_rows)
+            qa = sum(float(t.get("hours_qa") or 0) for t in effort_rows if t.get("closed"))
             if dev or qa:
                 detail.append(f"{_n(dev)} h of development and {_n(qa)} h of QA")
         if team_hours:
@@ -513,14 +537,15 @@ class Engine:
             unit=unit,
             numerator=round(total, 2),
             denominator=None,
-            counted_keys=[t["key"] for t in delivered],
+            counted_keys=[t["key"] for t in measured_delivered],
             gaps=gaps,
         )
         m.note_parts = [self._heading("velocity", period), numbers, ", ".join(detail)]
-        m._say = {"kpi": "velocity", "total": total, "points": by_points, "n": len(delivered), "plan": n_plan,
+        m._say = {"kpi": "velocity", "total": total, "points": by_points, "n": len(measured_delivered), "plan": n_plan,
                   "cr": n_cr, "scope": n_scope, "basis": basis, "team": team_hours, "open": len(not_yet),
-                  "dev": sum(float(t.get("hours_dev") or 0) for t in delivered),
-                  "qa": sum(float(t.get("hours_qa") or 0) for t in delivered if t.get("closed"))}
+                  "dev": sum(float(t.get("hours_dev") or 0) for t in effort_rows),
+                  "qa": sum(float(t.get("hours_qa") or 0) for t in effort_rows if t.get("closed")),
+                  "grouped": sum(bool(t.get("effort_only")) for t in effort_rows)}
         return m
 
     def _ratio_measure(
@@ -617,6 +642,21 @@ class Engine:
         )
 
     def client_expectation(self, period: dict) -> Measure:
+        override = period.get("client_expectation_override")
+        if override in ("Yes", "No"):
+            rows = [dict(t, met_client_date=override) for t in self.deliverables_in(period["name"])]
+            m = self._ratio_measure(
+                "client_expectation", period, rows, "met_client_date",
+                ("item is counted as meeting the client expectation",
+                 "items are counted as meeting the client expectation"),
+            )
+            date = _md(period.get("client_date"))
+            outcome = "on track for" if override == "Yes" else "not meeting"
+            m._say.update(human_batch_override=True, override=override, dates=[date] if date else [])
+            m.note_parts = [self._heading("client_expectation", period),
+                            f"The review decision counts all {len(rows)} items as {outcome} the {date} expectation",
+                            "Work remains in progress"]
+            return m
         rows = self.deliverables_in(period["name"])
         return self._ratio_measure(
             "client_expectation", period, rows, "met_client_date",
@@ -640,6 +680,21 @@ class Engine:
         words so a reader is never guessing.
         """
         name = period["name"]
+        override = period.get("delivery_commitment_override")
+        if override in ("Yes", "No"):
+            rows = [dict(t, met_commitment=override) for t in self.deliverables_in(name)]
+            m = self._ratio_measure(
+                "delivery_commitment", period, rows, "met_commitment",
+                ("commitment is counted as on track", "commitments are counted as on track"),
+            )
+            date = _md(period.get("commit_date"))
+            outcome = "on track for" if override == "Yes" else "not meeting"
+            m._say.update(human_batch_override=True, override=override, dates=[date] if date else [],
+                          phrase="recorded by the KPI reviewer")
+            m.note_parts = [self._heading("delivery_commitment", period),
+                            f"The review decision counts all {len(rows)} items as {outcome} the {date} commitment",
+                            "Work remains in progress"]
+            return m
         cfg = (self.profile.get("workflow") or {}).get("commitment") or {}
         rows = self.deliverables_in(name)
 
@@ -754,16 +809,16 @@ class Engine:
         escaped = [d for d in valid if d.get("phase") == "Post-release"]
         den = len(valid)
 
-        # Nothing can escape from a cycle the client has never seen. Reporting 0% here would
-        # be a green "Met" bought by the absence of exposure.
+        # A missing handover date does not establish client exposure. It must not create
+        # a green zero, or claim that an unrecorded handover never happened.
         if not period.get("handover_date"):
             m = self._measure(
                 "escaped_defect_rate", value=None, numerator=0, denominator=den,
-                gaps=["Not handed over to the client yet, so nothing can have escaped."],
+                gaps=["A client handover date is not recorded, so escaped defects cannot be assessed yet."],
             )
             m.note_parts = [
                 self._heading("escaped_defect_rate", period),
-                "Not handed over to the client yet, so there is nothing to measure",
+                "A client handover date is not recorded, so escaped defects cannot be assessed yet",
                 "",
             ]
             m._say = {"kpi": "escaped_defect_rate", "no_handover": True, "den": den}
@@ -844,9 +899,10 @@ class Engine:
 
     def rework_rate(self, period: dict) -> Measure:
         name = period["name"]
-        completed = [t for t in self.deliverables_in(name) if t.get("closed")]
+        completed = [t for t in self.deliverables_in(name) if t.get("rework_closed", t.get("closed"))]
         reopened = [t for t in completed if t.get("reopened") == "Yes"]
         judged = [t for t in completed if t.get("reopened") in ("Yes", "No")]
+        reopen_events = sum(int(t.get("reopen_count") or 1) for t in reopened)
         den = len(completed)
 
         gaps = []
@@ -880,10 +936,10 @@ class Engine:
 
         # Judged, not merely completed: an item nobody could assess is not evidence of no rework.
         den = len(judged)
-        value = _pct(len(reopened), den)
+        value = _pct(reopen_events, den)
         numbers = (
-            f"{len(reopened)} of {den} completed {_plural(den, 'task')} ({_n(value)}%)"
-            if reopened
+            f"{reopen_events} reopening {_plural(reopen_events, 'event')} across {den} completed {_plural(den, 'task')} ({_n(value)}%)"
+            if reopen_events
             else f"None of the {den} completed {_plural(den, 'task')} was reopened (0%)"
         )
         # A QA fail during the first test round is normal testing. Naming it is what stops
@@ -904,11 +960,12 @@ class Engine:
         third = "; ".join(left)
 
         m = self._measure(
-            "rework_rate", value=value, numerator=len(reopened), denominator=den,
+            "rework_rate", value=value, numerator=reopen_events, denominator=den,
             counted_keys=[t["key"] for t in reopened], gaps=gaps,
         )
         m.note_parts = [self._heading("rework_rate", period), numbers, third]
-        m._say = {"kpi": "rework_rate", "reopened": len(reopened), "den": den, "value": value,
+        m._say = {"kpi": "rework_rate", "reopened": reopen_events, "affected": len(reopened),
+                  "den": den, "value": value,
                   "near": len(near), "unjudged": unjudged}
         return m
 
@@ -1004,26 +1061,51 @@ class Engine:
             due = sorted({_md(t.get("client_date") or t.get("commit_date")) for t in pending})
             due = [d for d in due if d]
             subject = "the only item is" if n == 1 else f"all {n} items are"
-            when = f" still ahead of {due[0]}" if due else " not due yet"
-            tail = " and the handover has not happened" if not period.get("handover_date") else ""
+            when = f" due on {due[0]}" if len(due) == 1 else (f" due between {due[0]} and {due[-1]}" if due else " not due yet")
+            tail = ", and no delivery is recorded yet"
             return f"Nothing to measure yet: {subject}{when}{tail}"
         return f"Nothing to measure yet across {_items_word(len(rows))}"
 
     def _reason_for(self, period_name: str, kpi_name: str) -> str:
         block = (self.reasons.get(period_name) or {})
-        return (block.get(kpi_name) or block.get(kpi_name.lower()) or "").strip()
+        return note_sentences.terminology((block.get(kpi_name) or block.get(kpi_name.lower()) or "").strip(), self.profile)
 
     def finish_note(self, m: Measure, period_name: str) -> None:
-        """Glue the parts. The reason is the only part a human writes, and its job is to add
-        what the numbers cannot say - never to repeat them.
+        """Join the editable summary and context, preserving their separate sheet fields.
 
         Two styles, one set of numbers. `sentences` (the default) says each part the way a
         person would; `fragments` is the older "heading || numbers || what was left out".
         The counting is identical - only the wording differs (note_sentences.py)."""
         sentences = self.note_style == "sentences" and getattr(m, "_say", None)
         if sentences:
+            wf = self.profile.get("workflow") or {}
+            m._say["close_explanation"] = (wf.get("reopened_when") or {}).get("note")
+            m._say["delivery_label"] = (wf.get("delivered_when") or {}).get("label")
             m.note_parts = note_sentences.sentences(m._say)
-        parts = [p for p in (m.note_parts + [self._reason_for(period_name, m.name)]) if p and p.strip()]
+        m.note_parts = [note_sentences.terminology(p, self.profile) for p in m.note_parts]
+        if m.clamped and m.value is not None:
+            m.note_parts.append(f"PMS limits the numeric field to {_n(m.pms_value)}; the calculated result "
+                                f"is {_n(m.value)}{m.unit}.")
+        import note_policy
+        generated, review = note_policy.split(" || ".join(m.note_parts))
+        if m.value is None:
+            review = list(dict.fromkeys(review + generated))
+            generated = []
+        m.generated_note = " || ".join(generated)
+        m.note_parts = generated
+        tag = f"{period_name}|{m.name}"
+        overrides = self.reasons.get("_summaries") or {}
+        summary = str(overrides[tag]) if tag in overrides else m.generated_note
+        summary_parts, summary_review = note_policy.split(summary)
+        context_parts, context_review = note_policy.split(self._reason_for(period_name, m.name))
+        m.summary_note = " || ".join(summary_parts)
+        m.context_note = " || ".join(context_parts)
+        m.review_items = list(dict.fromkeys(review + summary_review + context_review + m.gaps))
+        saved_basis = (self.reasons.get("_summary_bases") or {}).get(tag)
+        if tag in overrides and summary != m.generated_note and saved_basis != note_policy.basis(m.as_dict()):
+            m.review_items.append("The figures changed after the result summary was edited. Review the wording against the current figures.")
+            m.publish_blocked = True
+        parts = [p for p in (summary_parts + context_parts) if p and p.strip()]
         cleaned: list[str] = []
         for p in parts:
             p = _strip_links(p).strip().rstrip(".")
@@ -1035,10 +1117,6 @@ class Engine:
                 continue
             cleaned.append(p + ("." if sentences else ""))
         m.note = " || ".join(cleaned)
-        if m.clamped and m.value is not None:
-            m.note += (f" || There is more here than PMS can hold: it stores {_n(m.pms_value)}, and the real figure "
-                       f"is {_n(m.value)}." if sentences else
-                       f" || PMS accepts up to {_n(m.pms_value)}; the real figure is {_n(m.value)}")
 
     def apply_manual(self, m: Measure, period_name: str) -> None:
         """Let a person state a different value or note than the data supports.
@@ -1091,15 +1169,27 @@ class Engine:
             else:
                 m.status = "Met" if m.value <= m.threshold else "Not met"
         if has_note:
-            m.note = _strip_links(str(entry["note"]))
-        elif has_value and m.computed_value != m.value:
+            import note_policy
+            good, review = note_policy.split(_strip_links(str(entry["note"])))
+            m.summary_note = " || ".join(good)
+            m.context_note = ""
+            m.review_items.extend(x for x in review if x not in m.review_items)
+            m.note = m.summary_note
+        if has_value and m.computed_value != m.value:
             # The note still describes what the data said. Leaving it beside a different value
             # is the one genuinely dishonest outcome here, so the note gains a final part
             # naming the figure a person recorded and why. Both readings stay visible.
             who = f" by {entry.get('by')}" if entry.get("by") else ""
-            m.note += (f" || Recorded as {_n(m.value)}{'%' if m.unit == '%' else ''}{who} rather than "
-                       f"the {_n(m.computed_value)}{'%' if m.unit == '%' else ''} above: {_strip_links(why).rstrip('.')}"
+            import note_policy
+            public_why, review_why = note_policy.split(_strip_links(why))
+            m.review_items.extend(x for x in review_why if x not in m.review_items)
+            cause = " ".join(public_why).rstrip('.')
+            detail = (f"Recorded as {_n(m.value)}{'%' if m.unit == '%' else ''}{who} rather than "
+                       + (f"the calculated {_n(m.computed_value)}{'%' if m.unit == '%' else ''}" if m.computed_value is not None
+                          else "a calculated value") + (f": {cause}" if cause else "")
                        + ("." if self.note_style == "sentences" else ""))
+            m.context_note = " || ".join(filter(None, [m.context_note, detail]))
+            m.note = " || ".join(filter(None, [m.note, detail]))
 
         m.overridden = True
         m.override_reason = why
@@ -1129,7 +1219,7 @@ class Engine:
             bits.append(" + ".join(mix))
         if period.get("handover_date"):
             bits.append(f"handed over {_md(period['handover_date'])}")
-        return ", ".join(bits)
+        return note_sentences.terminology(", ".join(bits), self.profile)
 
     # -- run ---------------------------------------------------------------------------
 
@@ -1265,12 +1355,13 @@ def to_pms_payloads(results: list[PeriodResult], kif: dict) -> list[dict]:
                         "computed_value": m.computed_value,
                     }
                     for m in r.measures
-                    if m.value is not None and m.pms_id is not None
+                    if m.value is not None and m.pms_id is not None and not m.publish_blocked
                 ],
                 "skipped": [
-                    {"name": m.name, "reason": m.note or "Not measured"}
+                    {"name": m.name, "kpiId": m.pms_id, "reason": " || ".join(m.review_items) or "Not measured",
+                     "preserve_existing": m.publish_blocked}
                     for m in r.measures
-                    if m.value is None
+                    if m.value is None or m.publish_blocked
                 ],
             }
         )

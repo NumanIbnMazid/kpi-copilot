@@ -1,8 +1,11 @@
-# The brief
+# Product brief and design goals
 
-What this project has to do, written as a specification rather than a wish list. It is the
-contract the work is measured against; [docs/00-Philosophy.md](docs/00-Philosophy.md) is the
-reasoning behind how it was met.
+[Documentation](docs/README.md) · [Current capabilities](docs/01-Overview.md)
+
+This is the product brief: desired behavior and design goals, not an installation guide or
+proof that every integration is implemented. Use the current guides for supported routes
+and limitations. [Design principles](docs/00-Philosophy.md) explain the approach. Time goals
+below are acceptance ambitions, not measured performance guarantees.
 
 ---
 
@@ -28,8 +31,8 @@ If these vary between people, the exercise is theatre.
 
 - **PMS is the destination.** KPIs are recorded against a PMS project and period.
 - **The KPI set is fixed** — the nine PMS KPIs, their IDs and their direction. Definitions and
-  targets are read *from PMS itself*, never copied into code, so the tool cannot drift from
-  what the company measures. Targets are configurable per project in PMS and legitimately
+  targets should follow *PMS itself*. The implementation uses a configured registry with a
+  bundled fallback; refresh the registry when authoritative definitions change. Targets are configurable per project in PMS and legitimately
   differ; what must not differ is the counting behind the number.
 - **How each KPI is counted** — what counts as delivered, as a defect, as rework, as a change
   request. Same situation, same number, whoever runs it.
@@ -55,7 +58,7 @@ Everything else, and not only the examples below.
 | Period model | Milestones, delivery cycles, sprints, monthly, one "Full Project" |
 | Velocity unit | Estimated hours, story points |
 | Where working files go | Google Sheets, local Excel, a Drive folder, SharePoint |
-| How results reach PMS | Automatic push, dry run then approve, or a review sheet typed in by hand |
+| How results reach PMS | Preview then explicit approval, or a review sheet entered by hand; schedules prepare drafts only |
 | Scale | One lead may run several projects, across several clients, on several trackers at once |
 
 ## 4. How it must feel to adopt
@@ -68,7 +71,8 @@ Everything else, and not only the examples below.
   the tracker and here is the board; this is the chat space where we talk to the client; this
   is the folder the working file goes in; this is what "delivered" means on our board*.
 - **Machine-readable and human-readable stay in sync.** The workbook and the config file are
-  two views of one thing, and neither can silently drift from the other.
+  two views of one thing. The current workflow requires an explicit workbook import and
+  validation after configuration edits; it is not a live two-way sync.
 - **Nothing is mandatory that a team does not have.** No plan document, no estimates sheet, no
   chat history — the tool degrades to "Not measured, and here is why" rather than guessing.
 - **Easy by default, deep when wanted.** Sensible behaviour with almost no configuration, and
@@ -109,9 +113,7 @@ open. These are requirements, not polish.
    reference. Then the deep material for whoever has to extend it.
 3. **A philosophy document** that records why the design is what it is, so the next person can
    make a decision the same way without asking anyone.
-4. **A presentation** for the rollout conversation: the problem, what it changes, how it
-   rolls out, what it risks.
-5. **This brief.**
+4. **This brief.**
 
 ## 6. How it must be built
 
@@ -136,7 +138,7 @@ can:
 1. install it,
 2. answer a short interview,
 3. get a KPI set for one of their real projects, with evidence links and readable notes,
-4. choose whether the numbers go to PMS automatically or whether they enter them by hand,
+4. choose whether to approve a PMS submission or enter the reviewed results by hand,
 5. correct anything that is wrong, in a spreadsheet, and have the corrections flow through,
 6. ask for the run again next month, in one sentence, from whichever assistant they use, and
    have an updated sheet at the same link within a couple of minutes - without the assistant

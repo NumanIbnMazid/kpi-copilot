@@ -1,0 +1,99 @@
+profile_version: "1.0"
+# FICTIONAL TRAINING PROFILE. CSV input only; no live account access.
+# Field explanations: docs/16-Configuration-Field-Guide.md.
+
+owner:
+  name: Sample Lead
+  email: lead@example.com
+  role: Project Lead
+  account: Acme
+  timezone: Asia/Dhaka
+
+organization:
+  pms_base_url: ""  # Local review only.
+  kpi_registry: kpi_registry.json
+  note_format: "what is measured || the numbers || what was left out || why"
+  evidence_required: true
+
+tools:
+  - id: tracker
+    kind: issue-tracker
+    name: Jira
+    url_or_id: https://tracker.example.com/jira/software/projects/ACME/boards/7
+    description: "The Acme delivery board. Stories, bugs and change requests all live here, split by sprint."
+    used_for: [scope, dates, defects, evidence]
+    access: Atlassian SSO
+
+tracker:
+  adapter: csv
+  project_ref: ACME
+  url: https://tracker.example.com
+  options:
+    tracker_name: Jira
+    file: acme-identity/inputs/board_export.csv
+    columns:
+      period: Sprint
+
+conventions:
+  key_pattern: '[A-Z]+-\d+'
+  defect_by: issue-type
+  defect_values: [Bug]
+  observation_values: [Improvement, Observation]
+  exclude_patterns:
+    - '^Sprint Goal'
+    - '^QA Checklist'
+  cr_marker: 'change-request'
+  client_names: [Client PM]
+
+workflow:
+  delivered_when:
+    signal: status-entered
+    values: [In Review, Done]
+  closed_when:
+    values: [Done, Closed]
+  reopened_when:
+    values: [In Progress, Reopened]
+    ignore_first_qa_fail: true
+  clarification_when:
+    values: [Blocked - Client]
+    also_comments: true
+
+sources:
+  mode: tracker-only
+  plan: {kind: none}
+  estimates: {kind: none}
+  timeline: {kind: none}
+  evidence_channels: []
+  hours_first: tracker
+  hours_basis: dev
+
+periods:
+  model: Sprint
+  naming: "Sprint N"
+  client_check_default: Handover
+
+policy:
+  count_observations: false
+  count_improvements: false
+  count_pre_existing: false
+  count_post_release: true
+
+output:
+  mode: review-only
+  unattended: false
+  workbook: xlsx
+
+custom_instructions:
+  notes_style: "Plain and short. This team's management reads on a phone."
+  never:
+    - "Never write to PMS. This team enters KPIs by hand after review."
+  glossary:
+    - "A sprint here is two weeks, Monday to Friday."
+
+projects:
+  - id: acme-identity
+    name: Acme Demo Identity
+    pms_project_id: 201
+    tracker_ref: ACME
+    period_model: Sprint
+    velocity_unit: Story Points

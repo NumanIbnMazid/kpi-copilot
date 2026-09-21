@@ -1,0 +1,23 @@
+# FICTIONAL TRAINING FACTS. No live source was read.
+# The periods of this project. Dates a person agreed, PMS ids, the story of each period.
+# The Periods tab of the workbook shows the same thing; whatever is typed there is read
+# back into this file at the start of the next run.
+project:
+  client_date: '2026-09-11'
+  commit_date: '2026-09-11'
+  client_check: Delivery
+  dates_why: Northwind's Q3 feature freeze is 09/11. No new features after it; bug fixes are allowed until 09/25.
+periods:
+  - name: Initial Scope
+    start: '2026-07-01'
+    end: '2026-08-12'
+    pms_period_id: 501
+    team_hours: 40
+    notes: The planned work plus the additions approved on 07/31 and 08/10, handed over together.
+    plan_text: Build to QA 07/20, handover 07/29 (plan).
+  - name: Additional Requests 1
+    start: '2026-08-27'
+    end: '2026-09-30'
+    pms_period_id: 502
+    notes: The two additional requests approved on 08/28.
+    plan_text: Handover 09/16 (timeline).

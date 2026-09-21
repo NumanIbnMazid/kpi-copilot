@@ -25,7 +25,7 @@ def row_id(key, role, row, index):
     return "history:" + token
 
 
-def apply_edits(kif, facts):
+def apply_edits(kif, facts, profile=None, as_of=None):
     """Historical human corrections remain authoritative when that period is refreshed."""
     keys = {p["name"]: period_key(p) for p in kif.get("periods", [])}
     for p in kif.get("periods", []):
@@ -38,7 +38,34 @@ def apply_edits(kif, facts):
                 continue
             index = counters.get(name, 0)
             counters[name] = index + 1
-            row.update((facts.get("history_edits") or {}).get(row_id(keys[name], role, row, index), {}))
+            edits = (facts.get("history_edits") or {}).get(row_id(keys[name], role, row, index), {})
+            scoped_out = row.get("exclude_reason") in (
+                "assignee is outside the configured project team",
+                "no tracker assignee to establish project-team scope")
+            row.update(edits)
+            if scoped_out:
+                row.update(type="Excluded", planned=False)
+            period_edits = (facts.get("history_periods") or {}).get(name, {})
+            dates = {"delivered", "client_date", "commit_date", "client_expected", "team_committed"}
+            if role == "tasks" and as_of and (dates.intersection(edits) or period_edits):
+                from classify import on_time, _later
+                period = next(p for p in kif["periods"] if p["name"] == name)
+                project = kif.get("project", {})
+                for field in ("client_date", "commit_date"):
+                    if field in period_edits and field not in edits:
+                        row[field] = period_edits[field]
+                if edits.get("client_expected") == "No":
+                    row["client_date"] = None
+                if edits.get("team_committed") == "No":
+                    row["commit_date"] = None
+                dl, ho = row.get("delivered"), period.get("handover_date")
+                check = period.get("client_check") or project.get("client_check") or "Handover"
+                by_handover = "handover" in str(((profile or {}).get("workflow", {}).get("commitment") or {})
+                                                .get("met_when") or "").lower()
+                row["met_client_date"] = on_time(dl if check == "Delivery" else _later(dl, ho),
+                                                  row.get("client_date"), as_of)
+                row["met_commitment"] = on_time(_later(dl, ho) if by_handover else dl,
+                                                row.get("commit_date"), as_of)
 
 
 def save(path: Path, data: dict) -> None:

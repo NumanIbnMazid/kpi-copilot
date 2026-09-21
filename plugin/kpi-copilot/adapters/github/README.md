@@ -10,8 +10,8 @@ python3 adapters/github/api.py --repo acme/web --out board.json            # on 
 
 | | |
 |---|---|
-| First read | one request per fifty issues, with labels, comments and full history attached: 150 issues in about 14 seconds |
-| Every read after | a second or two - only issues updated since the cached snapshot are asked for |
+| Data collection | Paginated issue queries with additional pages for supported nested history and comments |
+| Reruns | Refresh membership; elapsed time depends on API limits, board size and history |
 | What it produces | a **board snapshot** (`scripts/board.py`). No judgement |
 | What it can see | status history, comments, assignees, labels, issue type, created and closed dates, reporter, and a Project's number fields (estimate, story points) |
 

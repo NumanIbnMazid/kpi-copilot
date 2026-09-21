@@ -1,5 +1,7 @@
 # Custom instructions
 
+[Documentation](../README.md) · [Field guide](../16-Configuration-Field-Guide.md)
+
 Your own instructions, which take precedence over the tool's defaults.
 
 ```yaml
@@ -36,8 +38,10 @@ still misleading — the failure mode nobody catches in review.
 
 ## Rule overrides
 
-For a project fact the defaults get wrong. Each is applied and then printed at the **top** of
-every run summary, before the numbers.
+For recorded project exceptions. The engine directly applies `cr_denominator`,
+`exclude_key`, `include_key`, `defect_phase` and `velocity_team_hours`. Other accepted names
+can describe guidance rather than alter the current pipeline; use concrete workflow/source
+fields and verify the applied/unapplied report. Do not assume free text executes a rule.
 
 | Rule | Value looks like |
 |---|---|
@@ -59,9 +63,9 @@ An unsupported rule is reported, not silently dropped.
 
 ## What does not go here
 
-**Targets.** They are configurable per project in PMS, which is the right place. Setting one
-here is refused, and the refusal says where to set it instead — a target in two places is how
-the workbook ends up saying "Met" while PMS says "Not met".
+**Targets do not belong inside rule_overrides.** Use official PMS project targets via a
+registry refresh, or `targets.<kpi>.value` and `why` for a labelled local review target.
+Local targets block PMS submission until reconciled.
 
 **Counting rules.** What delivered, defect and rework mean is shared by everyone. Changing
 one is a conversation, because it moves every project's numbers at once.
@@ -69,19 +73,23 @@ one is a conversation, because it moves every project's numbers at once.
 ## Letting it learn
 
 Most of this never gets typed. Say it in chat — *"always show me the previous period"*,
-*"save the sheets in this folder"*, *"never push on a Friday"* — and Claude will offer to
+*"save the sheets in this folder"*, *"never push on a Friday"* — and the assistant can
 write it down:
 
+Commands below start at the repository root with its Python environment. On Windows,
+use `.\.venv\Scripts\python.exe` instead of `.venv/bin/python`. Replace profile paths with
+your actual private profile location.
+
 ```bash
-python3 scripts/remember.py --profile profile.yaml \
+.venv/bin/python plugin/kpi-copilot/scripts/remember.py --profile profile.yaml \
   --add custom_instructions.always="Show the previous period" --why "asked in chat"
 ```
 
-Three things always hold: it asks first, `--why` records the sentence you said, and a change
-that would break the profile is rolled back.
+A requested lasting change authorizes saving that change; otherwise the assistant offers
+to save it. `--why` records the reason, and invalid changes are rolled back.
 
 ```bash
-python3 scripts/remember.py --profile profile.yaml --history
+.venv/bin/python plugin/kpi-copilot/scripts/remember.py --profile profile.yaml --history
 ```
 
 shows everything captured that way, with its reason and date — which is the answer to "why is

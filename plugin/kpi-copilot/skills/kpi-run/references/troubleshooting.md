@@ -1,145 +1,63 @@
-# When a number looks wrong, or a run is slow
+# Investigate a result or a slow run
 
-## Start with the row
+Start with the run's **NEXT**, Open Questions and register evidence. Do not refetch individual
+cards in a browser. The project folder is `<profile folder>/<project id>/`; its `ledger.json`
+records judgements, authors and reasons. It is not directly beside the profile.
 
-Every register row has a **Check** column. It is empty when the row was obvious, and says how
-the row was decided when it was not: a tag read tolerantly ("read [Exisiting] as Existing"),
-a loose match to the plan, a call not yet confirmed. `ledger.json` beside the profile holds
-every judgement with who made it (rule, assistant, person) and why. Most "why is this
-counted?" questions end there.
+## Correct a decision
 
-To change a verdict: edit the yellow cell and run again, or write a one-line
-`judge/answers.json` and run `kpi.py judge --human`. A person's answer outranks an
-assistant's, and an assistant's outranks a rule.
+Change the supported yellow cell and refresh, or write the documented answer shape to
+`<project>/judge/answers.json` and run `kpi.py judge --human`. Read the queue's answer schema;
+it is a JSON document, not a line of arbitrary prose. Human decisions take precedence over
+assistant decisions, which take precedence over rules.
 
-## If the run was slow
+## Read timing evidence
 
-The last line of every run is its timings. The tool's own part is seconds: `board` is the
-API (a first read of 150 cards is ~15 s; a rerun reads only changed cards), `sheet` includes
-the Google update. If the run *felt* slow and those numbers are small, the time went on
-something the assistant did around it - reading the board in a browser, carrying a sheet
-through the conversation, searching chat for a fact, writing a helper script. None of that
-is ever needed; see "What you must not do" in the run skill.
+The runner prints stage timings. Separate data collection and workbook writing from the
+time spent obtaining answers and reviewing notes. Provider latency, pagination, rate limits
+and board size vary; a fixed seconds-per-run promise is not justified.
 
-| Timing | Usual cause |
+Asana can reuse unchanged item histories. Jira and GitHub refresh membership so removed or
+out-of-scope items do not persist merely because they were cached. Do not assume every
+adapter fetches only changed cards. Diagnose a slow `board`, `sources` or `sheet` stage from
+its error/progress output and cache permissions before narrowing scope. A narrower scan must
+still contain the evidence needed for the selected period.
+
+## Compare inputs with the agreed rule
+
+| Symptom | What to inspect |
 |---|---|
-| `board` is minutes | First read of a very large board, or Asana rate-limiting. Set `scan.tracker_scope: touched-since` |
-| `sources` is slow | A large Drive file re-downloaded every run: check its meta file in `cache/sources/` is being written (disk permissions) |
-| `sheet` is slow | Google throttling. It retries by itself; run again later |
+| Delivery dates or Velocity look wrong | `workflow.delivered_when` and recorded events. Closed is valid if it is the actual promise; otherwise choose the agreed event. |
+| Too few tasks | Excluded rows and the exact title/assignee filter. Broad patterns can remove real work. |
+| Commitment or expectation differs | Item, milestone, period and project dates; only an agreed revision changes the promise. |
+| Effort differs | `sources.hours_first`, units, grouped scope and QA completion. A missing estimate is not zero. |
+| Rework is high | Closure boundary and reopen events. A first testing failure before closure is not reopening. |
+| Values are Not measured | The missing capability, evidence or eligible population named by the run. Native history helps only when the underlying facts exist. |
 
-## When a number looks wrong
+A missing handover date may mean it is unknown or that handover has not happened. Ask; do
+not claim that the client never received the release solely because the date is blank.
 
-Almost every wrong number has one of six causes. Work down the list; it is roughly ordered by
-how often each one turns out to be it.
+## Other cases
 
-## 1. The delivered-when mapping
+- **A result exceeds 100%.** Inspect the numerator and denominator. Preserve the true result;
+  PMS numeric limits and any clamping must be visible in the reviewed preview and notes.
+- **Missing PMS period.** Preview first. The CLI can create missing periods with
+  `push --apply --create-periods` only after explicit approval of submission and creation.
+  The MCP submission tool does not expose the creation flag.
+- **Period name rejected.** Check the PMS limit (the runner enforces 25 characters) and
+  resolve the intended period without silently changing the reporting scope.
+- **Values changed.** Compare the run's change report and retained inputs. Same-date runs
+  can replace files in `<project>/runs/<date>/`; use distinct run labels or private backups
+  when retaining approved history.
+- **The same assistant question returns.** A changed card can invalidate its prior decision.
+  Human answers are durable; uncertain assistant answers should remain null with a reason.
+- **Plan facts empty or stale.** Follow [facts.md](facts.md), digest only the named source,
+  and set the supplied fingerprint. Never fabricate plan facts to silence the question.
+- **Wrong period or item type.** Correct the supported register field, refresh and inspect
+  affected results. Preserve the reason for the decision.
+- **Target differs.** Inspect its source. Refresh the PMS registry when needed. A local
+  target requires value and reason, is labelled as local, and blocks PMS submission until
+  reconciled; it is not a covert replacement for the PMS target.
 
-**Symptom:** Delivery Commitment is suspiciously high or low; Velocity counts things that are
-not finished, or misses things that are.
-
-**Cause:** `workflow.delivered_when.values` names the wrong state. Using the closed state
-here is the classic error - it flatters every delivery figure, because closed comes later
-than the point at which the work was actually delivered.
-
-**Check:** open three items you know the delivery date of and compare with the `delivered`
-field in the KIF.
-
-## 2. An exclusion pattern eating real work
-
-**Symptom:** the item count is lower than the board, denominators look small, CR Rate is odd.
-
-**Cause:** a regex in `conventions.exclude_patterns` is broader than intended. `^Bug` will
-happily remove "Bug tracking dashboard" and also "Bugfix: client login".
-
-**Check:** the Task Register lists every excluded row, greyed, with its reason in Remarks.
-Read them.
-
-## 3. The date level
-
-**Symptom:** Client Expectation or Delivery Commitment disagrees with what the team believes.
-
-**Cause:** the wrong date is winning. Most specific wins: item override > rule > milestone >
-period > project.
-
-**Check:** the Periods tab shows the dates in force. Remember the rule - a plan the team
-revised on its own does not move a KPI date.
-
-## 4. The hours source
-
-**Symptom:** Velocity is well off.
-
-**Cause:** `sources.hours_first` is pointing at the tracker when the plan is the agreed
-source, or `hours_basis: dev+qa` is crediting QA hours for work whose QA has not finished.
-
-**Check:** `hours_source` on each row in the Task Register says which number won.
-
-## 5. Rework counting first-round QA failures
-
-**Symptom:** Rework Rate is much higher than the team recognises.
-
-**Cause:** `reopened_when.ignore_first_qa_fail` is off, or the adapter is treating any move
-into a failure state as a reopen. Rework is **closed, then reopened**. A QA failure while the
-item is still being tested for the first time is normal testing.
-
-## 6. The adapter could not see something
-
-**Symptom:** several KPIs say "Not measured".
-
-**Cause:** working as designed. The adapter declared it cannot read status history or
-comments, so the engine refuses to guess.
-
-**Fix:** either accept it - and tell management which KPIs are limited and why - or move from
-the `csv` adapter to a native one. The note on KPI Summary says which and why.
-
----
-
-## Other things that happen
-
-**"Not measured" on Escaped Defect Rate.** The period has no handover date. This is correct:
-nothing can escape from a cycle the client has never seen. Set the handover date once the
-build goes out.
-
-**A value over 100.** Real, and sent to PMS clamped, with the true figure in the note. Usually
-it means a small denominator - a cycle with two delivered items and five bugs.
-
-**PMS rejects a period name.** 25 characters maximum.
-
-**The push says a period id is missing.** Create the period in PMS first; the push updates
-periods, it does not create them.
-
-**Numbers changed since last run and nobody knows why.** The run prints "Moved since the last
-run", and the Dashboard repeats it. Each run also keeps its extract, results and payload under
-`<project>/runs/<date>/`; diff the two KIF files - the change is in the input, not in the
-engine.
-
-**A bug tagged as existing was counted anyway.** Look at its Check cell. A tag more than a
-couple of letters off the vocabulary is not matched; add the team's word to
-`conventions.tags.pre_existing`, or answer it once in the sheet. It will not be asked again.
-
-**A card is in the wrong register, or the wrong period.** Change Item Type, Kind or Period in
-the sheet. That is recorded as your decision and survives every rerun, until you change it.
-
-**The same question keeps coming back.** An assistant's answer stands only while the card is
-unchanged (title, column, fields, comments). A person's answer always stands. If a card
-changes often, answer it in the sheet.
-
-**"facts/plan.yaml is empty" every run.** Nobody has digested the plan yet. See
-`references/facts.md`; it is done once.
-
-**Delivery Commitment counts more or fewer items than you expect.** Its denominator is the
-items the team *committed to*, not every deliverable - that is what PMS asks for, because the
-KPI measures reliability of promises rather than volume of work. Items with no commitment
-date are left out and named in the note. If your team commits to the whole scope as one
-piece, set `workflow.commitment.scope: all-deliverables`.
-
-**Delivery Commitment says "Not measured".** No item in the period carried a commitment date.
-Record what the team promised, or say the scope is committed as a whole.
-
-**A target looks wrong for this kind of project.** Change it on the project in PMS — targets
-are configurable per project, and that is the right place. Refresh the registry and the next
-run uses it, marked as this project's own. A target set in the profile instead is refused, so
-the workbook and PMS cannot disagree about the same number.
-
-**A target is not the one you expected.** Check `threshold_source` on the measure, or the
-"Target set by" column in the workbook. It says whether the bar came from this project's PMS
-setting, the PMS default, or the bundled fallback because PMS was unreachable.
+For setup failures, see the repository's
+[user troubleshooting guide](https://github.com/NumanIbnMazid/kpi-copilot/blob/main/docs/14-Troubleshooting.md).

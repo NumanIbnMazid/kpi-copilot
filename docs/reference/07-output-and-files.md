@@ -1,138 +1,99 @@
-# Output, and where every file lives
+# Output and file locations
 
-What a run produces, how far it may go on its own, and where everything ends up.
+[Documentation](../README.md) · [Configuration reference](README.md) · [Sample folders](../../samples/README.md)
 
----
-
-## `output`
+## Output settings
 
 ```yaml
 output:
-  mode: assisted-push          # review-only | dry-run | assisted-push | auto-push
-  unattended: false
-  workbook: google-sheets      # xlsx (default) | google-sheets | none
-  workbook_location: https://drive.google.com/drive/folders/1ExampleDriveFolderId000000000000
-  # workbook_file: https://docs.google.com/spreadsheets/d/1ExampleSheetId/edit   (instead: update exactly this one)
-  # workbook_name: "[KPI Tracker] {project}"
-  notify: chat-devqa
+  mode: review-only
+  workbook: google-sheets
+  workbook_file: https://docs.google.com/spreadsheets/d/EXAMPLE_OUTPUT_ID/edit
 ```
 
-| Field | What it is |
+The link above is a placeholder. Use an approved dedicated output sheet in a private profile.
+
+| Field | Current behavior |
 |---|---|
-| `mode` | How far a run may go. See below |
-| `unattended` | Legacy compatibility flag; does not authorize submission |
-| `workbook` | `xlsx` (the default): the sheet is written locally. `google-sheets`: a live Google Sheet is **also** kept, updated in place on every run. `none`: results are printed and nothing is written |
-| `workbook_location` | A **Drive folder** (link or id). The first run creates the Google Sheet there; later runs find it by name and update it |
-| `workbook_file` | A **specific Google Sheet** (link or id) to update in place, instead of creating one. Wins over `workbook_location` |
-| `workbook_name` | The name of a sheet the tool creates. `{project}` is replaced. Default `[KPI Tracker] {project}` |
-| `notify` | A tool id to post a summary to, or blank |
+| `mode` | `review-only` prevents PMS writes; `dry-run` previews; `assisted-push` allows a separate explicitly approved write. Legacy `auto-push` still needs approval |
+| `unattended` | Legacy compatibility field; never supplies approval |
+| `workbook` | `xlsx` writes locally; `google-sheets` also publishes when connected. The current `kpi.py` always writes a local workbook, even with legacy `none` |
+| `workbook_file` | Specific Google Sheet to update; takes priority over folder creation |
+| `workbook_location` | Google Drive folder link/ID for creating the output. Does not change local storage or implement SharePoint publishing |
+| `workbook_name` | Created Google Sheet's name; default `[KPI Tracker] {project}` |
+| `notify` | Preferred notification destination metadata. The Python runner does not send messages; an assistant integration needs explicit authorization |
+| `workbook_template` | Legacy metadata; current writers use the shared sheet model rather than copying an arbitrary workbook |
+| `run_folder` | Legacy runner setting. Current `kpi.py` uses the profile/project layout below |
 
-### The four modes
+`run` prepares results. `push` is a separate preview; `push --apply` requires the person's
+explicit approval of the current result. A profile mode cannot provide that approval.
 
-| Mode | What happens |
-|---|---|
-| `review-only` | Builds the workbook and a copy-paste block. **Physically cannot write to PMS** |
-| `dry-run` | Also computes the payload and shows a field-by-field diff. Still never writes |
-| `assisted-push` | The diff, then a question, then the push on an explicit yes |
-| `auto-push` | Legacy mode; explicit approval in the current conversation is still required |
+## Local and Google workbooks
 
-Approval is per run. A yes for one period never carries to the next.
+The local tracker is `<profile folder>/<project id>/KPI Tracker - <name>.xlsx`, with a
+`tracker.xlsx` copy in the dated run folder. The filename is sanitized by the writer; use
+the printed path instead of reconstructing it from a name with punctuation.
 
-Mode is an account-level override, so one client can be pushed and another typed in by hand.
+Google output reuses the saved spreadsheet ID or configured file. Tool-owned tabs are
+rebuilt; supported yellow edits are read first, and unrelated tabs are preserved. The API
+batch is atomic, but it does not lock out collaborators between read and write. Finish
+editing before refreshing.
 
-### Where the sheet goes
+When Google is authoritative but cannot be read, the tool preserves the previous review
+baseline and stops or writes a separate local preview according to the run mode. A preview
+is not a substitute for the unavailable review. Reconnect and reconcile before publication
+or PMS submission. Do not use “Replace spreadsheet” to bypass this boundary.
 
-**Locally, always.** `<project>/KPI Tracker - <name>.xlsx`, beside the profile, rewritten on
-every run, plus a dated copy in the run folder. This is the default and needs no setup.
+See [Google access](../03-Prerequisites.md#google-and-optional-sources) and
+[review behavior](../15-Review-and-connected-delivery.md).
 
-**And in Google Sheets, if you ask.** Say it once - *"keep the KPI sheet in this Drive
-folder"* or *"update this sheet"* - and the profile gets `workbook: google-sheets` with a
-folder or a file:
+## Private project layout
 
+```text
+<profile folder>/
+├── profile.yaml
+├── KPI Profile Workbook.xlsx       optional; imported/exported explicitly
+├── preflight.json                  dated readiness confirmations
+├── kpi_registry.json               optional private PMS definition/target cache
+└── <project id>/
+    ├── KPI Tracker - <name>.xlsx
+    ├── facts/                      period, plan, estimate and note facts
+    ├── manual.yaml                 recorded manual values with reasons
+    ├── ledger.json                 saved judgements
+    ├── inbox/                      configured source exports when needed
+    ├── judge/queue.json             assistant's batch of unresolved calls
+    ├── next.json                    work still needed
+    ├── sheet_state.json             review read-back baseline
+    ├── cache/                      board and source snapshots
+    └── runs/<date>/                 results, report, payloads, tracker and push log
 ```
-https://drive.google.com/drive/folders/1ExampleDriveFolderId000000000000     a folder
-https://docs.google.com/spreadsheets/d/1ExampleSheetId0000000000000/edit      one sheet
-```
 
-A full link or the bare id both work. Every run then updates **the same Google Sheet, in
-place**, in one atomic update - the link never changes, and somebody with it open sees it
-change once. The tabs the tool owns (Read Me, Dashboard, Config, Periods, Task Register,
-Defect Register, KPI Summary, Open Questions, Run Log, PMS Push Log) are rebuilt; tabs you
-add are left alone. Whatever you typed into yellow cells is read back first and kept.
+The [sample workspace](../../samples/README.md) places one profile inside each client folder
+to get `root → client → project` organization. A single multi-account profile instead creates
+sibling project folders beside that one profile. The `account` field does not change paths.
 
-Both are written from one description, so they look the same: navy headers, yellow for what
-is yours, grey live formulas, the dashboard with its bars.
+From the repository root:
 
-It needs Google connected once, by you: `python3 scripts/kpi.py auth google`
-([03-Prerequisites](../03-Prerequisites.md)). You need Editor rights on the folder or file.
-Without a connection the run still writes the local workbook and says how to put it over
-the same Google Sheet by hand: **File > Import > Upload > Replace spreadsheet**.
-
----
-
-## Where every file lives
+Commands below start at the repository root with its Python environment. On Windows,
+use `.\.venv\Scripts\python.exe` instead of `.venv/bin/python`. Replace profile paths with
+your actual private profile location.
 
 ```bash
-python3 scripts/where.py --profile profile.yaml
+.venv/bin/python plugin/kpi-copilot/scripts/where.py --profile /absolute/private/path/profile.yaml --project my-project
 ```
 
-It prints the resolved path of each file, whether it exists, and the commands to change
-something. The layout:
+Credentials live separately in the runner's environment or supported credential store,
+including `~/.config/kpi-copilot/`. Do not put secrets in profiles or shared workbooks.
+Keep all real configuration, source records and generated results outside the published
+repository and installed plugin cache.
 
-```
-<your profile folder>/
-├── profile.yaml                    what the tools read
-├── KPI Profile Workbook.xlsx       the same thing, for a human
-├── preflight.json                  the readiness checklist, with dates
-├── kpi_registry.json               KPI definitions and targets, as read from PMS
-└── <project id>/                   one folder per project: its memory and its output
-    ├── KPI Tracker - <name>.xlsx   the sheet, rewritten every run
-    ├── facts/
-    │   ├── periods.yaml            the periods: dates, handover, PMS ids, team hours, the story
-    │   ├── plan.yaml               the agreed scope: items, hours, milestones (digested once)
-    │   ├── estimates.yaml          approved additions
-    │   └── reasons.yaml            the "why" text for each note
-    ├── manual.yaml                 values set by hand, with their reasons
-    ├── ledger.json                 every judgement: the value, who decided, why
-    ├── inbox/                      drop an export of a source here when it cannot be fetched
-    ├── judge/queue.json            what is waiting for the assistant, if anything
-    ├── next.json                   what the last run said comes next
-    ├── sheet_state.json            what was written into the yellow cells, for the read-back
-    ├── cache/                      the board as last read, and the fetched sources
-    └── runs/
-        └── 2026-09-19/
-            ├── run.kif.json        the judged extract
-            ├── results.json        values, notes, statuses, gaps
-            ├── report.md           the readable version
-            ├── payloads.json       exactly what would be, or was, sent
-            ├── tracker.xlsx        that day's copy of the sheet
-            └── push_log.json       what was written, and whether read-back agreed
-```
+## Retention and handover
 
-`facts/` is plain YAML on purpose - it is the part of a project you actually know, and the
-sheet's yellow cells are the same facts seen from the other side. `ledger.json` and `cache/`
-are the tool's own; change a judgement in the sheet, not in the file.
+Same-day runs reuse the daily folder. Use a distinct `--date` label to retain separate
+snapshots; `--today` controls the calculation date and is a different option. Preserve
+reviewed files under your organization's retention policy. These are working records,
+not an immutable audit archive.
 
-Credentials are **never** in this folder. They live in `~/.config/kpi-copilot/`, readable
-only by you.
-
-The plugin itself lives separately — `~/.claude/plugins/cache/pm-tools/kpi-copilot/<version>/`
-when installed, or wherever you cloned it when running with `--plugin-dir`. **Your
-configuration is never inside the plugin**, so updating the plugin never touches it.
-
-### Keeping the run folder
-
-Every run is kept. When two runs disagree, diff the two `run.kif.json` files — the change is
-in the input, not in the engine. That is what makes a number questioned in three months
-answerable.
-
-### Where to keep the profile
-
-Somewhere your team can read it: a Drive folder, a repo, a shared drive. A profile only one
-person can open is a profile that dies when they go on leave.
-
-## `notify`
-
-A tool id from the registry. A run posts its summary there. Leave it blank if you would
-rather it said nothing — and note that `custom_instructions.never` can forbid posting to a
-client-facing space.
+To hand over a project, securely transfer the private profile, source mappings, project facts
+and needed review state. Reconnect accounts under the authorized operator. Do not copy
+credentials into the handover workbook.

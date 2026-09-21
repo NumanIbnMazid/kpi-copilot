@@ -9,8 +9,8 @@ python3 adapters/asana/api.py --project <asana project id> --out board.json   # 
 
 | | |
 |---|---|
-| First read, 150 cards | about 15 seconds: one paged list, then each card's history, eight at a time |
-| Every read after | 2-3 seconds: a card whose `modified_at` has not moved keeps the history already read |
+| Data collection | A paginated task list plus required histories; unchanged histories can be reused from cache |
+| Performance | Depends on board size, changed histories and provider limits; no fixed duration is guaranteed |
 | What it produces | a **board snapshot** (`scripts/board.py`): cards, fields, column moves, completions, comments. No judgement |
 | What it can see | status history, comments, assignee, estimates, story points, tags, created and closed dates, reporter |
 
@@ -29,7 +29,7 @@ every tracker.
    different variable name can be set as `tracker.options.token_env`.
 2. **Sign in in your browser** - `python3 scripts/kpi.py auth asana --route browser`; click
    Allow. Works in your own browser or your assistant's built-in one (`--no-open` prints the
-   link). Needs an Asana app your company registers once (`docs/03-Prerequisites.md`).
+   link). Needs an Asana app your company registers once ([prerequisites](https://github.com/NumanIbnMazid/kpi-copilot/blob/main/docs/03-Prerequisites.md)).
 3. **No credential at all** - see the last section: a signed-in tab downloads the board.
 
 A token never goes through a chat, whichever route is used.
@@ -48,7 +48,7 @@ projects:
     tracker_ref: "1200000000000001"    # the long number in the board's URL
 scan:
   comments: on-demand                  # never = do not keep comment text at all
-  tracker_scope: all                   # touched-since = only re-read cards modified since the first period began
+  tracker_scope: all                   # touched-since = reuse eligible cached history before the configured period cutoff
 ```
 
 Status is the card's **column in this project**. A card that lives in several projects moves
@@ -65,7 +65,7 @@ kpiSnapshot('1200000000000001')        ->  ~/Downloads/asana-raw-120000000000000
 python3 scripts/kpi.py run … --from-raw ~/Downloads/asana-raw-1200000000000001.json
 ```
 
-Both routes go through the same conversion (`api.py: from_raw`), so they cannot disagree.
+Both routes go through the same conversion (`api.py: from_raw`), so equivalent complete responses use the same parser. Access, timing and completeness can still differ.
 
 ## The older converter
 
