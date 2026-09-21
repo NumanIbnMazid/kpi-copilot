@@ -147,6 +147,18 @@ class AuditTests(unittest.TestCase):
         engine = kpi_engine.Engine(kif, profile, kpi._registry(self.ws()))
         self.assertEqual(engine.client_expectation(kif['periods'][0]).value, 100)
 
+    def test_period_delivery_answer_replaces_pending_rows(self):
+        snap, profile, facts = self.grouped_example()
+        for item in snap['items']:
+            item['section'] = 'Doing'
+        stored = ledger.Ledger(self.base / 'pending-delivery-review.json')
+        stored.set_answer('review:Cycle|Client Expectation:example',
+                          'Count as meet expectation. Expected date count as Sep 30.', 'human')
+        kif, _ = classify.to_kif(snap, profile, {}, facts, stored, '2025-09-08')
+        included = [t for t in kif['tasks'] if t.get('type') != 'Excluded']
+        self.assertTrue(included)
+        self.assertTrue(all(t['met_client_date'] == 'Yes' for t in included))
+
     def test_rework_counts_each_close_to_reopen_cycle(self):
         item = {"id": "A", "key": "A", "title": "Feature", "created_at": "2025-03-01",
                 "section": "Doing", "fields": {}, "comments": [], "events": [

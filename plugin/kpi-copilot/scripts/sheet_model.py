@@ -567,6 +567,8 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     tUn, tMc, tMm, tRe = (_rng("Task Register", T[k], 4) for k in ("understood", "met_client_date", "met_commitment", "reopened"))
     tRc = _rng("Task Register", T["reopen_count"], 4)
     tHr, tSp = _rng("Task Register", T["hours"], 4), _rng("Task Register", T["story_points"], 4)
+    tEm = _rng("Task Register", T["estimate_missing"], 4)
+    tGm = _rng("Task Register", T["group_effort_missing"], 4)
     dP, dRj, dPh, dCt = (_rng("Defect Register", D[k], 4) for k in ("period", "rejected", "phase", "counts"))
     live = f'{tP},$A{{r}},{tTy},"<>Excluded"'
     tEo = _rng("Task Register", T["effort_only"], 4)
@@ -576,8 +578,9 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     if (profile.get("sources") or {}).get("team_hours_when") == "handover":
         shared = f'IF(COUNTIFS({PN},$A{{r}},{PH},">0")>0,{shared},0)'
     num = {
-        "Velocity": f'=IF({ref["velocity_unit"]}="Story Points",SUMIFS({tSp},{live},{tDl},">0"),'
-                    f'SUMIFS({tHr},{live},{tDl},">0",{tEg},"No group")+SUMIFS({tHr},{tP},$A{{r}},{tEo},"Yes",{tDl},">0")'
+        "Velocity": f'=IF({ref["velocity_unit"]}="Story Points",SUMIFS({tSp},{live},{tDl},">0",{tEm},"<>Yes"),'
+                    f'SUMIFS({tHr},{live},{tDl},">0",{tEm},"<>Yes",{tGm},"<>Yes",{tEg},"No group")+'
+                    f'SUMIFS({tHr},{tP},$A{{r}},{tEo},"Yes",{tDl},">0",{tEm},"<>Yes",{tGm},"<>Yes")'
                     f'+{shared})',
         "Task Comprehension": f'=COUNTIFS({live},{tUn},"Yes")',
         "Client Expectation": f'=COUNTIFS({live},{tMc},"Yes")',
@@ -585,7 +588,7 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         "Defect Rate": f'=COUNTIFS({dP},$A{{r}},{dCt},"Yes")',
         "Escaped Defect Rate": f'=COUNTIFS({dP},$A{{r}},{dRj},"<>Yes",{dPh},"Post-release")',
         "Defect Rejection Rate": f'=COUNTIFS({dP},$A{{r}},{dRj},"Yes")',
-        "Rework Rate": f'=SUMIFS({tRc},{live},{tCl},">0",{tRe},"Yes")',
+        "Rework Rate": f'=SUMIFS({tRc},{live},{tDl},">0",{tCl},">0",{tEo},"<>Yes",{tRe},"Yes")',
         "CR Rate": f'=COUNTIFS({tP},$A{{r}},{tTy},"CR")',
     }
     den = {
@@ -595,7 +598,8 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         "Defect Rate": f"={deliv}",
         "Escaped Defect Rate": f'=COUNTIFS({dP},$A{{r}},{dRj},"<>Yes")',
         "Defect Rejection Rate": f"=COUNTIFS({dP},$A{{r}})",
-        "Rework Rate": f'=E{{r}}+COUNTIFS({live},{tCl},">0",{tRe},"No")',
+        "Rework Rate": (f'=COUNTIFS({live},{tDl},">0",{tCl},">0",{tEo},"<>Yes",{tRe},"Yes")+'
+                        f'COUNTIFS({live},{tDl},">0",{tCl},">0",{tEo},"<>Yes",{tRe},"No")'),
         "CR Rate": f'=IF(OR({ref["cr_den"]}="Whole project",COUNTIFS({tP},$A{{r}},{tTy},"Task")=0),'
                    f'COUNTIFS({tTy},"Task"),COUNTIFS({tP},$A{{r}},{tTy},"Task"))',
     }
@@ -636,6 +640,12 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
             sm.heights[r] = max(45, min(250, 15 * (len(note_text) // 65 + 2)))
             sm.put(r, 12, auto, "in")
             man = (manual.get(pn) or {}).get(name) or {}
+            period = next((p for p in kif.get("periods") or [] if p.get("name") == pn), {})
+            reviewed_override = ((name == "Client Expectation" and period.get("client_expectation_override")) or
+                                 (name == "Delivery Commitment" and period.get("delivery_commitment_override")))
+            if reviewed_override and not man and m.get("value") is not None:
+                man = {"value": m.get("value"),
+                       "why": "The period result was confirmed in the review sheet."}
             from note_sentences import terminology
             sm.put(r, 13, m.get("context_note", terminology(plain((reasons.get(pn) or {}).get(name)), profile)), "in")
             sm.put(r, 14, None, "calc", f=f'=L{r}&IF(TRIM(M{r})="","",IF(TRIM(L{r})="",""," || ")&TRIM(M{r}))')

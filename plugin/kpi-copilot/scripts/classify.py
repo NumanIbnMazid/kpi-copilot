@@ -759,7 +759,7 @@ class Classifier:
             client_decision, client_date = client_by_period.get(row.get("period"), (None, None))
             if client_date:
                 row["client_date"] = client_date
-            if client_decision and row.get("met_client_date") is None:
+            if client_decision and row.get("met_client_date") in (None, "Pending"):
                 row["met_client_date"] = client_decision
                 row.setdefault("basis", {})["met_client_date"] = {
                     "by": "human", "confidence": 1.0,
@@ -768,7 +768,7 @@ class Classifier:
             commit_decision, commit_date = commitment_by_period.get(row.get("period"), (None, None))
             if commit_date:
                 row["commit_date"] = commit_date
-            if commit_decision and row.get("met_commitment") is None:
+            if commit_decision and row.get("met_commitment") in (None, "Pending"):
                 row["met_commitment"] = commit_decision
                 row.setdefault("basis", {})["met_commitment"] = {
                     "by": "human", "confidence": 1.0,
