@@ -89,6 +89,7 @@ How your team names and shapes things. These are regular expressions or literal 
 | `defect_values` | list of string |  |  | e.g. Bug, Defect - used when marked by issue type, label or field. |
 | `observation_values` | list of string |  |  | Reported, but not counted as defects by default. |
 | `exclude_patterns` | list of string |  |  | Cards that are not deliverables: QA admin cards, milestone markers, grouping/umbrella cards, duplicates. |
+| `assignee_include` | list of string |  |  | Optional exact, case-insensitive tracker assignee allowlist. When set, only cards currently assigned to one of these people are eligible; all others remain visible as Excluded evidence. |
 | `cr_marker` | string |  |  | Regex, label or field value. Blank = CRs come from the estimates source instead. |
 | `client_names` | list of string |  |  | Exact names as they appear in the tracker. Used to tell a client-found defect from a QA-found one. |
 | `tags` | object |  |  | The words your team tags titles with, in square or round brackets. Matching is tolerant: a tag one or two letters off a word here ('[Exisiting]') is read as that word, and the row says so in its Check column so a person can disagree. Defaults cover the usual English words; list your own if they differ. |
@@ -114,6 +115,7 @@ What your team's states mean. This is the single most important section: it is w
 | `reopened_when` | object |  |  | Rework Rate compares reopening events after the agreed closure boundary with completed tasks whose outcome is known. Repeated reopening uses reopen_count where available; an explicit Yes without a count contributes one. First-round QA failure before closure is not rework. |
 | &nbsp;&nbsp;`reopened_when.values` | list of string |  |  | States that mean 'back in play after being closed'. |
 | &nbsp;&nbsp;`reopened_when.ignore_first_qa_fail` | boolean | `yes` |  |  |
+| &nbsp;&nbsp;`reopened_when.no_history` | one of: `unknown`, `not-reopened` | `unknown` |  | A completed task with no record either way. 'unknown' leaves it out of the rate; 'not-reopened' counts it as not reopened, and the note says so. |
 | `clarification_when` | object |  |  | Task Comprehension = the requirement was understood without going back to the client. This is how we detect 'we had to ask'. |
 | &nbsp;&nbsp;`clarification_when.values` | list of string |  |  | e.g. ['Awaiting Feedback', 'Blocked - Client']. |
 | &nbsp;&nbsp;`clarification_when.also_comments` | boolean | `yes` |  | Also treat a comment asking the client to clarify expected behaviour as 'had to ask'. |
@@ -213,6 +215,7 @@ What the run produces and how far it is allowed to go on its own. This is the se
 | `notify` | string |  |  | Preferred notification tool ID. The Python runner does not send messages; an assistant integration needs explicit user authorization. |
 | `workbook_file` | string |  |  | A specific Google Sheet (link or id) to update in place, instead of creating one in workbook_location. Tabs the tool owns are rebuilt; tabs a person added are left alone. |
 | `workbook_name` | string |  |  | Name for a Google Sheet the tool creates. {project} is replaced. Default: '[KPI Tracker] {project}'. |
+| `archive` | string |  |  | Folder beside the live Google Sheet where a dated copy is kept before the sheet is updated, at most one a day (e.g. 'Archived'). Empty keeps no copies; Google's version history still applies. |
 
 ## `custom_instructions`
 

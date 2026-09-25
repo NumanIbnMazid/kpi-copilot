@@ -33,7 +33,7 @@ import re
 from typing import Any
 from kpi_registry import NAME_TO_KEY
 
-MODEL_VERSION = "2.3"
+MODEL_VERSION = "2.4"
 LAST = 999            # formulas look down to here, so a row added by hand is still counted
 SPARE = 40            # formatted, formula-filled rows past the data
 KPI_ORDER = ["Velocity", "Task Comprehension", "Client Expectation", "Delivery Commitment", "Defect Rate",
@@ -493,13 +493,17 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     tf["met_commitment"] = ontime(T["team_committed"], T["commit_date"], done_m)
     # Keep required-estimate checks beside each row. This avoids array coercion of blank
     # dates and text in SUMPRODUCT, which differs across spreadsheet calculation engines.
+    # "partial": a row counts whatever part of its estimate is recorded; only a row with no
+    # development and no QA estimate at all is missing one.
+    lacks = (f'AND(LEN({T["hours_dev"]}{{r}})=0,LEN({T["hours_qa"]}{{r}})=0)'
+             if (profile.get("sources") or {}).get("missing_estimate") == "partial" else
+             f'OR(LEN({T["hours_dev"]}{{r}})=0,AND({ref["hours_basis"]}="Dev + QA",N({T["closed"]}{{r}})>0,'
+             f'LEN({T["hours_qa"]}{{r}})=0))')
     tf["estimate_missing"] = (
         f'=IF(OR(B{{r}}="",N({dl}{{r}})=0),"No",IF({ref["velocity_unit"]}="Story Points",'
         f'IF(AND({T["type"]}{{r}}<>"Excluded",LEN({T["story_points"]}{{r}})=0),"Yes","No"),'
         f'IF(AND(OR(AND({T["type"]}{{r}}<>"Excluded",{T["effort_group"]}{{r}}="No group"),'
-        f'{T["effort_only"]}{{r}}="Yes"),OR(LEN({T["hours_dev"]}{{r}})=0,'
-        f'AND({ref["hours_basis"]}="Dev + QA",N({T["closed"]}{{r}})>0,'
-        f'LEN({T["hours_qa"]}{{r}})=0))),"Yes","No")))')
+        f'{T["effort_only"]}{{r}}="Yes"),{lacks}),"Yes","No")))')
     _fill_row_formulas(tk, TASK_COLS, 4, last_t, tf)
     pick = f"Periods!$B$5:$B${last_p}"
     for key, vals in (("type", ["Task", "CR", "Scope", "Excluded"]),):
@@ -615,7 +619,7 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     val = {n: ratio for n in KPI_ORDER}
     missing_estimate = f'COUNTIFS({tP},$A{{r}},{_rng("Task Register", T["estimate_missing"], 4)},"Yes")'
     missing_group = f'COUNTIFS({tP},$A{{r}},{_rng("Task Register", T["group_effort_missing"], 4)},"Yes")'
-    if (profile.get("sources") or {}).get("missing_estimate") == "skip":
+    if (profile.get("sources") or {}).get("missing_estimate") in ("skip", "partial"):
         val["Velocity"] = f'=IF(Q{{r}}<>"",Q{{r}},IF({deliv}=0,"",ROUND(E{{r}},2)))'
     else:
         val["Velocity"] = (f'=IF(Q{{r}}<>"",Q{{r}},IF(OR({deliv}=0,{missing_estimate}>0,'
@@ -693,22 +697,45 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     # ---- Open Questions -----------------------------------------------------------------------
     oq = Tab("Open Questions", "BF9000")
     oq.put(1, 2, "Open Questions", "title")
-    oq.put(2, 2, "What the sources on file could not answer. Type the answer in the yellow cell; the next run reads it, "
-                 "keeps it, and stops asking. Nothing here was guessed - an unanswered row is left out of the numbers.", "sub")
-    for i, (h, w) in enumerate([("#", 4), ("About", 26), ("Question", 70), ("If nobody answers", 40),
-                                ("Your answer", 40), ("Asked on", 12), ("ID", 18)], start=1):
+    oq.put(2, 2, "What the sources on file could not answer, and every answer given so far. Type the answer in the yellow "
+                 "cell; the next run reads it and keeps it. Status says where each one stands: Open (nobody has answered), "
+                 "Answered - to apply (the assistant still has to act on it), Applied (the tool used it), Resolved (acted on, "
+                 "see What was done) or No longer asked. Nothing here was guessed.", "sub")
+    heads = [("#", 4), ("About", 24), ("Question", 64), ("If nobody answers", 30), ("Your answer", 40),
+             ("Status", 20), ("Asked on", 11), ("Answered on", 11), ("Done on", 11), ("What was done", 40), ("ID", 18)]
+    for i, (h, w) in enumerate(heads, start=1):
         oq.put(3, i, h, "head")
         oq.widths[i] = w
     oq.freeze = (3, 0)
     qs = ctx.get("questions") or []
-    for i in range(max(len(qs), 1) + 12):
-        rr, q = 4 + i, (qs[i] if i < len(qs) else {})
-        oq.put(rr, 1, None, "calc_c", f=f'=IF(B{rr}="","",ROW()-3)')
+    # A question about particular items lists every one on its own row underneath, with a
+    # link to the card and why it is named. Those rows carry no ID, so read-back skips them.
+    lines: list[tuple[dict, dict | None]] = []
+    for q in qs:
+        lines.append((q, None))
+        lines.extend((q, it) for it in q.get("items") or [])
+    last_q = 4 + max(len(lines), 1) + 12 - 1
+    for i in range(max(len(lines), 1) + 12):
+        rr = 4 + i
+        q, it = lines[i] if i < len(lines) else ({}, None)
+        oq.put(rr, 1, None, "calc_c", f=f'=IF(B{rr}="","",COUNTA(B$4:B{rr}))')
+        if it is not None:
+            label = " ".join(x for x in (it.get("key"), it.get("title")) if x)
+            oq.put(rr, 3, f"    {label}" + (f": {it['detail']}" if it.get("detail") else ""), "data",
+                   link=it.get("link") or None)
+            continue
         for c, key, style in ((2, "about", "data"), (3, "question", "data"), (4, "proposal", "data"),
-                              (5, "answer", "in"), (6, "asked_on", "data"), (7, "id", "calc")):
+                              (5, "answer", "in"), (6, "status", "data"), (7, "asked_on", "data"),
+                              (8, "answered_on", "data"), (9, "done_on", "data"), (10, "done", "data"),
+                              (11, "id", "calc")):
             oq.put(rr, c, q.get(key), style)
-    oq.hidden_cols = [7]
-    oq.readback = {"kind": "questions", "first": 4, "id": 7, "answer": 5}
+    for status, fill in (("Open", "FCE4D6"), ("Answered - to apply", "FFEB9C"),
+                         ("Applied", "E2EFDA"), ("Resolved", "E2EFDA")):
+        oq.when(4, 6, last_q, 6, f'=$F4="{status}"', fill=fill)
+    oq.when(4, 2, last_q, 10, '=LEFT($F4,5)="No lo"', color="8C8C8C")
+    oq.when(4, 2, last_q, 10, '=$F4="Answered - no longer asked"', color="8C8C8C")
+    oq.hidden_cols = [11]
+    oq.readback = {"kind": "questions", "first": 4, "id": 11, "answer": 5, "about": 2, "question": 3, "asked": 7}
 
     # ---- Run Log ------------------------------------------------------------------------------
     rl = Tab("Run Log", "7F7F7F")
@@ -799,7 +826,7 @@ README = [
     ("", "Task Register: every planned task and additional request, with the evidence behind each Yes/No."),
     ("", "Defect Register: every bug, observation or improvement, including rejected ones."),
     ("", "KPI Summary: the nine PMS KPIs per period, the facts behind each number, your reason, and the note that goes to PMS."),
-    ("", "Open Questions: what the sources could not answer. Answer in the yellow cell; the next run keeps it."),
+    ("", "Open Questions: what the sources could not answer, and every answer so far with its status and dates. Answer in the yellow cell; the next run keeps it."),
     ("", "Run Log: which sources this run read, which it did not, and how long it took."),
     ("", "PMS Push Log: what was sent to PMS and when."),
     ("", ""),

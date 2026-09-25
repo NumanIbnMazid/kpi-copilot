@@ -118,6 +118,41 @@ class Ledger:
         self.data["answers"][qid] = {"value": value, "by": by, "why": why, "at": _now()}
         self.dirty = True
 
+    # -- the questions, with when each was asked, answered and settled -----------------
+
+    def note_question(self, qid: str, about: str | None, question: str | None, today: str,
+                      items: list | None = None, asked_on: str | None = None) -> None:
+        """Remember a question and the first day it was asked, so the sheet can show its
+        history instead of re-dating it every run."""
+        qs = self.data.setdefault("questions", {})
+        rec = qs.setdefault(qid, {})
+        first = min(d for d in (rec.get("first_asked"), asked_on, today) if d)
+        new = {"first_asked": first, "last_asked": max(rec.get("last_asked") or "", today),
+               "about": about or rec.get("about"), "question": question or rec.get("question")}
+        if items is not None:
+            new["items"] = items
+        if any(rec.get(k) != v for k, v in new.items()):
+            rec.update(new)
+            self.dirty = True
+
+    def seen_question(self, qid: str, about: str | None, question: str | None, asked_on: str | None) -> None:
+        """A question found on the sheet: keep its text and date, without saying it was asked today."""
+        qs = self.data.setdefault("questions", {})
+        rec = qs.get(qid)
+        if rec is None:
+            qs[qid] = {"first_asked": asked_on, "last_asked": asked_on, "about": about, "question": question}
+            self.dirty = True
+        elif asked_on and (not rec.get("first_asked") or asked_on < rec["first_asked"]):
+            rec["first_asked"] = asked_on
+            self.dirty = True
+
+    def settle(self, qid: str, kind: str, what: str, by: str = "") -> None:
+        """kind 'applied': the tool used the answer itself. kind 'resolved': the assistant or a
+        person acted on it and says what was done."""
+        a = self.data["answers"].setdefault(qid, {})
+        a[kind] = {"what": what, "by": by, "at": _now()}
+        self.dirty = True
+
     # -- what the numbers were last time ------------------------------------------------
 
     def last_run(self) -> dict | None:

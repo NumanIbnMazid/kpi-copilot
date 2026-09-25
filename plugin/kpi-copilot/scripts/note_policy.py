@@ -44,7 +44,24 @@ def basis(measure: dict) -> str:
         sort_keys=True, default=str).encode()).hexdigest()
 
 
-def question(period: str, kpi: str, detail: str) -> dict:
+def items_for(measure: dict, detail: str) -> list[dict]:
+    """The items a review question is about - every one, with its link and why it is named."""
+    out, seen = [], set()
+    for ref in measure.get("review_refs") or []:
+        if re.search(ref.get("match") or "$^", detail, re.I):
+            for item in ref.get("items") or []:
+                if item.get("key") not in seen:
+                    seen.add(item.get("key"))
+                    out.append(item)
+    return out
+
+
+def question(period: str, kpi: str, detail: str, items: list[dict] | None = None) -> dict:
+    # The id is taken from the sentence alone, so an answer already given survives a change
+    # in which items are listed under it.
     fingerprint = hashlib.sha256(detail.encode()).hexdigest()[:12]
-    return {"id": f"review:{period}|{kpi}:{fingerprint}", "about": f"{period} · {kpi}",
-            "question": "Review this measurement: " + detail, "blocking": False}
+    q = {"id": f"review:{period}|{kpi}:{fingerprint}", "about": f"{period} · {kpi}",
+         "question": "Review this measurement: " + detail, "blocking": False}
+    if items:
+        q["items"] = items
+    return q

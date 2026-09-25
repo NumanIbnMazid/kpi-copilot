@@ -10,7 +10,7 @@
       "name": "kpi-copilot",
       "source": "./plugin/kpi-copilot",
       "description": "Prepare PMS project KPIs from whatever issue tracker a team already uses, with evidence links and readable notes, then push to PMS after approval.",
-      "version": "2.1.0",
+      "version": "2.2.0",
       "author": {
         "name": "Numan Ibn Mazid"
       },

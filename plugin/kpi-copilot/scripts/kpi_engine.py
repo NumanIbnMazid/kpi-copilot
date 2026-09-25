@@ -163,6 +163,9 @@ class Measure:
     summary_note: str = ""
     context_note: str = ""
     review_items: list[str] = field(default_factory=list)
+    # The items a review question is about, so the person is not left asking "which two?".
+    # Each entry: {"match": regex over the review text, "items": [{key, title, link, detail}]}.
+    review_refs: list[dict] = field(default_factory=list)
     publish_blocked: bool = False
     gaps: list[str] = field(default_factory=list)
     pms_value: float | None = None  # after clamping to the PMS range
@@ -457,12 +460,32 @@ class Engine:
         if not by_points:
             eligible_groups = {t.get("_item") for t in effort_rows if t.get("effort_only")}
             missing.extend(t for t in delivered if t.get("effort_group") and t["effort_group"] not in eligible_groups)
+        def missing_why(t: dict) -> str:
+            status = f"; status {t['status']}" if t.get("status") else ""
+            if by_points:
+                return "no story points" + status
+            if t.get("effort_group") and not t.get("hours_dev"):
+                return f"its estimate is held once on the group {t['effort_group']}, which is not delivered yet" + status
+            if t.get("hours_dev") is None:
+                return "no development estimate on the card or in the estimates sheet" + status
+            return (f"{_n(float(t['hours_dev']))} h development recorded, but no QA estimate; "
+                    f"hours count development plus QA once a task is closed" + status)
         missing_policy = self.sources.get("missing_estimate") or "withhold"
-        if missing and missing_policy != "skip":
+        partial_rows: list[dict] = []
+        if missing_policy == "partial" and not by_points:
+            # Count the part of an estimate that is recorded. Only a row with neither a
+            # development nor a QA estimate, or a group whose estimate is not delivered, is missing.
+            still = [t for t in missing if (t.get("effort_group") and t["effort_group"] not in eligible_groups)
+                     or (t.get("hours_dev") is None and t.get("hours_qa") is None)]
+            partial_rows = [t for t in missing if t not in still]
+            missing = still
+        velocity_refs = [self._refs(r"estimate", missing, missing_why)] if missing else []
+        if missing and missing_policy not in ("skip", "partial"):
             why = (f"Velocity is not measured in {'story points' if by_points else 'hours'}: "
                    f"{len(missing)} of {len(delivered)} delivered items lack the required estimate. "
                    "Record the missing estimate or finish the group whose estimate cannot be split; blank does not mean zero.")
-            m = self._measure("velocity", value=None, unit=unit, numerator=None, denominator=None, gaps=[why])
+            m = self._measure("velocity", value=None, unit=unit, numerator=None, denominator=None, gaps=[why],
+                              review_refs=velocity_refs)
             m.note_parts = [self._heading("velocity", period), why, ""]
             m._say = {"kpi": "velocity", "empty": why}
             return m
@@ -476,7 +499,8 @@ class Engine:
         if missing and not measured_delivered:
             why = (f"Velocity is not measured in {'story points' if by_points else 'hours'} because none of the "
                    f"{len(delivered)} delivered items has a usable estimate.")
-            m = self._measure("velocity", value=None, unit=unit, numerator=None, denominator=None, gaps=[why])
+            m = self._measure("velocity", value=None, unit=unit, numerator=None, denominator=None, gaps=[why],
+                              review_refs=velocity_refs)
             m.note_parts = [self._heading("velocity", period), why, ""]
             m._say = {"kpi": "velocity", "empty": why}
             return m
@@ -497,7 +521,8 @@ class Engine:
         gaps: list[str] = [partial_gap] if partial_gap else []
         if not delivered:
             numbers = self._nothing_yet(period, name)
-            m = self._measure("velocity", value=None, unit=unit, numerator=0, denominator=0, gaps=gaps)
+            m = self._measure("velocity", value=None, unit=unit, numerator=0, denominator=0, gaps=gaps,
+                              review_refs=velocity_refs)
             m.note_parts = [self._heading("velocity", period), numbers, ""]
             m._say = {"kpi": "velocity", "none": True, "rows": len(self.deliverables_in(name))}
             return m
@@ -530,6 +555,9 @@ class Engine:
         not_yet = [t for t in self.deliverables_in(name) if not t.get("delivered")]
         if not_yet:
             detail.append(f"{len(not_yet)} more {_plural(len(not_yet), 'item is', 'items are')} still in progress")
+        if partial_rows:
+            detail.append(f"{len(partial_rows)} {_plural(len(partial_rows), 'item is', 'items are')} counted with the "
+                          f"part of the estimate that is recorded")
 
         m = self._measure(
             "velocity",
@@ -539,13 +567,15 @@ class Engine:
             denominator=None,
             counted_keys=[t["key"] for t in measured_delivered],
             gaps=gaps,
+            review_refs=velocity_refs,
         )
         m.note_parts = [self._heading("velocity", period), numbers, ", ".join(detail)]
         m._say = {"kpi": "velocity", "total": total, "points": by_points, "n": len(measured_delivered), "plan": n_plan,
                   "cr": n_cr, "scope": n_scope, "basis": basis, "team": team_hours, "open": len(not_yet),
                   "dev": sum(float(t.get("hours_dev") or 0) for t in effort_rows),
                   "qa": sum(float(t.get("hours_qa") or 0) for t in effort_rows if t.get("closed")),
-                  "grouped": sum(bool(t.get("effort_only")) for t in effort_rows)}
+                  "grouped": sum(bool(t.get("effort_only")) for t in effort_rows),
+                  "partial": len(partial_rows)}
         return m
 
     def _ratio_measure(
@@ -575,8 +605,25 @@ class Engine:
                 f"so this is based only on what was filled in by hand."
             )
 
+        what = {"understood": "whether the requirement was clear enough to build",
+                "met_client_date": "whether it met the client's date",
+                "met_commitment": "whether it met the team's commitment"}.get(field_name, field_name.replace("_", " "))
+        date_of = "client_date" if field_name == "met_client_date" else "commit_date"
+        ratio_refs = []
+        if blank:
+            ratio_refs.append(self._refs(r"evidence|judged|history|nothing to measure|left out", blank,
+                                         lambda t: f"nothing records {what}" +
+                                                   (f"; status {t['status']}" if t.get("status") else "")))
+        if pending:
+            ratio_refs.append(self._refs(r"\bdue\b|no delivery|not delivered|nothing to measure", pending,
+                                         lambda t: (f"due {_md(t.get(date_of) or t.get('client_date') or t.get('commit_date'))}"
+                                                    if (t.get(date_of) or t.get("client_date") or t.get("commit_date"))
+                                                    else "no due date") +
+                                                   ", no delivery recorded yet" +
+                                                   (f"; status {t['status']}" if t.get("status") else "")))
+
         if den == 0:
-            m = self._measure(key, value=None, numerator=0, denominator=0, gaps=gaps)
+            m = self._measure(key, value=None, numerator=0, denominator=0, gaps=gaps, review_refs=ratio_refs)
             m.note_parts = [
                 self._heading(key, period),
                 self._why_empty(period, name, pending=pending, blank=blank),
@@ -618,6 +665,7 @@ class Engine:
             denominator=den,
             counted_keys=[t["key"] for t in yes + no],
             gaps=gaps,
+            review_refs=ratio_refs,
         )
         m.note_parts = [self._heading(key, period), numbers, "; ".join(left_out)]
         date_field = "client_date" if key == "client_expectation" else "commit_date"
@@ -716,8 +764,19 @@ class Engine:
                 "is based only on what was filled in by hand."
             )
 
+        status = lambda t: f"; status {t['status']}" if t.get("status") else ""
+        commit_refs = []
+        if not committed and rows:
+            commit_refs.append(self._refs(r"commitment", rows,
+                                          lambda t: "no team commitment date recorded" + status(t)))
+        if pending:
+            commit_refs.append(self._refs(r"\bdue\b|no delivery|not delivered|nothing to measure", pending,
+                                          lambda t: (f"committed for {_md(t['commit_date'])}" if t.get("commit_date")
+                                                     else "no commitment date") + ", no delivery recorded yet" + status(t)))
+
         if den == 0:
-            m = self._measure("delivery_commitment", value=None, numerator=0, denominator=0, gaps=gaps)
+            m = self._measure("delivery_commitment", value=None, numerator=0, denominator=0, gaps=gaps,
+                              review_refs=commit_refs)
             if not committed:
                 why = (f"No team commitment was recorded against any of the {len(rows)} items in this "
                        f"cycle, so there is nothing to measure reliability against")
@@ -748,7 +807,7 @@ class Engine:
 
         m = self._measure(
             "delivery_commitment", value=value, numerator=len(yes), denominator=den,
-            counted_keys=[t["key"] for t in yes + no], gaps=gaps,
+            counted_keys=[t["key"] for t in yes + no], gaps=gaps, review_refs=commit_refs,
         )
         m.note_parts = [self._heading("delivery_commitment", period), numbers, "; ".join(left)]
         met = str(cfg.get("met_when") or "delivery").strip()
@@ -902,6 +961,17 @@ class Engine:
         completed = [t for t in self.deliverables_in(name) if t.get("rework_closed", t.get("closed"))]
         reopened = [t for t in completed if t.get("reopened") == "Yes"]
         judged = [t for t in completed if t.get("reopened") in ("Yes", "No")]
+        # A project may decide that no record of a reopen means it was not reopened. That is
+        # a person's rule, set in the profile, and the note says it was applied.
+        # A ticket inside a group that was reopened is not "no record": the reopen is on the
+        # group, only not which ticket needed the change. Those stay unknown.
+        group_reopened = {t.get("_item") for t in self.kif.get("tasks") or []
+                          if t.get("effort_only") and t.get("reopened") == "Yes"}
+        no_history = ((self.profile.get("workflow") or {}).get("reopened_when") or {}).get("no_history")
+        assumed = ([t for t in completed if t.get("reopened") not in ("Yes", "No")
+                    and t.get("effort_group") not in group_reopened]
+                   if no_history == "not-reopened" else [])
+        judged = judged + assumed
         reopen_events = sum(int(t.get("reopen_count") or 1) for t in reopened)
         den = len(completed)
 
@@ -911,10 +981,19 @@ class Engine:
                 "The adapter cannot see status history, so a reopen is only detected where it was recorded by hand."
             )
 
+        unjudged_rows = [t for t in completed if t.get("reopened") not in ("Yes", "No") and t not in assumed]
+        keys = {t.get("_item"): t.get("key") for t in self.kif.get("tasks") or [] if t.get("effort_only")}
+        rework_refs = [self._refs(r"reopen|history|nothing to measure", unjudged_rows,
+                                  lambda t: (f"its group {keys.get(t['effort_group']) or ''} was reopened, but not which ticket "
+                                             f"needed the change" if t.get("effort_group") in group_reopened else
+                                             "no status history or record of whether it was reopened after closing") +
+                                            (f"; status {t['status']}" if t.get("status") else ""))] if unjudged_rows else []
+
         # Nothing was actually judged. Reporting 0% here would be a green "Met" bought with
         # ignorance - the same trap as an escaped-defect rate on a cycle nobody has seen.
         if den and not judged:
-            m = self._measure("rework_rate", value=None, numerator=0, denominator=den, gaps=gaps)
+            m = self._measure("rework_rate", value=None, numerator=0, denominator=den, gaps=gaps,
+                              review_refs=rework_refs)
             m.note_parts = [
                 self._heading("rework_rate", period),
                 f"Nothing to measure: none of the {den} completed {_plural(den, 'task')} records whether it was "
@@ -957,16 +1036,21 @@ class Engine:
                 f"{unjudged} completed {_plural(unjudged, 'task')} left out because the history needed to judge "
                 f"{'it' if unjudged == 1 else 'them'} was not available"
             )
+        if assumed:
+            left.append(
+                f"{len(assumed)} completed {_plural(len(assumed), 'task was', 'tasks were')} never recorded as reopened "
+                f"and {'is' if len(assumed) == 1 else 'are'} counted as not reopened, as agreed for this project"
+            )
         third = "; ".join(left)
 
         m = self._measure(
             "rework_rate", value=value, numerator=reopen_events, denominator=den,
-            counted_keys=[t["key"] for t in reopened], gaps=gaps,
+            counted_keys=[t["key"] for t in reopened], gaps=gaps, review_refs=rework_refs,
         )
         m.note_parts = [self._heading("rework_rate", period), numbers, third]
         m._say = {"kpi": "rework_rate", "reopened": reopen_events, "affected": len(reopened),
                   "den": den, "value": value,
-                  "near": len(near), "unjudged": unjudged}
+                  "near": len(near), "unjudged": unjudged, "assumed_no": len(assumed)}
         return m
 
     def cr_rate(self, period: dict) -> Measure:
@@ -1047,6 +1131,12 @@ class Engine:
             return "Nothing has been logged against this cycle yet"
         return f"Nothing to measure yet across {_items_word(len(rows))}"
 
+    @staticmethod
+    def _refs(match: str, rows: list[dict], detail) -> dict:
+        return {"match": match, "items": [
+            {"key": t.get("key") or "", "title": t.get("title") or "", "link": t.get("link") or "",
+             "detail": detail(t) if callable(detail) else detail} for t in rows]}
+
     def _why_empty(self, period: dict, name: str, pending: list[dict], blank: list[dict]) -> str:
         """An empty ratio has to say *which* emptiness this is, or a reader assumes the run
         failed. There are three quite different reasons and they need different sentences."""
@@ -1100,10 +1190,15 @@ class Engine:
         context_parts, context_review = note_policy.split(self._reason_for(period_name, m.name))
         m.summary_note = " || ".join(summary_parts)
         m.context_note = " || ".join(context_parts)
-        m.review_items = list(dict.fromkeys(review + summary_review + context_review + m.gaps))
+        # "Not measured yet." on its own asks nothing; the status already says it, and the
+        # sentences around it carry the actual question.
+        m.review_items = [x for x in dict.fromkeys(review + summary_review + context_review + m.gaps)
+                          if not re.fullmatch(r"(?i)\s*not (?:measured|assessed)(?: yet)?[.!]?\s*", x)]
         saved_basis = (self.reasons.get("_summary_bases") or {}).get(tag)
         if tag in overrides and summary != m.generated_note and saved_basis != note_policy.basis(m.as_dict()):
-            m.review_items.append("The figures changed after the result summary was edited. Review the wording against the current figures.")
+            now = "; ".join(p for p in (m.generated_note or "").split(" || ") if p) or f"value {m.value}"
+            m.review_items.append("The figures changed after the result summary was edited. Review the wording against the current figures. "
+                                  f"The edited summary on the KPI Summary tab says: \"{summary}\" The figures now say: \"{now}\"")
             m.publish_blocked = True
         parts = [p for p in (summary_parts + context_parts) if p and p.strip()]
         cleaned: list[str] = []

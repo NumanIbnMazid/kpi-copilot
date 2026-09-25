@@ -203,6 +203,7 @@ def publish(tabs: list[M.Tab], out_cfg: dict, name: str, known_id: str | None = 
         raise G.GoogleError("The configured review sheet differs from the saved destination. "
                             "Finish reviewing the current sheet before migrating the destination.")
     fid, created = (known_id, False) if known_id else resolve(s, out_cfg, name)
+    archived = None if created else archive(s, fid, out_cfg.get("archive"))
     meta = s.call("GET", f"{G.SHEETS}/{fid}", params={"fields": META_FIELDS})
     have = {sh["properties"]["title"]: sh for sh in meta.get("sheets") or []}
     reqs: list[dict] = []
@@ -229,7 +230,26 @@ def publish(tabs: list[M.Tab], out_cfg: dict, name: str, known_id: str | None = 
                 reqs.append({"deleteSheet": {"sheetId": sh["properties"]["sheetId"]}})
     s.call("POST", f"{G.SHEETS}/{fid}:batchUpdate", {"requests": reqs})
     return {"kind": "google", "id": fid, "url": meta.get("spreadsheetUrl") or f"https://docs.google.com/spreadsheets/d/{fid}/edit",
-            "created": created, "requests": len(reqs), "as": s.identity, "warning": warn}
+            "created": created, "requests": len(reqs), "as": s.identity, "warning": warn, "archived": archived}
+
+
+def archive(s: G.Session, fid: str, folder_name: str | None) -> dict | None:
+    """Before the live sheet is replaced, keep a dated copy in a folder beside it, so the
+    folder shows every earlier state while the live sheet keeps its one link. Once a day is
+    enough: later runs that day only add to what that copy already holds, and what a person
+    typed is read back before anything is written."""
+    if not folder_name:
+        return None
+    info = G.drive_meta(s, fid)
+    parent = (info.get("parents") or [None])[0]
+    if not parent:
+        return None
+    folder = G.drive_folder(s, parent, folder_name)
+    stamp = dt.datetime.now()
+    prefix = f"{info.get('name')} - archived {stamp:%Y-%m-%d}"
+    if G.drive_list(s, folder["id"], prefix):
+        return None
+    return G.drive_copy(s, fid, folder["id"], f"{prefix} {stamp:%H%M}")
 
 
 def read_grid(fid: str, tabs: list[str], session: G.Session | None = None) -> Callable[[str, int, int], Any]:

@@ -61,6 +61,12 @@ From a mapped timeline the run takes each period's handover date (the latest *do
 a handover type) and keeps the KPI-flagged log entries as context for writing notes. Anything
 a person typed in the sheet or the facts file wins over what the mapping found.
 
+If the tracker keeps a current agreed date beside the original one, map it as
+`events.columns.target` and set `events.due_from: target`. Each period's client and commitment
+dates then follow that column (a handover event with no period covers every period without one
+of its own), and the run says which dates it took. Without `due_from` the Baseline is only kept
+as the original plan date.
+
 → [Facts file shapes](../../plugin/kpi-copilot/skills/kpi-run/references/facts.md)
 
 | Field | What it is |
@@ -103,6 +109,16 @@ cycle is therefore not credited with QA that has not happened — which is the p
 
 Team-level effort that belongs to no single item (bug fixing, regression, QA support) goes
 on the period as `team_hours`, and the Velocity note names it separately.
+
+## `missing_estimate`
+
+What Velocity does with a delivered item whose estimate is incomplete:
+
+| Value | Effect |
+|---|---|
+| `withhold` (default) | Velocity is Not measured until every delivered item has its estimate. Blank never means zero |
+| `skip` | The item is left out of the total, and a review question names it, with its link and what is missing |
+| `partial` | The item counts the part that is recorded (development only, or QA only). Only an item with neither is left out and named. The note says how many were counted this way |
 
 ## Evidence channels, and deep runs
 

@@ -20,6 +20,8 @@ execute commands or connect to a runtime, explain that prerequisite instead of s
    `judge/answers.json` in its `answer_shape`; run `kpi.py judge` with the same profile/project.
 3. Put all remaining person questions in one message. Record their answers with
    `kpi.py answer --profile … --project … --id … --value …`, then rerun.
+4. If NEXT lists answers to apply, act on each where it belongs (profile, Periods, a
+   judgement), then `kpi.py answer … --id … --resolved "what was done"` so the sheet shows it.
 
 Use only the queue's context and rubric for classification. Every answer needs a factual
 one-sentence why. If evidence is insufficient, use `value: null` with what is missing.

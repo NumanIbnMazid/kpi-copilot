@@ -315,9 +315,23 @@ def facts_from_mapping(status: dict, cfg: dict, facts: dict) -> list[str]:
                 # A tracker may call a move to QA or DevOps a handover as well. Only
                 # the configured client-delivery events may populate handover_date.
                 rows = [r for r in rows if re.search(handover_pattern, str(r.get("event") or ""))]
+            # due_from: target - the tracker's Target (the date agreed now) is the due date,
+            # rather than the Baseline. A handover event with no period covers every period
+            # that has no event of its own.
+            due_from = mp["events"].get("due_from")
+            project_wide = [r for r in rows if not str(r.get("period") or "").strip()
+                            and any(t in B.norm(str(r.get("type") or "")) for t in types)]
             for p in per.get("periods") or []:
                 mine = [r for r in rows if B.norm(str(r.get("period") or "")) == B.norm(p.get("name") or "")
                         and any(t in B.norm(str(r.get("type") or "")) for t in types)]
+                if due_from == "target":
+                    due = [_iso(r.get("target")) for r in (mine or project_wide) if _iso(r.get("target"))]
+                    auto_due = p.setdefault("_from_timeline", {})
+                    for field in ("client_date", "commit_date"):
+                        if due and (not p.get(field) or auto_due.get(field) == p.get(field)):
+                            if p.get(field) != max(due):
+                                said.append(f"{p['name']}: {field.replace('_', ' ')} {max(due)} read from the timeline's Target")
+                            p[field] = auto_due[field] = max(due)
                 got = [(_iso(r.get("actual")), r) for r in mine
                        if _iso(r.get("actual")) and (not r.get("state") or B.norm(str(r["state"])) in done)]
                 planned = [_iso(r.get("baseline")) for r in mine if _iso(r.get("baseline"))]

@@ -406,6 +406,9 @@ def publish(ws: Workspace, kif: dict, results: dict, ctx: dict, args) -> tuple[d
                 g = sheet_google.publish(tabs, publish_cfg, title, prev.get("id") if prev.get("kind") == "google" else None)
                 dest = {**g, "path": str(local)}
                 H.save(ws.dir / "workbook_destination.json", dest)
+                if g.get("archived"):
+                    said.append(f"Kept the previous version as {g['archived'].get('name')} in the "
+                                f"{publish_cfg.get('archive')} folder")
                 said.append(("Created" if g["created"] else "Updated") + f" the Google Sheet as {g['as']}: {g['url']}")
                 if g.get("warning"):
                     said.append(g["warning"])
@@ -419,7 +422,7 @@ def publish(ws: Workspace, kif: dict, results: dict, ctx: dict, args) -> tuple[d
 
 def push_history(ws: Workspace) -> tuple[list[dict], dict]:
     log, pushed = [], {}
-    for p in sorted((ws.dir / "runs").glob("*/push_log.json")):
+    for p in sorted((ws.dir / "runs").glob("*/push_log*.json")):
         try:
             doc = json.loads(p.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -502,18 +505,19 @@ def cmd_run(args) -> int:
     import note_policy
     for period in results.get("periods") or []:
         for measure in period.get("measures") or []:
-            work["questions"].extend(note_policy.question(period["period"], measure["name"], detail)
+            work["questions"].extend(note_policy.question(period["period"], measure["name"], detail,
+                                                          note_policy.items_for(measure, detail))
                                      for detail in measure.get("review_items") or [])
     moved, values = what_moved(ws, results)
     clock.lap("compute")
 
     # 6. the sheet -----------------------------------------------------------------------------
-    questions = [dict(q, asked_on=ws.today, answer=_answer_text(ws.ledger.answer(q["id"]))) for q in work["questions"]]
+    questions = question_rows(ws, work["questions"])
     log, pushed = push_history(ws)
     registry = _registry(ws)
     ctx = {
         "profile": ws.profile, "registry": registry, "reasons": ws.facts.get("reasons") or {}, "manual": ws.manual,
-        "questions": [q for q in questions if not q["answer"]] + [q for q in questions if q["answer"]],
+        "questions": questions,
         "changes": moved, "push_log": log, "pushed_on": pushed, "grain": work.get("grain"),
         "as_of": ws.today, "refreshed": (snap or {}).get("fetched_at") or B.now_iso(), "tool_version": _version(),
         "prepared_by": (ws.raw.get("owner") or {}).get("name") or args.by or "",
@@ -526,7 +530,8 @@ def cmd_run(args) -> int:
                      "note": "Outside this run's sources. Add one to the profile, or ask for a deep run, to include it."}],
         "run_facts": [("Run on", ws.today), ("Tool version", _version()), ("Source-of-truth mode", mode),
                       ("Cards read", len(items)), ("Judged by an assistant or a person (kept)", _kept(ws.ledger)),
-                      ("Waiting for an assistant", len(work["queue"])), ("Waiting for a person", len([q for q in questions if not q["answer"]]))],
+                      ("Waiting for an assistant", len(work["queue"]) + len([q for q in questions if q["status"] == TO_APPLY])),
+                      ("Waiting for a person", len([q for q in questions if q["status"] == OPEN]))],
     }
     dest, said = publish(ws, kif, results, ctx, args)
     clock.lap("sheet")
@@ -543,6 +548,65 @@ def cmd_run(args) -> int:
 
     report(ws, results, kif, work, queue, qpath, questions, edits, notes, said, moved, dest, clock, args)
     return 0
+
+
+OPEN, TO_APPLY, APPLIED, RESOLVED = "Open", "Answered - to apply", "Applied", "Resolved"
+GONE, GONE_ANSWERED = "No longer asked", "Answered - no longer asked"
+STATUS_ORDER = [OPEN, TO_APPLY, RESOLVED, APPLIED, GONE_ANSWERED, GONE]
+
+
+def _local_day(at: str | None) -> str | None:
+    if not at:
+        return None
+    try:
+        return dt.datetime.fromisoformat(at).astimezone().date().isoformat()
+    except ValueError:
+        return at[:10]
+
+
+def question_rows(ws: "Workspace", current: list[dict]) -> list[dict]:
+    """Every question this project has asked, current and past, with where it stands.
+
+    Open: nobody has answered. Answered - to apply: an answer is waiting for the assistant
+    (a free-text instruction the tool cannot act on by itself). Applied: the tool used the
+    answer. Resolved: somebody acted on it and said what was done. No longer asked: the
+    run no longer raises it, kept so the history stays visible."""
+    ledger = ws.ledger
+    for q in current:
+        ledger.note_question(q["id"], q.get("about"), q.get("question"), ws.today, q.get("items"))
+    rows = []
+    for qid, rec in (ledger.data.get("questions") or {}).items():
+        cur = next((q for q in current if q["id"] == qid), None)
+        a = ledger.data["answers"].get(qid) or {}
+        answered = a.get("value") not in (None, "", {})
+        if answered and a.get("resolved"):
+            status, done = RESOLVED, a["resolved"]
+        elif answered and a.get("applied"):
+            status, done = APPLIED, a["applied"]
+        elif answered:
+            status, done = (TO_APPLY if cur else GONE_ANSWERED), None
+        else:
+            status, done = (OPEN if cur else GONE), None
+        row = dict(cur or {"id": qid, "about": rec.get("about"), "question": rec.get("question"),
+                           "items": rec.get("items"), "blocking": False})
+        row.update(status=status, answer=_answer_text(a.get("value")) if answered else "",
+                   asked_on=rec.get("first_asked"), last_asked=rec.get("last_asked"),
+                   answered_on=_local_day(a.get("at")) if answered else None,
+                   done_on=_local_day((done or {}).get("at")), done=(done or {}).get("what"))
+        if status == TO_APPLY:
+            row["blocking"] = True      # an answer nobody has acted on may change the numbers
+        rows.append(row)
+    position = {q["id"]: i for i, q in enumerate(current)}
+
+    def order(r: dict) -> tuple:
+        # Waiting questions oldest first; settled ones newest first.
+        if r["status"] in (OPEN, TO_APPLY):
+            return (STATUS_ORDER.index(r["status"]), r.get("asked_on") or "", position.get(r["id"], 0), r["id"])
+        day = r.get("done_on") or r.get("answered_on") or r.get("last_asked") or ""
+        return (STATUS_ORDER.index(r["status"]), "".join(str(9 - int(c)) if c.isdigit() else c for c in day),
+                position.get(r["id"], 0), r["id"])
+    rows.sort(key=order)
+    return rows
 
 
 def _answer_text(a: Any) -> str:
@@ -600,7 +664,8 @@ def report(ws, results, kif, work, queue, qpath, questions, edits, notes, said, 
     print(f"Run folder: {ws.run_dir}")
     print("  " + clock.line())
 
-    open_q = [q for q in questions if not q["answer"]]
+    open_q = [q for q in questions if q["status"] == OPEN]
+    to_apply = [q for q in questions if q["status"] == TO_APPLY]
     output = ws.profile.get("output") or {}
     wants_google = (output.get("workbook") == "google-sheets" or output.get("workbook_file")
                     or output.get("workbook_location")) and output.get("workbook") != "xlsx"
@@ -618,22 +683,32 @@ def report(ws, results, kif, work, queue, qpath, questions, edits, notes, said, 
         print(f"  Assistant: {what}. Read {qpath} once, write {ws.dir / 'judge' / 'answers.json'} in the shape it shows,\n"
               f"  then run:  python3 {Path(__file__).name} judge --profile {ws.profile_path} --project {ws.pid}\n"
               f"  Do not open the board or search anywhere else - everything needed is in that file.")
+    if to_apply:
+        print(f"  Assistant: {len(to_apply)} answer{'s' if len(to_apply) != 1 else ''} to apply. Act on each, then record it with\n"
+              f"  python3 {Path(__file__).name} answer --profile {ws.profile_path} --project {ws.pid} --id <id> --resolved \"what was done\"")
+        for q in to_apply:
+            print(f"    - [{q['id']}] answered {q.get('answered_on')}: {q['answer']}")
     if open_q:
         print(f"  Person: {len(open_q)} question{'s' if len(open_q) != 1 else ''} only you can answer "
               f"(Open Questions tab, or tell the assistant):")
-        for q in open_q[:6]:
+        for q in open_q:
             print(f"    - [{q['id']}] {q['question']}")
+            for it in q.get("items") or []:
+                print(f"        · {it.get('key')} {it.get('title')}: {it.get('detail')}"
+                      + (f"  {it['link']}" if it.get("link") else ""))
     if args.deep and (ws.profile.get("sources") or {}).get("evidence_channels"):
         ch = ", ".join((ws.profile.get("sources") or {}).get("evidence_channels") or [])
         print(f"  Deep run asked for: the open questions above may also be looked up in {ch} - those, and only for "
               f"those questions. Record what you find with `answer`, with the link.")
-    if not qpath and not open_q and not getattr(ws, "source_blockers", []) and not sheet_pending:
+    if not qpath and not open_q and not to_apply and not getattr(ws, "source_blockers", []) and not sheet_pending:
         print("  Nothing. The sheet is up to date." + ("" if (ws.profile.get("output") or {}).get("mode") in (None, "review-only")
                                                        else f"  To send it:  python3 {Path(__file__).name} push --profile {ws.profile_path} --project {ws.pid}"))
     (ws.dir / "next.json").write_text(json.dumps({
         "sheet": dest.get("url") or dest.get("path"), "queue": str(qpath) if qpath else None,
         "to_judge": len(queue["items"]), "notes_needed": len(queue["notes"]),
-        "questions": [{"id": q["id"], "question": q["question"], "blocking": q.get("blocking", True)} for q in open_q],
+        "questions": [{"id": q["id"], "question": q["question"], "blocking": q.get("blocking", True),
+                       **({"items": q["items"]} if q.get("items") else {})} for q in open_q + to_apply],
+        "to_apply": [{"id": q["id"], "answer": q["answer"], "answered_on": q.get("answered_on")} for q in to_apply],
         "source_blockers": getattr(ws, "source_blockers", []),
         "sheet_pending": sheet_pending,
         "payloads": str(ws.run_dir / "payloads.json"),
@@ -674,12 +749,21 @@ def cmd_judge(args) -> int:
 def cmd_answer(args) -> int:
     ws = Workspace(args)
     import sheet_readback as R
-    R._file_answer(args.id, args.value, ws.ledger, ws.facts)
-    if args.why:
-        ws.ledger.data["answers"].setdefault(args.id, {})["why"] = args.why
-        ws.ledger.dirty = True
+    if args.value is None and not args.resolved:
+        raise SystemExit("Give --value (the answer), --resolved (what was done about an answer), or both.")
+    if args.value is not None:
+        applied = R._file_answer(args.id, args.value, ws.ledger, ws.facts)
+        if args.why:
+            ws.ledger.data["answers"].setdefault(args.id, {})["why"] = args.why
+            ws.ledger.dirty = True
+        print(f"Kept: {args.id} = {args.value}." + (f" Applied: {applied}." if applied else ""))
+    if args.resolved:
+        if ws.ledger.answer(args.id) in (None, ""):
+            raise SystemExit(f"{args.id} has no answer to resolve. Record the answer with --value first.")
+        ws.ledger.settle(args.id, "resolved", args.resolved, args.by or "assistant")
+        print(f"Resolved: {args.id} - {args.resolved}")
     ws.save()
-    print(f"Kept: {args.id} = {args.value}. It will be used from the next run on.")
+    print("It will be used from the next run on.")
     return 0
 
 
@@ -801,6 +885,15 @@ def input_digest(ws: Workspace) -> str:
     return h.hexdigest()
 
 
+def _question_period(qid: str) -> str | None:
+    """'handover:P', 'review:P|KPI:abc', 'reason:P|KPI' -> 'P'. None when a question is not
+    about one period, so it holds back every push."""
+    kind, _, rest = qid.partition(":")
+    if kind not in ("handover", "review", "reason") or not rest:
+        return None
+    return rest.split("|", 1)[0] if kind != "handover" else rest
+
+
 def cmd_push(args) -> int:
     ws = Workspace(args)
     runs = sorted((ws.dir / "runs").glob("*/payloads.json"))
@@ -835,17 +928,33 @@ def cmd_push(args) -> int:
             raise SystemExit("Inputs changed or the run predates review checks. Run again and review the refreshed sheet before sending.")
         if n.get("payload_digest") != hashlib.sha256(payload.read_bytes()).hexdigest():
             raise SystemExit("The payload changed after the run. Recompute and review before sending.")
+        chosen = set(args.period or [])
         if any(n.get(k) for k in ("notes_needed", "to_judge", "source_blockers", "sheet_pending")) or any(
-                q.get("blocking", True) for q in n.get("questions") or []):
+                q.get("blocking", True) for q in n.get("questions") or []
+                if not chosen or _question_period(q["id"]) in chosen or _question_period(q["id"]) is None):
             raise SystemExit("This run still needs review: resolve NEXT, refresh the sheet, then approve sending to PMS.")
+    log_path = payload.parent / "push_log.json"
+    if args.period:
+        # Only the periods named: the rest of the run can wait for its answers without
+        # holding back a period that is ready.
+        whole = json.loads(payload.read_text(encoding="utf-8"))
+        names = {p.get("name") for p in whole}
+        unknown = [x for x in args.period if x not in names]
+        if unknown:
+            raise SystemExit(f"No period named {', '.join(unknown)} in this run. Periods: {', '.join(sorted(n for n in names if n))}")
+        stamp = dt.datetime.now().strftime("%H%M%S")
+        payload = payload.parent / f"payloads.selected-{stamp}.json"
+        payload.write_text(json.dumps([p for p in whole if p.get("name") in args.period], indent=2, ensure_ascii=False),
+                           encoding="utf-8")
+        log_path = payload.parent / f"push_log.{stamp}.json"
     push = _module(HERE / "pms_push.py", "kpic_push")
     argv = ["--payloads", str(payload), "--profile", str(ws.profile_path), "--project", ws.pid,
-            "--log", str(payload.parent / "push_log.json"), "--apply" if args.apply else "--dry-run"]
+            "--log", str(log_path), "--apply" if args.apply else "--dry-run"]
     if getattr(args, "create_periods", False):
         argv.append("--create-periods")
     code = push.main(argv)
     if args.apply and code == 0:
-        log = json.loads((payload.parent / "push_log.json").read_text())
+        log = json.loads(log_path.read_text())
         ids = {x["period"]: x["periodId"] for x in log.get("results", [])
                if x.get("result") == "verified" and x.get("periodId")}
         for period in (ws.facts.get("periods") or {}).get("periods") or []:
@@ -884,13 +993,16 @@ def main(argv: list[str] | None = None) -> int:
     j.add_argument("--no-rerun", action="store_true")
     a = common(sub.add_parser("answer", help="Record a person's answer to an open question."))
     a.add_argument("--id", required=True)
-    a.add_argument("--value", required=True)
+    a.add_argument("--value")
+    a.add_argument("--resolved", help="What was done about the answer. Marks it Resolved on the sheet.")
     a.add_argument("--why", default="")
     common(sub.add_parser("status", help="What is on file and what is waiting. No network."))
     common(sub.add_parser("doctor", help="Can it reach what it needs?"))
     p = common(sub.add_parser("push", help="Send the last run to PMS (dry run unless --apply)."))
     p.add_argument("--apply", action="store_true")
     p.add_argument("--create-periods", action="store_true", help="Create missing periods when explicitly authorized.")
+    p.add_argument("--period", action="append", help="Send only this period (repeatable). Open questions about "
+                   "other periods do not hold it back.")
     au = common(sub.add_parser("auth", help="Connect a service - or, with none named, see what needs connecting and how."))
     au.add_argument("what", nargs="?", choices=["asana", "jira", "github", "google"])
     au.add_argument("--route", choices=["browser", "token", "cli"], help="Default: the best one available on this machine.")

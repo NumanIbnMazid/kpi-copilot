@@ -712,6 +712,7 @@ def main() -> int:
           all("Open" not in str(x.get("link") or "") for x in patched2["tasks"]))
 
     pipeline_tests(tmp)
+    question_tests(tmp)
 
     audit = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", str(ROOT / "tests"), "-v"],
                            capture_output=True, text=True)
@@ -1114,6 +1115,91 @@ def pipeline_tests(tmp: Path) -> None:
     check("an empty digest says what to read and where to write it", "Read it once" in S.staleness(st, {"plan": {}})[0])
     check("the run log names what was deliberately not read",
           any("chat, mail" in str(c.value) for row in load_workbook(next(proj.glob("KPI Tracker - *.xlsx")))["Run Log"].iter_rows() for c in row if c.value))
+
+
+def question_tests(tmp: Path) -> None:
+    """A question names what it is about, and the sheet says where each answer stands."""
+    import types
+    import yaml
+    import kpi
+    import note_policy
+    import sheet_readback as R
+    from ledger import Ledger
+
+    print("\nQuestions: which items, and where each answer stands")
+    kif = json.loads((EX / "northwind-q3" / "run.kif.json").read_text())
+    for t in kif["tasks"]:
+        if t.get("key") == "TKT-3479":
+            t["hours_qa"] = None
+            t["closed"] = t.get("closed") or t.get("delivered")
+    (tmp / "q.kif.json").write_text(json.dumps(kif))
+    cfg = yaml.safe_load((EX / "northwind-q3" / "profile.yaml").read_text())
+    cfg.setdefault("sources", {})["missing_estimate"] = "skip"
+    cfg["sources"]["hours_basis"] = "dev+qa"
+    (tmp / "q.yaml").write_text(yaml.safe_dump(cfg))
+    res = compute(tmp / "q.kif.json", tmp / "q.yaml", None, tmp / "q.results.json")
+    vel = next(m for p in res["periods"] for m in p["measures"]
+               if m["name"] == "Velocity" and any("estimate" in x for x in m["review_items"]))
+    detail = next(x for x in vel["review_items"] if "estimate" in x)
+    items = note_policy.items_for(vel, detail)
+    mine = next((i for i in items if i["key"] == "TKT-3479"), {})
+    check("a missing-estimate question names every item, its link and what is missing",
+          "no QA estimate" in mine.get("detail", "") and "link" in mine and len(items) == len({i["key"] for i in items}), str(items))
+    check("...and the question's id does not depend on the items listed",
+          note_policy.question("P", "Velocity", detail, items)["id"] == note_policy.question("P", "Velocity", detail)["id"])
+
+    cfg["sources"]["missing_estimate"] = "partial"
+    (tmp / "qp.yaml").write_text(yaml.safe_dump(cfg))
+    part = compute(tmp / "q.kif.json", tmp / "qp.yaml", None, tmp / "qp.results.json")
+    pv = next(m for p in part["periods"] for m in p["measures"] if m["name"] == "Velocity" and p["period"] == vel.get("period", p["period"])
+              and "TKT-3479" in (m.get("counted_keys") or []))
+    check("missing_estimate: partial counts the part of an estimate that is recorded, and says so",
+          not any("estimate" in x for x in pv["review_items"]) and "part of" in pv["note"], pv["note"])
+
+    rk = json.loads((EX / "northwind-q3" / "run.kif.json").read_text())
+    for t in rk["tasks"]:
+        if t.get("reopened") == "No":
+            t["reopened"] = None
+    (tmp / "rk.kif.json").write_text(json.dumps(rk))
+    cfg = yaml.safe_load((EX / "northwind-q3" / "profile.yaml").read_text())
+    cfg.setdefault("workflow", {}).setdefault("reopened_when", {})["no_history"] = "not-reopened"
+    (tmp / "rk.yaml").write_text(yaml.safe_dump(cfg))
+    before = measure(compute(tmp / "rk.kif.json", EX / "northwind-q3" / "profile.yaml", None, tmp / "rk0.json"),
+                     "Initial Scope", "Rework Rate")
+    after = measure(compute(tmp / "rk.kif.json", tmp / "rk.yaml", None, tmp / "rk1.json"), "Initial Scope", "Rework Rate")
+    check("no_history: not-reopened counts an unrecorded task as not reopened, and the note says so",
+          (after["denominator"] or 0) > (before["denominator"] or 0) and "counted as not reopened" in after["note"],
+          f"{before['denominator']} -> {after['denominator']}: {after['note']}")
+
+    check("a date written in a sentence is read", R._dates_in("Handed over to the client on 09/25. Thread", 2026) == ["2026-09-25"])
+    led = Ledger(tmp / "q.ledger.json")
+    facts = {"periods": {"periods": [{"name": "Cycle 2"}]}}
+    applied = R._file_answer("handover:Cycle 2", "Handed over to the client on 09/25", led, facts)
+    check("...so a handover answered in words is applied", facts["periods"]["periods"][0].get("handover_date", "").endswith("-09-25")
+          and applied, str(facts))
+    check("...but two dates in one answer are left for a person to settle",
+          R._file_answer("handover:Cycle 2", "Built 09/24, handed over 09/25", led, {"periods": {"periods": [{"name": "Cycle 2"}]}}) is None)
+
+    ws = types.SimpleNamespace(ledger=led, today="2026-09-26")
+    current = [{"id": "review:Cycle 2|Velocity:abc", "about": "Cycle 2 · Velocity", "question": "Review this", "blocking": False},
+               {"id": "handover:Cycle 3", "about": "Cycle 3", "question": "When?", "blocking": True}]
+    led.set_answer("review:Cycle 2|Velocity:abc", "Add these hours.", "human", "answered in the sheet")
+    led.set_answer("handover:Cycle 2", "2026-09-25", "human", "answered in the sheet")
+    led.settle("handover:Cycle 2", "applied", "handover date set to 09/25", "tool")
+    led.note_question("handover:Cycle 2", "Cycle 2", "When did it reach the client?", "2026-09-20")
+    rows = {r["id"]: r for r in kpi.question_rows(ws, current)}
+    check("an unanswered question is Open, an unacted answer waits for the assistant",
+          rows["handover:Cycle 3"]["status"] == "Open" and rows["review:Cycle 2|Velocity:abc"]["status"] == "Answered - to apply"
+          and rows["review:Cycle 2|Velocity:abc"]["blocking"])
+    check("an answer the tool used is Applied, and a question no longer raised stays in the history",
+          rows["handover:Cycle 2"]["status"] == "Applied" and rows["handover:Cycle 2"]["asked_on"] == "2026-09-20"
+          and rows["handover:Cycle 2"]["done"] == "handover date set to 09/25")
+    led.settle("review:Cycle 2|Velocity:abc", "resolved", "counted the recorded hours", "assistant")
+    rows = {r["id"]: r for r in kpi.question_rows(types.SimpleNamespace(ledger=led, today="2026-09-27"), current)}
+    check("an answer acted on is Resolved, with what was done, and keeps the day it was first asked",
+          rows["review:Cycle 2|Velocity:abc"]["status"] == "Resolved"
+          and rows["review:Cycle 2|Velocity:abc"]["asked_on"] == "2026-09-26"
+          and rows["review:Cycle 2|Velocity:abc"]["done"] == "counted the recorded hours")
 
 
 if __name__ == "__main__":

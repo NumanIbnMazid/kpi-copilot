@@ -148,6 +148,8 @@ def _notes_needed(results: dict, facts: dict, review: bool = False, kif: dict | 
                 "period": name, "kpi": m["name"], "status": m["status"], "value": m.get("value"),
                 "target": m.get("threshold"), "the_note_already_says": " || ".join(x for x in m.get("note_parts") or [] if x),
                 "counted": (m.get("counted_keys") or [])[:15], "review_items": m.get("review_items") or [],
+                "review_item_details": {d: items for d in m.get("review_items") or []
+                                        if (items := note_policy.items_for(m, d))},
                 "context": {"period_story": p.get("notes") or "", "original_plan": p.get("plan_text") or "",
                             "dates": {k: p.get(k) or ((facts.get("periods") or {}).get("project") or {}).get(k)
                                       for k in ("client_date", "commit_date", "handover_date", "client_check")},
@@ -173,7 +175,9 @@ def _notes_needed(results: dict, facts: dict, review: bool = False, kif: dict | 
                          "why": d.get("rejection_reason") or ((d.get("basis") or {}).get("rejected") or {}).get("why")}
                         for d in (kif or {}).get("defects") or [] if d.get("period") == name and d.get("rejected") == "Yes"]
                 entry["result_summary"] = m.get("summary_note")
-                signature = hashlib.sha256(json.dumps({"note": entry, "version": RUBRIC_VERSION,
+                # Which items a review question lists is supporting detail, not the note itself.
+                signed = {k: v for k, v in entry.items() if k != "review_item_details"}
+                signature = hashlib.sha256(json.dumps({"note": signed, "version": RUBRIC_VERSION,
                     "style": (profile or {}).get("custom_instructions"),
                     "workflow": (profile or {}).get("workflow")}, sort_keys=True, default=str).encode()).hexdigest()
                 tag = f"{name}|{m['name']}"

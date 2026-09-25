@@ -21,6 +21,7 @@ The link above is a placeholder. Use an approved dedicated output sheet in a pri
 | `workbook_file` | Specific Google Sheet to update; takes priority over folder creation |
 | `workbook_location` | Google Drive folder link/ID for creating the output. Does not change local storage or implement SharePoint publishing |
 | `workbook_name` | Created Google Sheet's name; default `[KPI Tracker] {project}` |
+| `archive` | Folder beside the live Google Sheet (for example `Archived`). Before the sheet is updated, a dated copy is kept there, at most one a day, so the folder shows each earlier state while the live sheet keeps its link |
 | `notify` | Preferred notification destination metadata. The Python runner does not send messages; an assistant integration needs explicit authorization |
 | `workbook_template` | Legacy metadata; current writers use the shared sheet model rather than copying an arbitrary workbook |
 | `run_folder` | Legacy runner setting. Current `kpi.py` uses the profile/project layout below |

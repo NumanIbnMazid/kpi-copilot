@@ -66,6 +66,7 @@ Rework Rate is **closed, then reopened**.
 |---|---|
 | `values` | States meaning "back in play after being closed" |
 | `ignore_first_qa_fail` | Default yes. A QA failure while the item is still being tested for the first time is normal testing, not rework |
+| `no_history` | `unknown` (default) leaves a completed task with no reopen on record out of the rate. `not-reopened` counts it as not reopened, and the note says so. A ticket inside a group that was reopened is never assumed: the reopen is on record, just not which ticket needed the change |
 
 Leave `ignore_first_qa_fail` on unless you have a specific reason. Turning it off is the most
 common way a Rework Rate comes out far too high — and it is named in the note as not counted,

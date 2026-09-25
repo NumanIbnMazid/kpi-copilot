@@ -52,6 +52,15 @@ Record each answer with
 `python3 scripts/kpi.py answer --profile … --project … --id <id> --value <value>`, or tell
 them to type it on the sheet's **Open Questions** tab. Then run again.
 
+Some answers the tool applies by itself (a handover date, a choice from a list, a reason).
+Others are instructions - "count these hours", "the due date is 10/02". NEXT lists those as
+**Assistant: answers to apply**, and a push waits for them. Make the change through the
+proper place (the profile with `remember.py`, the Periods tab or facts, a judgement), then
+record what was done:
+`python3 scripts/kpi.py answer … --id <id> --resolved "what was done"`. The Open Questions
+tab shows every question with its status (Open, Answered - to apply, Applied, Resolved, No
+longer asked), when it was first asked, when it was answered and what was done.
+
 That is the whole loop. A second run on the same project usually has nothing to judge and
 takes a few seconds.
 

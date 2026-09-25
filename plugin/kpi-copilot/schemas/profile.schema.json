@@ -532,6 +532,12 @@
             "ignore_first_qa_fail": {
               "type": "boolean",
               "default": true
+            },
+            "no_history": {
+              "type": "string",
+              "enum": ["unknown", "not-reopened"],
+              "default": "unknown",
+              "description": "A completed task with no record either way. 'unknown' leaves it out of the rate; 'not-reopened' counts it as not reopened, and the note says so."
             }
           },
           "x-workbook": {
@@ -1085,6 +1091,13 @@
           "description": "Name for a Google Sheet the tool creates. {project} is replaced. Default: '[KPI Tracker] {project}'.",
           "x-workbook": {
             "label": "Sheet name"
+          }
+        },
+        "archive": {
+          "type": ["string", "null"],
+          "description": "Folder beside the live Google Sheet where a dated copy is kept before the sheet is updated, at most one a day (e.g. 'Archived'). Empty keeps no copies; Google's version history still applies.",
+          "x-workbook": {
+            "label": "Archive folder"
           }
         }
       }

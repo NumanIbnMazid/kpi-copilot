@@ -48,6 +48,7 @@ SCOPES = [
 ]
 SHEETS = "https://sheets.googleapis.com/v4/spreadsheets"
 DRIVE = "https://www.googleapis.com/drive/v3/files"
+FOLDER = "application/vnd.google-apps.folder"
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 GSHEET = "application/vnd.google-apps.spreadsheet"
 
@@ -306,6 +307,32 @@ def drive_find(s: Session, folder: str, name: str) -> dict | None:
         "includeItemsFromAllDrives": "true", "pageSize": 5})
     files = doc.get("files") or []
     return files[0] if files else None
+
+
+def drive_folder(s: Session, parent: str, name: str) -> dict:
+    """The folder called `name` inside `parent`, created the first time it is needed."""
+    safe = name.replace("\\", "\\\\").replace("'", "\\'")
+    doc = s.call("GET", DRIVE, params={
+        "q": f"'{parent}' in parents and name = '{safe}' and mimeType = '{FOLDER}' and trashed = false",
+        "fields": "files(id,name)", "supportsAllDrives": "true", "includeItemsFromAllDrives": "true", "pageSize": 5})
+    files = doc.get("files") or []
+    if files:
+        return files[0]
+    return s.call("POST", DRIVE, {"name": name, "mimeType": FOLDER, "parents": [parent]},
+                  params={"fields": "id,name", "supportsAllDrives": "true"})
+
+
+def drive_list(s: Session, folder: str, contains: str) -> list[dict]:
+    safe = contains.replace("\\", "\\\\").replace("'", "\\'")
+    doc = s.call("GET", DRIVE, params={
+        "q": f"'{folder}' in parents and name contains '{safe}' and trashed = false",
+        "fields": "files(id,name)", "supportsAllDrives": "true", "includeItemsFromAllDrives": "true", "pageSize": 50})
+    return doc.get("files") or []
+
+
+def drive_copy(s: Session, fid: str, folder: str, name: str) -> dict:
+    return s.call("POST", f"{DRIVE}/{fid}/copy", {"name": name, "parents": [folder]},
+                  params={"fields": "id,name,webViewLink", "supportsAllDrives": "true"})
 
 
 def drive_create_sheet(s: Session, folder: str | None, name: str) -> dict:

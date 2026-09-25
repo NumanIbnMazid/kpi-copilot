@@ -119,6 +119,10 @@ def _velocity(s: dict) -> list[str]:
         out.append(f"{s['open']} more {w(s['open'], 'item is', 'items are')} still in progress.")
     if s.get("grouped"):
         out.append("Tickets inside a grouped feature are counted separately. Each group's estimate is included once.")
+    if s.get("partial"):
+        k = s["partial"]
+        out.append(f"{k} {w(k, 'item has', 'items have')} only part of {w(k, 'its', 'their')} estimate on file and "
+                   f"{w(k, 'is', 'are')} counted with the part that is recorded, as agreed for this project.")
     return out
 
 
@@ -272,10 +276,13 @@ def _rework(s: dict) -> list[str]:
     u = s.get("unjudged") or 0
     gap = (f"{u} completed {w(u, 'task was', 'tasks were')} left out because the history needed to judge "
            f"{w(u, 'it', 'them')} was not available.") if u else ""
+    a = s.get("assumed_no") or 0
+    assumed = (f"{a} completed {w(a, 'task was', 'tasks were')} never recorded as reopened and "
+               f"{w(a, 'is', 'are')} counted as not reopened, as agreed for this project.") if a else ""
     affected = s.get("affected") or 0
     event_basis = (f"Those events affected {affected} {w(affected, 'ticket')}; each return after another close "
                    "is counted separately." if r else "Each return after another close is counted separately.")
-    return [first, s.get("close_explanation") or "", near, gap, event_basis]
+    return [first, s.get("close_explanation") or "", near, gap, assumed, event_basis]
 
 
 def _cr(s: dict) -> list[str]:

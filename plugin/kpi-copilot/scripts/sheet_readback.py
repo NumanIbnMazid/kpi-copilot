@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import re
 from pathlib import Path
 from typing import Any, Callable
 
@@ -86,7 +87,10 @@ def _read(name: str, spec: dict, grid: Grid) -> dict:
                     rows[f"{per}|{kpi}"]["summary"] = grid(name, r, spec["summary"])
         return {"rows": rows}
     if kind == "questions":
-        return {"rows": {str(grid(name, r, spec["id"])): {"answer": grid(name, r, spec["answer"])}
+        # Sheets written before the history columns kept About, Question and Asked on in 2, 3 and 6.
+        cols = {"about": spec.get("about", 2), "question": spec.get("question", 3), "asked_on": spec.get("asked", 6)}
+        return {"rows": {str(grid(name, r, spec["id"])): {"answer": grid(name, r, spec["answer"]),
+                                                          **{k: grid(name, r, c) for k, c in cols.items()}}
                          for r in range(spec["first"], last + 1) if grid(name, r, spec["id"])}}
     rows, fields = {}, spec["fields"]
     idx = {key: i for i, key, _ in fields}
@@ -162,6 +166,28 @@ def _iso(v: Any) -> Any:
                 return dt.datetime.strptime(v.strip(), fmt).date().isoformat()
             except ValueError:
                 continue
+    return v
+
+
+# A Google Sheet read with formatted values hands every number back as text; the facts file
+# holds these as numbers, as the extract contract requires.
+PERIOD_NUMBERS = {"pms_period_id": int, "team_hours": float}
+
+
+def _period_value(k: str, v: Any) -> Any:
+    kind = PERIOD_NUMBERS.get(k)
+    if kind is None:
+        return _iso(v)
+    if isinstance(v, str):
+        text = v.strip().replace(",", "")
+        if not text:
+            return None
+        try:
+            v = float(text)
+        except ValueError:
+            return v
+    if isinstance(v, float) and (kind is int or v.is_integer()):
+        return int(v) if v.is_integer() else v
     return v
 
 
@@ -241,10 +267,12 @@ def fold(state: dict, grid: Grid, ledger, facts: dict, manual: dict, board_items
 
         if tab == "Open Questions":
             for qid, rec in now["rows"].items():
+                ledger.seen_question(qid, rec.get("about"), rec.get("question"), _iso(rec.get("asked_on")))
                 ans = rec.get("answer")
                 if ans not in (None, "") and not _same(ans, (before["rows"].get(qid) or {}).get("answer")):
-                    _file_answer(qid, ans, ledger, facts)
-                    said.append(f"Answered: {qid} -> {ans}")
+                    applied = _file_answer(qid, ans, ledger, facts)
+                    said.append(f"Answered: {qid} -> {ans}" + (f"  (applied: {applied})" if applied else
+                                                               "  (for the assistant to apply)"))
             continue
 
         if tab == "Periods":
@@ -269,7 +297,7 @@ def fold(state: dict, grid: Grid, ledger, facts: dict, manual: dict, board_items
                 if target is None and old.get("name") not in names_now:
                     target = next((p for p in plist if p.get("name") == old.get("name")), None)
                 if target is None:
-                    target = {k: _iso(v) for k, v in old.items() if v is not None}
+                    target = {k: _period_value(k, v) for k, v in old.items() if v is not None}
                     target["name"] = rec["name"]
                     plist.append(target)
                 i = next(j for j, p in enumerate(plist) if p is target)
@@ -278,7 +306,7 @@ def fold(state: dict, grid: Grid, ledger, facts: dict, manual: dict, board_items
                         continue
                     if k == "name" and plist[i].get("name") and v:
                         plist[i]["old_name"] = plist[i]["name"]
-                    plist[i][k] = _iso(v) if k != "name" else v
+                    plist[i][k] = _period_value(k, v) if k != "name" else v
                     (plist[i].get("_from_timeline") or {}).pop(k, None)
                     said.append(f"Periods · {rec.get('name') or rid} · {k.replace('_', ' ')} -> {_iso(v)}")
             continue
@@ -344,8 +372,16 @@ def fold(state: dict, grid: Grid, ledger, facts: dict, manual: dict, board_items
     return said
 
 
-def _file_answer(qid: str, answer: Any, ledger, facts: dict) -> None:
-    """An answer on the Open Questions tab goes where that fact lives."""
+def _file_answer(qid: str, answer: Any, ledger, facts: dict) -> str | None:
+    """An answer on the Open Questions tab goes where that fact lives. Returns what was
+    applied, or None when the answer needs somebody to act on it."""
+    applied = _apply_answer(qid, answer, ledger, facts)
+    if applied:
+        ledger.settle(qid, "applied", applied, "tool")
+    return applied
+
+
+def _apply_answer(qid: str, answer: Any, ledger, facts: dict) -> str | None:
     iso = _iso(answer)
     if qid.startswith("reason:"):
         per, name = qid[7:].split("|", 1)
@@ -353,7 +389,8 @@ def _file_answer(qid: str, answer: Any, ledger, facts: dict) -> None:
         reasons.setdefault(per, {})[name] = str(answer).strip()
         reasons.setdefault("_authors", {})[qid[7:]] = "human"
         reasons.setdefault("_questions", {}).pop(qid[7:], None)
-        return
+        ledger.set_answer(qid, str(answer).strip(), "human", "answered in the sheet")
+        return f"used as the reason for {per} · {name}"
     if qid.startswith("judge:"):
         import judge
         item_id, field = qid[6:].rsplit(":", 1)
@@ -364,18 +401,44 @@ def _file_answer(qid: str, answer: Any, ledger, facts: dict) -> None:
             raise ValueError(f"{qid}: choose one of {', '.join(allowed or [])}")
         ledger.set(item_id, field, answer, "human", "Answered the open question")
         ledger.forget(item_id, "deferred:" + field)
-        return
+        ledger.set_answer(qid, answer, "human", "answered in the sheet")
+        return f"{field.replace('_', ' ')} set to {answer}"
     is_date = isinstance(iso, str) and len(iso) == 10 and iso[4] == "-" and iso[7] == "-"
+    if qid.startswith("handover:") and not is_date:
+        # "Handed over to the client on 09/25" is an answer too. Only one date in the
+        # sentence is unambiguous; anything else stays with the assistant.
+        found = _dates_in(str(answer))
+        if len(found) == 1:
+            iso, is_date = found[0], True
     if qid.startswith("handover:") and is_date:
         for p in (facts.get("periods") or {}).get("periods") or []:
             if p.get("name") == qid.split(":", 1)[1]:
                 p["handover_date"] = iso
-                return
+                ledger.set_answer(qid, answer, "human", "answered in the sheet")
+                return f"handover date set to {iso[5:7]}/{iso[8:10]}"
     if qid.startswith("scope:"):
         ledger.set_answer(qid, {"delivered": iso} if is_date else {"note": str(answer)}, "human",
                           "answered in the sheet")
-        return
+        return f"delivered on {iso[5:7]}/{iso[8:10]}" if is_date else None
     ledger.set_answer(qid, iso, "human", "answered in the sheet")
+    return None
+
+
+def _dates_in(text: str, year: int | None = None) -> list[str]:
+    """ISO dates written in a sentence: 2026-09-25, 09/25/2026 or 09/25 (this year)."""
+    year = year or dt.date.today().year
+    out = []
+    for m in re.finditer(r"\b(\d{4})-(\d{2})-(\d{2})\b|\b(\d{1,2})/(\d{1,2})(?:/(\d{4}))?\b", text or ""):
+        try:
+            if m.group(1):
+                d = dt.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            else:
+                d = dt.date(int(m.group(6) or year), int(m.group(4)), int(m.group(5)))
+        except ValueError:
+            continue
+        if d.isoformat() not in out:
+            out.append(d.isoformat())
+    return out
 
 
 def _allowed_answer(answer: Any, allowed: list[str] | None, field: str) -> str | None:
