@@ -276,13 +276,18 @@ def _rework(s: dict) -> list[str]:
     u = s.get("unjudged") or 0
     gap = (f"{u} completed {w(u, 'task was', 'tasks were')} left out because the history needed to judge "
            f"{w(u, 'it', 'them')} was not available.") if u else ""
+    g = s.get("groups") or 0
+    gr = s.get("groups_reopened") or 0
+    grouped = (f"{g} grouped {w(g, 'feature is', 'features are')} counted once each from the group card, where "
+               f"reopens were tracked instead of on each ticket; {gr} of them {w(gr, 'was', 'were')} reopened.") if g else ""
     a = s.get("assumed_no") or 0
     assumed = (f"{a} completed {w(a, 'task was', 'tasks were')} never recorded as reopened and "
                f"{w(a, 'is', 'are')} counted as not reopened, as agreed for this project.") if a else ""
     affected = s.get("affected") or 0
-    event_basis = (f"Those events affected {affected} {w(affected, 'ticket')}; each return after another close "
+    unit = ("item (a ticket or a grouped feature)", "items (tickets and grouped features)") if g else ("ticket", "tickets")
+    event_basis = (f"Those events affected {affected} {w(affected, *unit)}; each return after another close "
                    "is counted separately." if r else "Each return after another close is counted separately.")
-    return [first, s.get("close_explanation") or "", near, gap, assumed, event_basis]
+    return [first, s.get("close_explanation") or "", near, gap, grouped, assumed, event_basis]
 
 
 def _cr(s: dict) -> list[str]:

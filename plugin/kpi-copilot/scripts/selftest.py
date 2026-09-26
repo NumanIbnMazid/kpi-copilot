@@ -406,6 +406,10 @@ def main() -> int:
     check("unmeasured KPIs are not sent to PMS", "Rework Rate" not in sent, str(sent))
     check("unmeasured KPIs are listed as skipped, with a reason",
           all(s.get("reason") for p in payloads for s in p["skipped"]))
+    check("...and carry a plain note for PMS saying why there is no value",
+          all(s.get("note") and "||" not in s["note"] and "http" not in s["note"]
+              for p in payloads for s in p["skipped"] if not s.get("preserve_existing")),
+          str([s.get("note") for p in payloads for s in p["skipped"]]))
 
     print("\nWorkbook")
     r = run(["scripts/workbook.py", "build", "--profile", str(EX / "northwind-q3" / "profile.yaml"),
@@ -1170,6 +1174,29 @@ def question_tests(tmp: Path) -> None:
     check("no_history: not-reopened counts an unrecorded task as not reopened, and the note says so",
           (after["denominator"] or 0) > (before["denominator"] or 0) and "counted as not reopened" in after["note"],
           f"{before['denominator']} -> {after['denominator']}: {after['note']}")
+
+    grp = json.loads((EX / "northwind-q3" / "run.kif.json").read_text())
+    done = [t for t in grp["tasks"] if t.get("period") == "Initial Scope" and t.get("type") == "Task"
+            and t.get("rework_closed", t.get("closed"))][:2]
+    for t in done:
+        t.update(reopened=None, reopen_count=None, effort_group="grp-1", _item=t.get("_item") or t["key"])
+    grp["tasks"].append({"period": "Initial Scope", "key": "GRP-1", "title": "A grouped feature", "type": "Excluded",
+                         "effort_only": True, "_item": "grp-1", "reopened": "Yes", "reopen_count": 1,
+                         "delivered": done[0].get("delivered"), "closed": done[0].get("closed"),
+                         "rework_closed": done[0].get("rework_closed", done[0].get("closed")), "planned": None})
+    (tmp / "grp.kif.json").write_text(json.dumps(grp))
+    cfg = yaml.safe_load((EX / "northwind-q3" / "profile.yaml").read_text())
+    cfg.setdefault("workflow", {}).setdefault("reopened_when", {}).update(no_history="not-reopened")
+    (tmp / "grp0.yaml").write_text(yaml.safe_dump(cfg))
+    base = measure(compute(tmp / "grp.kif.json", tmp / "grp0.yaml", None, tmp / "grp0.json"), "Initial Scope", "Rework Rate")
+    check("tickets of a reopened group are never assumed not reopened", "counted as not reopened" not in base["note"]
+          or base["denominator"] < len([t for t in grp["tasks"] if t.get("period") == "Initial Scope"]), base["note"])
+    cfg["workflow"]["reopened_when"]["group_history"] = "count-group"
+    (tmp / "grp1.yaml").write_text(yaml.safe_dump(cfg))
+    g1 = measure(compute(tmp / "grp.kif.json", tmp / "grp1.yaml", None, tmp / "grp1.json"), "Initial Scope", "Rework Rate")
+    check("group_history: count-group counts the group once, from its card, and the note says so",
+          g1["numerator"] == (base["numerator"] or 0) + 1 and "counted once each from the group card" in g1["note"]
+          and "GRP-1" in g1["counted_keys"], f"{base['numerator']}/{base['denominator']} -> {g1['numerator']}/{g1['denominator']}: {g1['note']}")
 
     check("a date written in a sentence is read", R._dates_in("Handed over to the client on 09/25. Thread", 2026) == ["2026-09-25"])
     led = Ledger(tmp / "q.ledger.json")

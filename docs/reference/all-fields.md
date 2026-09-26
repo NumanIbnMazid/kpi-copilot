@@ -116,6 +116,7 @@ What your team's states mean. This is the single most important section: it is w
 | &nbsp;&nbsp;`reopened_when.values` | list of string |  |  | States that mean 'back in play after being closed'. |
 | &nbsp;&nbsp;`reopened_when.ignore_first_qa_fail` | boolean | `yes` |  |  |
 | &nbsp;&nbsp;`reopened_when.no_history` | one of: `unknown`, `not-reopened` | `unknown` |  | A completed task with no record either way. 'unknown' leaves it out of the rate; 'not-reopened' counts it as not reopened, and the note says so. |
+| &nbsp;&nbsp;`reopened_when.group_history` | one of: `tickets`, `count-group` | `tickets` |  | Tickets inside a grouped feature that carry no reopen history of their own. 'tickets' judges each ticket; 'count-group' counts the group once, from the group card's own history, and names the group in each ticket's remarks. |
 | `clarification_when` | object |  |  | Task Comprehension = the requirement was understood without going back to the client. This is how we detect 'we had to ask'. |
 | &nbsp;&nbsp;`clarification_when.values` | list of string |  |  | e.g. ['Awaiting Feedback', 'Blocked - Client']. |
 | &nbsp;&nbsp;`clarification_when.also_comments` | boolean | `yes` |  | Also treat a comment asking the client to clarify expected behaviour as 'had to ask'. |

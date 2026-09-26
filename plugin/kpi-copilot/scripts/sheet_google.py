@@ -123,7 +123,7 @@ def tab_requests(tab: M.Tab, sid: int, index: int, existing: dict | None,
             "properties": {"hiddenByUser": False}, "fields": "hiddenByUser"}})
         reqs.append({"updateDimensionProperties": {
             "range": {"sheetId": sid, "dimension": "ROWS", "startIndex": 0, "endIndex": rows},
-            "properties": {"hiddenByUser": False, "pixelSize": 21}, "fields": "hiddenByUser,pixelSize"}})
+            "properties": {"hiddenByUser": False}, "fields": "hiddenByUser"}})
 
     last_r, last_c = tab.size
     data = [{"values": [_value(tab.cells.get((r, c)) or {}) for c in range(1, last_c + 1)]} for r in range(1, last_r + 1)]
@@ -154,7 +154,13 @@ def tab_requests(tab: M.Tab, sid: int, index: int, existing: dict | None,
             reqs.append({"updateDimensionProperties": {
                 "range": {"sheetId": sid, "dimension": "COLUMNS", "startIndex": c - 1, "endIndex": c},
                 "properties": {"hiddenByUser": True}, "fields": "hiddenByUser"}})
+        # Every row is fitted to what it holds, so wrapped text shows without anyone dragging
+        # a row open. Only header rows keep a set height, for the look of the header band.
+        reqs.append({"autoResizeDimensions": {"dimensions": {
+            "sheetId": sid, "dimension": "ROWS", "startIndex": 0, "endIndex": last_r}}})
         for r, h in tab.heights.items():
+            if not any((tab.cells.get((r, c)) or {}).get("style") in ("head", "title", "band") for c in range(1, last_c + 1)):
+                continue
             reqs.append({"updateDimensionProperties": {
                 "range": {"sheetId": sid, "dimension": "ROWS", "startIndex": r - 1, "endIndex": r},
                 "properties": {"pixelSize": int(h * 96 / 72)}, "fields": "pixelSize"}})

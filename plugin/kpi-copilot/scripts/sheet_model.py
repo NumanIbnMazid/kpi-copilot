@@ -656,6 +656,8 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
                                             f'IF(G{r}>=H{r},"Met","Below minimum"),IF(G{r}<=H{r},"Met","Above maximum"))))')
             sm.put(r, 11, None, "calc_c", f=f'=IF(OR(J{r}="Below minimum",J{r}="Above maximum"),"Yes","No")')
             auto = m.get("summary_note", " || ".join(x for x in (m.get("note_parts") or []) if x and x.strip()))
+            if m.get("value") is None and m.get("unmeasured_summary"):
+                auto = m["unmeasured_summary"]   # why it has no value: this is what PMS shows
             note_text = auto + " " + plain((reasons.get(pn) or {}).get(name))
             sm.heights[r] = max(45, min(250, 15 * (len(note_text) // 65 + 2)))
             sm.put(r, 12, auto, "in")
@@ -786,7 +788,36 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         elif text:
             rm.put(rr, 2, text, "text")
 
-    return [db, overview, sm, tk, df, per, oq, cfg, rl, pl, rm]
+    tabs = [db, overview, sm, tk, df, per, oq, cfg, rl, pl, rm]
+    for t in tabs:
+        fit_columns(t)
+    return tabs
+
+
+# Styles whose text is meant to run across the page (titles, banners, notes) and never sets a width.
+_SPANNING = {"title", "sub", "band", "note"}
+
+
+def fit_columns(tab: Tab, cap: float = 60) -> None:
+    """Widen a column until what is in it fits: a short value (a date, a key, a status) on
+    one line, and a long one at least one whole word per line, so the row can grow to show
+    the rest instead of hiding it. Never narrower than designed, never wider than `cap`."""
+    need: dict[int, float] = {}
+    for (r, c), cell in tab.cells.items():
+        if cell.get("f") or (cell.get("style") or "text") in _SPANNING or c in tab.hidden_cols:
+            continue
+        v = cell.get("v")
+        if v in (None, ""):
+            continue
+        text = v.strftime("%m/%d/%Y") if isinstance(v, (dt.date, dt.datetime)) else str(v)
+        longest_word = max((len(w) for w in text.split()), default=0)
+        short = len(text) <= 24 and "\n" not in text
+        want = (len(text) if short else longest_word) + 2
+        if cell.get("style") == "head":
+            want = min(want, 18)   # a header wraps onto two lines rather than stretching the column
+        need[c] = max(need.get(c, 0), want)
+    for c, w in need.items():
+        tab.widths[c] = round(min(cap, max(tab.widths.get(c, 0), w)), 1)
 
 
 def _n(cols: list[tuple], key: str) -> int:

@@ -712,7 +712,10 @@ class Classifier:
                     row["remarks"] = (f"Counted separately under {parent.get('key')}. Effort is held once on "
                                       "the group row. " + ("Delivery follows the group handoff where no separate "
                                       "child handoff is recorded. " if row.get("delivery_evidence") else "") +
-                                      ("Individual rework history is unavailable." if row.get("reopened") is None else ""))
+                                      ((f"Rework is counted once on {parent.get('key')}, from that card's own history."
+                                        if ((self.wf.get("reopened_when") or {}).get("group_history") == "count-group")
+                                        else "Individual rework history is unavailable.")
+                                       if row.get("reopened") is None else ""))
                     self._refresh_dates(row)
                     # An approved defect fix can be a delivery ticket and a defect report.
                     # These are different registers, each with one stable review identity.

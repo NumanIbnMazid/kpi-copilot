@@ -538,6 +538,12 @@
               "enum": ["unknown", "not-reopened"],
               "default": "unknown",
               "description": "A completed task with no record either way. 'unknown' leaves it out of the rate; 'not-reopened' counts it as not reopened, and the note says so."
+            },
+            "group_history": {
+              "type": "string",
+              "enum": ["tickets", "count-group"],
+              "default": "tickets",
+              "description": "Tickets inside a grouped feature that carry no reopen history of their own. 'tickets' judges each ticket; 'count-group' counts the group once, from the group card's own history, and names the group in each ticket's remarks."
             }
           },
           "x-workbook": {

@@ -128,7 +128,12 @@ def diff_lines(payload: dict, current: dict) -> list[str]:
         else:
             out.append(f"  {k['name']:<22} {_num(k['value'])} (no change)")
     for s in payload.get("skipped", []):
-        out.append(f"  {s['name']:<22} not sent: {s['reason'][:80]}")
+        if s.get("note") and not s.get("preserve_existing"):
+            old = have.get(s["name"]) or {}
+            same = old.get("value") is None and _clean(old.get("note") or "") == _clean(s["note"])
+            out.append(f"  {s['name']:<22} not measured; {'note unchanged' if same else 'note: ' + _clean(s['note'])[:70]}")
+        else:
+            out.append(f"  {s['name']:<22} not sent: {s['reason'][:80]}")
     return out
 
 
@@ -174,7 +179,7 @@ def main(argv: list[str] | None = None) -> int:
     token = os.environ.get("PMS_TOKEN")
 
     if a.apply:
-        if not any(p.get("kpis") for p in payloads):
+        if not any(p.get("kpis") or any(k.get("note") for k in p.get("skipped", [])) for p in payloads):
             print("No measured KPIs are available to send. Review the sheet's questions.", file=sys.stderr)
             return 2
         if profile.get("targets"):
@@ -269,7 +274,8 @@ def main(argv: list[str] | None = None) -> int:
     for p in payloads:
         pid = p.get("periodId")
         try:
-            if not p.get("kpis"):
+            if not p.get("kpis") and not any(k.get("note") and not k.get("preserve_existing")
+                                             for k in p.get("skipped", [])):
                 results.append({"period": p["name"], "periodId": pid, "result": "no measured values"})
                 continue
             body = {
@@ -280,7 +286,13 @@ def main(argv: list[str] | None = None) -> int:
             # The project-period API applies only supplied KPI fields. A blank current
             # measure must not leave a previously published number masquerading as current.
             # Null is the API's explicit blank, never a fabricated zero. Unrelated KPIs stay.
+            # A measure with no value goes as an explicit blank with a note saying why - not
+            # measured yet, in progress, not handed over - so PMS never shows a bare dash.
+            explained = [k for k in p.get("skipped", []) if not k.get("preserve_existing") and k.get("kpiId") is not None
+                         and k.get("note")]
+            body["periodKpis"].extend({"kpiId": k["kpiId"], "value": None, "note": _clean(k["note"])} for k in explained)
             clearing = [k for k in p.get("skipped", []) if not k.get("preserve_existing") and k.get("kpiId") is not None and
+                        not k.get("note") and
                         (current.get(str(pid), {}).get(k["name"], {}).get("value") is not None or
                          current.get(str(pid), {}).get(k["name"], {}).get("note"))] if pid else []
             body["periodKpis"].extend({"kpiId": k["kpiId"], "value": None, "note": None} for k in clearing)
@@ -322,11 +334,15 @@ def main(argv: list[str] | None = None) -> int:
         mismatched.extend(k["name"] for k in clearing
                           if after.get(k["name"], {}).get("value") is not None or
                           after.get(k["name"], {}).get("note"))
+        mismatched.extend(k["name"] for k in explained
+                          if after.get(k["name"], {}).get("value") is not None or
+                          _clean(after.get(k["name"], {}).get("note") or "") != _clean(k["note"]))
         if mismatched:
             print(f"  {p['name']}: written, but read-back disagrees on {', '.join(mismatched)}", file=sys.stderr)
             failures += 1
         else:
-            print(f"  {p['name']}: {len(p['kpis'])} KPIs written and verified")
+            print(f"  {p['name']}: {len(p['kpis'])} KPIs written and verified"
+                  + (f", {len(explained)} not measured with the reason noted" if explained else ""))
         results.append({
             "period": p["name"], "periodId": pid,
             "result": "verified" if not mismatched else f"mismatch: {', '.join(mismatched)}",

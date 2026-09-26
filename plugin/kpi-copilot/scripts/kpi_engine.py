@@ -168,6 +168,9 @@ class Measure:
     review_refs: list[dict] = field(default_factory=list)
     publish_blocked: bool = False
     gaps: list[str] = field(default_factory=list)
+    # A KPI with no value still tells PMS why: in progress, not handed over, not due yet.
+    unmeasured_note: str = ""
+    unmeasured_summary: str = ""
     pms_value: float | None = None  # after clamping to the PMS range
     clamped: bool = False
     # A person can set any value or note by hand. When they do, both are kept: what the data
@@ -959,6 +962,20 @@ class Engine:
     def rework_rate(self, period: dict) -> Measure:
         name = period["name"]
         completed = [t for t in self.deliverables_in(name) if t.get("rework_closed", t.get("closed"))]
+        rw = (self.profile.get("workflow") or {}).get("reopened_when") or {}
+        # group_history: count-group - tickets inside a grouped feature that carry no reopen
+        # history of their own are counted once, as the group, from the group card's history.
+        groups_counted: list[dict] = []
+        if rw.get("group_history") == "count-group":
+            cards = {t.get("_item"): t for t in self.kif.get("tasks") or [] if t.get("effort_only")}
+            stand_in = {t.get("effort_group") for t in completed
+                        if t.get("reopened") not in ("Yes", "No") and t.get("effort_group") in cards
+                        and cards[t["effort_group"]].get("reopened") in ("Yes", "No")}
+            groups_counted = [dict(cards[g], _members=[t.get("key") for t in completed
+                                                       if t.get("effort_group") == g and t.get("reopened") not in ("Yes", "No")])
+                              for g in sorted(stand_in)]
+            completed = [t for t in completed if not (t.get("effort_group") in stand_in
+                                                      and t.get("reopened") not in ("Yes", "No"))] + groups_counted
         reopened = [t for t in completed if t.get("reopened") == "Yes"]
         judged = [t for t in completed if t.get("reopened") in ("Yes", "No")]
         # A project may decide that no record of a reopen means it was not reopened. That is
@@ -967,7 +984,7 @@ class Engine:
         # group, only not which ticket needed the change. Those stay unknown.
         group_reopened = {t.get("_item") for t in self.kif.get("tasks") or []
                           if t.get("effort_only") and t.get("reopened") == "Yes"}
-        no_history = ((self.profile.get("workflow") or {}).get("reopened_when") or {}).get("no_history")
+        no_history = rw.get("no_history")
         assumed = ([t for t in completed if t.get("reopened") not in ("Yes", "No")
                     and t.get("effort_group") not in group_reopened]
                    if no_history == "not-reopened" else [])
@@ -1036,6 +1053,13 @@ class Engine:
                 f"{unjudged} completed {_plural(unjudged, 'task')} left out because the history needed to judge "
                 f"{'it' if unjudged == 1 else 'them'} was not available"
             )
+        if groups_counted:
+            g_re = sum(1 for g in groups_counted if g.get("reopened") == "Yes")
+            left.append(
+                f"{len(groups_counted)} grouped {_plural(len(groups_counted), 'feature is', 'features are')} counted once each "
+                f"from the group card, where reopens were tracked instead of on each ticket; {g_re} of them "
+                f"{'was' if g_re == 1 else 'were'} reopened"
+            )
         if assumed:
             left.append(
                 f"{len(assumed)} completed {_plural(len(assumed), 'task was', 'tasks were')} never recorded as reopened "
@@ -1050,7 +1074,9 @@ class Engine:
         m.note_parts = [self._heading("rework_rate", period), numbers, third]
         m._say = {"kpi": "rework_rate", "reopened": reopen_events, "affected": len(reopened),
                   "den": den, "value": value,
-                  "near": len(near), "unjudged": unjudged, "assumed_no": len(assumed)}
+                  "near": len(near), "unjudged": unjudged, "assumed_no": len(assumed),
+                  "groups": len(groups_counted),
+                  "groups_reopened": sum(1 for g in groups_counted if g.get("reopened") == "Yes")}
         return m
 
     def cr_rate(self, period: dict) -> Measure:
@@ -1177,6 +1203,7 @@ class Engine:
             m.note_parts.append(f"PMS limits the numeric field to {_n(m.pms_value)}; the calculated result "
                                 f"is {_n(m.value)}{m.unit}.")
         import note_policy
+        explanation = " ".join(p.strip() for p in m.note_parts if p and p.strip())
         generated, review = note_policy.split(" || ".join(m.note_parts))
         if m.value is None:
             review = list(dict.fromkeys(review + generated))
@@ -1190,6 +1217,19 @@ class Engine:
         context_parts, context_review = note_policy.split(self._reason_for(period_name, m.name))
         m.summary_note = " || ".join(summary_parts)
         m.context_note = " || ".join(context_parts)
+        if m.value is None:
+            # The run's own reason first (it is current), then anything a person wrote.
+            parts: list[str] = []
+            for chunk in (explanation, str(overrides.get(tag) or ""), m.context_note):
+                for sentence in re.split(r"(?<=[.!?])\s+|\s*\|\|\s*", chunk or ""):
+                    sentence = sentence.strip()
+                    if not sentence or re.fullmatch(r"(?i)not (?:measured|assessed)(?: yet)?[.!]?", sentence):
+                        continue
+                    sentence = sentence if sentence.endswith((".", "!", "?")) else sentence + "."
+                    if sentence.lower() not in (x.lower() for x in parts):
+                        parts.append(sentence)
+            m.unmeasured_summary = _strip_links(" ".join(parts[:1] + [x for x in parts[1:] if x not in m.context_note]))
+            m.unmeasured_note = _strip_links(" ".join(parts)) or "Not measured yet."
         # "Not measured yet." on its own asks nothing; the status already says it, and the
         # sentences around it carry the actual question.
         m.review_items = [x for x in dict.fromkeys(review + summary_review + context_review + m.gaps)
@@ -1454,7 +1494,8 @@ def to_pms_payloads(results: list[PeriodResult], kif: dict) -> list[dict]:
                 ],
                 "skipped": [
                     {"name": m.name, "kpiId": m.pms_id, "reason": " || ".join(m.review_items) or "Not measured",
-                     "preserve_existing": m.publish_blocked}
+                     "preserve_existing": m.publish_blocked,
+                     **({"note": m.unmeasured_note} if m.value is None and not m.publish_blocked and m.unmeasured_note else {})}
                     for m in r.measures
                     if m.value is None or m.publish_blocked
                 ],
