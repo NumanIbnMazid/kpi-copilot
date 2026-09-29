@@ -252,9 +252,14 @@ def _rejection(s: dict) -> list[str]:
     r, den = s["rejected"], s["den"]
     if not r:
         return [f"None of the {den} {w(den, 'report was', 'reports were')} rejected."]
-    why = [k for k in (s.get("why") or {})]
-    second = (f"{w(r, 'It was', 'They were')} closed as {listed(why)}." if why else
-              "Rejected reports are excluded from defect counts.")
+    why = [str(k).strip().rstrip(".") for k in (s.get("why") or {}) if str(k).strip()]
+    if why and any(len(x.split()) > 4 or any(ch in x for ch in ",;.") for x in why):
+        # Reasons a person wrote are sentences, not labels: quote them rather than splice.
+        second = (f"The reason given was: {why[0]}." if len(why) == 1 else
+                  " ".join(f"Reason {i}: {x}." for i, x in enumerate(why, 1)))
+    else:
+        second = (f"{w(r, 'It was', 'They were')} closed as {listed(why)}." if why else
+                  "Rejected reports are excluded from defect counts.")
     return [f"{r} of the {den} {w(den, 'report')} turned out not to be {w(r, 'a bug', 'bugs')} ({n(s['value'])}%).", second]
 
 

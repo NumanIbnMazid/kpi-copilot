@@ -942,10 +942,12 @@ class Engine:
             if rejected
             else f"None of the {den} {_plural(den, 'report')} was rejected (0%)"
         )
-        why = {}
+        why, spelled = {}, {}
         for d in rejected:
-            r = (d.get("rejection_reason") or "").strip().lower()
-            if r:
+            raw = (d.get("rejection_reason") or "").strip()
+            if raw:
+                # Count "Duplicate" and "duplicate" together; show a written reason as written.
+                r = spelled.setdefault(raw.lower(), raw if len(raw.split()) > 4 else raw.lower())
                 why[r] = why.get(r, 0) + 1
         third = ""
         if why:
