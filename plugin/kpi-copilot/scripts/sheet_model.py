@@ -582,6 +582,13 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     tEm = _rng("Task Register", T["estimate_missing"], 4)
     tGm = _rng("Task Register", T["group_effort_missing"], 4)
     dP, dRj, dPh, dCt = (_rng("Defect Register", D[k], 4) for k in ("period", "rejected", "phase", "counts"))
+    dKd = _rng("Defect Register", D["kind"], 4)
+
+    def by_kind(extra: str) -> str:
+        # Escaped and Rejection Rate cover only the report types that can count as defects.
+        one = lambda kind: f'COUNTIFS({dP},$A{{r}},{dKd},"{kind}"{extra})'
+        return (f'{one("Bug")}+IF({ref["count_obs"]}="Yes",{one("Observation")},0)'
+                f'+IF({ref["count_imp"]}="Yes",{one("Improvement")},0)')
     live = f'{tP},$A{{r}},{tTy},"<>Excluded"'
     tEo = _rng("Task Register", T["effort_only"], 4)
     tEg = _rng("Task Register", T["effort_group"], 4)
@@ -598,8 +605,8 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         "Client Expectation": f'=COUNTIFS({live},{tMc},"Yes")',
         "Delivery Commitment": f'=COUNTIFS({live},{tMm},"Yes")',
         "Defect Rate": f'=COUNTIFS({dP},$A{{r}},{dCt},"Yes")',
-        "Escaped Defect Rate": f'=COUNTIFS({dP},$A{{r}},{dRj},"<>Yes",{dPh},"Post-release")',
-        "Defect Rejection Rate": f'=COUNTIFS({dP},$A{{r}},{dRj},"Yes")',
+        "Escaped Defect Rate": "=" + by_kind(f',{dRj},"<>Yes",{dPh},"Post-release"'),
+        "Defect Rejection Rate": "=" + by_kind(f',{dRj},"Yes"'),
         "Rework Rate": f'=SUMIFS({tRc},{live},{tDl},">0",{tCl},">0",{tEo},"<>Yes",{tRe},"Yes")',
         "CR Rate": f'=COUNTIFS({tP},$A{{r}},{tTy},"CR")',
     }
@@ -608,8 +615,8 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         "Client Expectation": f'=E{{r}}+COUNTIFS({live},{tMc},"No")',
         "Delivery Commitment": f'=E{{r}}+COUNTIFS({live},{tMm},"No")',
         "Defect Rate": f"={deliv}",
-        "Escaped Defect Rate": f'=COUNTIFS({dP},$A{{r}},{dRj},"<>Yes")',
-        "Defect Rejection Rate": f"=COUNTIFS({dP},$A{{r}})",
+        "Escaped Defect Rate": "=" + by_kind(f',{dRj},"<>Yes"'),
+        "Defect Rejection Rate": "=" + by_kind(""),
         "Rework Rate": (f'=COUNTIFS({live},{tDl},">0",{tCl},">0",{tEo},"<>Yes",{tRe},"Yes")+'
                         f'COUNTIFS({live},{tDl},">0",{tCl},">0",{tEo},"<>Yes",{tRe},"No")'),
         "CR Rate": f'=IF(OR({ref["cr_den"]}="Whole project",COUNTIFS({tP},$A{{r}},{tTy},"Task")=0),'
@@ -842,8 +849,8 @@ HOW_COUNTED = {
     "Client Expectation": "Client-expected rows that met their date ÷ client-expected rows that are due. Pending rows wait.",
     "Delivery Commitment": "Rows the team committed to that met the date ÷ committed rows that are due. Uncommitted rows are left out.",
     "Defect Rate": "Defect Register rows with Counts in Defect Rate = Yes ÷ delivered Task Register rows.",
-    "Escaped Defect Rate": "Post-release reports that were not rejected ÷ all reports that were not rejected. Blank until the period is handed over.",
-    "Defect Rejection Rate": "Defect Register rows with Rejected = Yes ÷ all Defect Register rows.",
+    "Escaped Defect Rate": "Post-release bugs that were not rejected ÷ all bugs that were not rejected. Observations and improvements count only when the Config tab counts them as defects. Blank until the period is handed over.",
+    "Defect Rejection Rate": "Bug rows with Rejected = Yes ÷ all bug rows. Observations and improvements count only when the Config tab counts them as defects.",
     "Rework Rate": "Reopening events after the configured close boundary ÷ completed rows assessed for rework.",
     "CR Rate": "Rows with Item Type = CR ÷ rows with Item Type = Task (the whole project's, when the period has none).",
 }

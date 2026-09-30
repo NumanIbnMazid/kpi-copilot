@@ -126,6 +126,14 @@ def build_queue(work: dict, results: dict | None, facts: dict, project_dir: Path
     }
 
 
+def _counts_as_defect(d: dict, profile: dict | None) -> bool:
+    """The report types Defect Rejection Rate covers: the ones that can count as defects."""
+    policy = (profile or {}).get("policy") or {}
+    kind = d.get("kind") or "Bug"
+    return (kind == "Bug" or (kind == "Observation" and bool(policy.get("count_observations")))
+            or (kind == "Improvement" and bool(policy.get("count_improvements"))))
+
+
 def _notes_needed(results: dict, facts: dict, review: bool = False, kif: dict | None = None,
                   profile: dict | None = None) -> list[dict]:
     """Return missing causes, or every note whose complete narrative needs renewed review.
@@ -173,7 +181,8 @@ def _notes_needed(results: dict, facts: dict, review: bool = False, kif: dict | 
                     entry["context"]["rejected_reports"] = [
                         {"key": d.get("key"), "title": d.get("title"),
                          "why": d.get("rejection_reason") or ((d.get("basis") or {}).get("rejected") or {}).get("why")}
-                        for d in (kif or {}).get("defects") or [] if d.get("period") == name and d.get("rejected") == "Yes"]
+                        for d in (kif or {}).get("defects") or [] if d.get("period") == name and d.get("rejected") == "Yes"
+                        and _counts_as_defect(d, profile)]
                 entry["result_summary"] = m.get("summary_note")
                 # Which items a review question lists is supporting detail, not the note itself.
                 signed = {k: v for k, v in entry.items() if k != "review_item_details"}

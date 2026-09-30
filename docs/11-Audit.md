@@ -35,7 +35,9 @@ are copied here, and no production KPI was changed.
 The engine normalizes these meanings into explicit workflow rules; a tooltip alone does
 not settle every denominator. In the current counting model, Defect Rate applies the
 observation/improvement/pre-existing policy and uses delivered work as its denominator.
-Escaped Defect Rate uses non-rejected reports; Rejection Rate uses all reports. These
+Escaped Defect Rate and Rejection Rate both use only the report types Defect Rate can count
+(bugs, and observations or improvements only when the policy counts them); Escaped Defect
+Rate also leaves out rejected reports. These
 populations are visible in Config and the detailed rules, and must be reviewed during
 onboarding rather than assumed equivalent to another team's policy. Unknown outcomes and
 not-yet-due items are excluded from decided-outcome ratios and called out in notes.

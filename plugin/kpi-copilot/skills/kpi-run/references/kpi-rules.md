@@ -149,12 +149,17 @@ PMS: *"Defects found after release / Total defects (before + after release)."*
   QA and let one through scores well, which is the right answer.
 - Rejected reports were never defects, so they are in **neither** half, and the note says how
   many were set aside.
+- Only report types that count as defects are in either half: bugs, plus observations or
+  improvements only when the policy counts them in Defect Rate.
 - **A period with no handover date returns "Not measured", not 0%.** Without the release boundary,
   the tool cannot establish whether a report escaped; missing evidence is not zero.
 
 ### Defect Rejection Rate (lower is better, max 15)
 
-Reports that turned out not to be defects, over all reports in the period.
+Reports that turned out not to be defects, over all reports in the period that can count as
+defects: bugs, plus observations or improvements only when the policy counts them in Defect
+Rate. An observation or improvement that is not counted as a defect cannot be rejected as one,
+so it is in neither half.
 
 Counted as rejected: invalid, by design, duplicate, not reproducible, not feasible. The
 reasons are summarised in the note.

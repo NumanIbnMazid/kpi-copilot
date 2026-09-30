@@ -167,7 +167,7 @@ def main() -> int:
     # PMS: "Defects found after release / Total defects (before + after release)."
     m = measure(sav, "Initial Scope", "Escaped Defect Rate")
     check("the denominator is valid defects, not delivered items",
-          m["denominator"] == 5, f"got {m['denominator']}, expected 5 non-rejected reports of 6")
+          m["denominator"] == 4, f"got {m['denominator']}, expected 4: six reports, less one rejected and one observation")
     check("rejected reports are excluded from both counts", "rejected report is excluded from both counts" in m["note"], m["note"])
     m2 = measure(sav, "Additional Requests 1", "Escaped Defect Rate")
     check("no handover still means Not measured", m2["status"] == "Not measured", m2["status"])
@@ -280,6 +280,39 @@ def main() -> int:
     check("a KPI the project does not override keeps the PMS default",
           m["threshold"] == 80 and "default" in m.get("threshold_source", ""),
           f"{m['threshold']} / {m.get('threshold_source')}")
+    # Rejection Rate covers only report types that can count as defects.
+    kif = json.loads((EX / "northwind-q3" / "run.kif.json").read_text())
+    base = measure(compute(EX / "northwind-q3" / "run.kif.json", EX / "northwind-q3" / "profile.yaml",
+                           None, tmp / "rej0.json"), "Initial Scope", "Defect Rejection Rate")
+    extra = dict(next(d for d in kif["defects"] if d["period"] == "Initial Scope"))
+    for n, kind in enumerate(("Observation", "Improvement")):
+        kif["defects"].append(dict(extra, key=f"NW-REJ-{n}", kind=kind, rejected="Yes", _row=f"rej-{n}", _item=f"rej-{n}"))
+    (tmp / "rej.kif.json").write_text(json.dumps(kif))
+    got = measure(compute(tmp / "rej.kif.json", EX / "northwind-q3" / "profile.yaml", None, tmp / "rej1.json"),
+                  "Initial Scope", "Defect Rejection Rate")
+    check("a rejected observation or improvement does not move Defect Rejection Rate",
+          (got["numerator"], got["denominator"]) == (base["numerator"], base["denominator"]),
+          f"{base['numerator']}/{base['denominator']} -> {got['numerator']}/{got['denominator']}")
+    esc0 = measure(compute(EX / "northwind-q3" / "run.kif.json", EX / "northwind-q3" / "profile.yaml",
+                           None, tmp / "esc0.json"), "Initial Scope", "Escaped Defect Rate")
+    kif_e = json.loads((tmp / "rej.kif.json").read_text())
+    kif_e["defects"].append(dict(extra, key="NW-ESC-OBS", kind="Observation", rejected="No", phase="Post-release",
+                                 _row="esc-obs", _item="esc-obs"))
+    (tmp / "esc.kif.json").write_text(json.dumps(kif_e))
+    esc = measure(compute(tmp / "esc.kif.json", EX / "northwind-q3" / "profile.yaml", None, tmp / "esc1.json"),
+                  "Initial Scope", "Escaped Defect Rate")
+    check("an observation or improvement is in neither half of Escaped Defect Rate",
+          (esc["numerator"], esc["denominator"]) == (esc0["numerator"], esc0["denominator"]),
+          f"{esc0['numerator']}/{esc0['denominator']} -> {esc['numerator']}/{esc['denominator']}")
+    prof = yaml.safe_load((EX / "northwind-q3" / "profile.yaml").read_text())
+    prof.setdefault("policy", {})["count_observations"] = True
+    (tmp / "rej.profile.yaml").write_text(yaml.safe_dump(prof))
+    got = measure(compute(tmp / "rej.kif.json", tmp / "rej.profile.yaml", None, tmp / "rej2.json"),
+                  "Initial Scope", "Defect Rejection Rate")
+    check("...unless the policy counts observations as defects",
+          (got["numerator"], got["denominator"]) == (base["numerator"] + 1, base["denominator"] + sum(
+              1 for d in kif["defects"] if d["period"] == "Initial Scope" and d["kind"] == "Observation")),
+          f"{got['numerator']}/{got['denominator']}")
     dflt = measure(sav, "Initial Scope", "Defect Rate")
     check("the bundled fallback says it is not from PMS",
           "fallback" in dflt.get("threshold_source", ""), dflt.get("threshold_source"))

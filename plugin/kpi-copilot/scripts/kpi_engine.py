@@ -865,7 +865,8 @@ class Engine:
         right answer.
         """
         name = period["name"]
-        reports = self.defects_in(name)
+        # Only report types that count as defects: observations and improvements are not bugs.
+        reports = [d for d in self.defects_in(name) if self._defect_kind(d)]
         # Rejected reports were never defects, so they belong in neither half.
         valid = [d for d in reports if d.get("rejected") != "Yes"]
         escaped = [d for d in valid if d.get("phase") == "Post-release"]
@@ -920,9 +921,16 @@ class Engine:
                   "rejected": rejected, "handover": _md(period["handover_date"])}
         return m
 
+    def _defect_kind(self, d: dict) -> bool:
+        """Only report types that can count as defects can be rejected as not being one.
+        Observations and improvements are left out unless the policy counts them in Defect Rate."""
+        kind = d.get("kind") or "Bug"
+        return (kind == "Bug" or (kind == "Observation" and self.policy["count_observations"])
+                or (kind == "Improvement" and self.policy["count_improvements"]))
+
     def rejection_rate(self, period: dict) -> Measure:
         name = period["name"]
-        reports = self.defects_in(name)
+        reports = [d for d in self.defects_in(name) if self._defect_kind(d)]
         rejected = [d for d in reports if d.get("rejected") == "Yes"]
         den = len(reports)
 

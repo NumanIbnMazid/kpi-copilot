@@ -19,7 +19,7 @@ actual handover events. Client deadlines and actual handover are different facts
 | NW-105 waited because staging access was unavailable | An environment dependency is not automatically a misunderstood requirement | `workflow.clarification_when.exclude_reasons`; the board comment |
 | NW-104 closed on 08/04, reopened on 08/07 after a tablet restart exposed a reset, and closed again on 08/11 | One reopening after closure counts as rework. Two other tasks failed QA before first closure and do not count as rework | Board events; Rework Rate context |
 | Bug 04 says `[Exisiting]` | Tolerant reading proposes “Existing” and records the interpretation. Under `count_pre_existing: false`, an accepted existing classification is excluded from Defect Rate | Defect Register and its review evidence |
-| Bug 06's duplicate email came from the test harness | The report is rejected as not a product bug; it stays in the reported population for Rejection Rate | Rejected state, comment and context note |
+| Bug 06's duplicate email came from the test harness | The report is rejected as not a product bug; as a bug report it stays in the population for Rejection Rate | Rejected state, comment and context note |
 | Bug 08 was reported by the client after the 08/12 handover | It is a post-release report. Its closure on 08/25 is stated, but why QA missed it is not invented | Description, timeline and Escaped Defect Rate note |
 | Two additions were approved after the original scope | They count as Additional Requests against the initial baseline | Estimates table and CR Rate |
 | One delivered item has no required estimate | Initial Scope Velocity remains Not measured; a missing estimate does not become zero | Open Questions and the effort fields |
@@ -27,7 +27,7 @@ actual handover events. Client deadlines and actual handover are different facts
 | Additional Requests 1 has no recorded client handover | Escaped Defect Rate remains Not measured for that period | Timeline, Periods and Open Questions |
 
 The first-pass Initial Scope results include Task Comprehension **88.89%**, Defect Rate
-**33.33%**, Escaped Defect Rate **12.5%**, Rework Rate **12.5%**, and CR Rate **28.57%**.
+**33.33%**, Escaped Defect Rate **16.67%**, Rework Rate **12.5%**, and CR Rate **28.57%**.
 These are teaching examples, not target recommendations. Review populations and open decisions
 before using a draft result. Defect Rate is defects per delivered ticket; it is not the
 percentage of tickets containing a bug.
@@ -62,7 +62,7 @@ For Sprint 14:
 |---|---|
 | Velocity: **24 story points** | Four delivered items carry 8, 5, 8 and 3 points; an in-progress 5-point item is not delivered |
 | Defect Rate: **50%** | Two included defects divided by four delivered tickets; an improvement and rejected report are excluded |
-| Defect Rejection Rate: **25%** | One rejected report out of four total reports |
+| Defect Rejection Rate: **33.33%** | One rejected bug out of three bugs; the improvement is not counted as a defect, so it cannot be rejected as one |
 | CR Rate: **25%** | One labelled addition against four initial tasks |
 | Task Comprehension, Client Expectation, Delivery Commitment, Escaped Defect Rate and Rework Rate: **Not measured** | The required discussion, date, release or reopen evidence is absent |
 

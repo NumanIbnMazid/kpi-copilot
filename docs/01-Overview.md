@@ -19,7 +19,7 @@ See [Start here](02-Start-Here.md) for the difference and the installation route
 | Delivery Commitment | What share of the team's assessed commitments were kept on time? | A genuine commitment, its date, and the event that fulfills it |
 | Defect Rate | How many included defects were found relative to delivered work? | Delivered task population and agreed defect exclusions |
 | Escaped Defect Rate | What share of non-rejected defects appeared after release? | Release/handover boundary and report timing |
-| Defect Rejection Rate | What share of reported defects were rejected? | All reports and recorded rejection decisions |
+| Defect Rejection Rate | What share of reported defects were rejected? | Reports of the types counted as defects, and recorded rejection decisions |
 | Rework Rate | How many reopening events occurred relative to completed work? | Closure and later reopening history |
 | CR Rate | How much did the task scope change relative to the initial task baseline? | Original scope and approved change requests/additions |
 
