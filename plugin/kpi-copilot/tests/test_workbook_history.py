@@ -63,7 +63,9 @@ class HistoryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             book=Path(tmp)/'book.xlsx'; X.write(tabs,book)
             from openpyxl import load_workbook
-            wb=load_workbook(book); wb['Task Register']['P4']='No'; wb['Dashboard']['B4']='First'; wb.save(book)
+            wb=load_workbook(book); tr=wb['Task Register']
+            col=next(c.column for c in tr[3] if c.value=='Understood w/o Client?')
+            tr.cell(4,col).value='No'; wb['Dashboard']['B4']='First'; wb.save(book)
             facts={}; ledger=Ledger(Path(tmp)/'ledger.json')
             R.fold(state,X.read_grid(book),ledger,facts,{}, {})
             self.assertEqual(facts['view']['period'],'First')

@@ -33,7 +33,7 @@ import re
 from typing import Any
 from kpi_registry import NAME_TO_KEY
 
-MODEL_VERSION = "2.4"
+MODEL_VERSION = "2.5"
 LAST = 999            # formulas look down to here, so a row added by hand is still counted
 SPARE = 40            # formatted, formula-filled rows past the data
 KPI_ORDER = ["Velocity", "Task Comprehension", "Client Expectation", "Delivery Commitment", "Defect Rate",
@@ -49,6 +49,7 @@ def metric_name(name: str) -> str:
 
 NAVY, BAND, SOFT, YELLOW, GREY, WHITE = "1F3864", "2F5597", "D9E2F3", "FFF2CC", "F2F2F2", "FFFFFF"
 LINE, MUTED, REDFILL, AMBER, TOTAL = "D9D9D9", "666666", "F8CBAD", "FFE599", "D9E1F2"
+ATTENTION = "FCE4D6"   # soft orange: something on this row is still open
 
 # name -> (font, fill, align).  font: b/i/size/color.  align: h/v/wrap.  box = thin border.
 STYLES: dict[str, dict] = {
@@ -163,7 +164,8 @@ class Tab:
 
 TASK_COLS = [
     ("n", "#", 4, "calc", "c"), ("period", "Period", 14, "in", ""), ("key", "Ticket", 11, "data", ""),
-    ("link", "Link", 8, "data", ""), ("title", "Title", 48, "data", ""), ("type", "Item Type", 10, "in", ""),
+    ("link", "Link", 8, "data", ""), ("title", "Title", 48, "data", ""),
+    ("attention", "Needs attention", 30, "calc", ""), ("type", "Item Type", 10, "in", ""),
     ("planned", "Planned (initial scope)?", 10, "in", ""), ("hours", "Est. Hours (counted)", 9, "calc", "r"),
     ("story_points", "Story Points", 8, "in", "r"), ("hours_source", "Hours Source", 30, "data", ""),
     ("assignee", "Assignee", 18, "data", ""), ("created", "Created", 11, "data", ""),
@@ -504,6 +506,17 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         f'IF(AND({T["type"]}{{r}}<>"Excluded",LEN({T["story_points"]}{{r}})=0),"Yes","No"),'
         f'IF(AND(OR(AND({T["type"]}{{r}}<>"Excluded",{T["effort_group"]}{{r}}="No group"),'
         f'{T["effort_only"]}{{r}}="Yes"),{lacks}),"Yes","No")))')
+    # What is still open on a row, in words, so it can be settled later. Live: typing the
+    # missing story points or hours clears it without a rerun.
+    no_estimate = (f'AND({T["effort_group"]}{{r}}="No group",LEN({T["story_points"]}{{r}})=0,'
+                   f'LEN({T["hours_dev"]}{{r}})=0,LEN({T["hours_qa"]}{{r}})=0)')
+    tf["attention"] = (
+        f'=IF(OR(B{{r}}="",{T["type"]}{{r}}="Excluded"),"",TEXTJOIN("; ",TRUE,'
+        f'IF({no_estimate},"No story points or estimate yet",""),'
+        f'IF(AND(N({dl}{{r}})>0,LEN({T["understood"]}{{r}})=0),"Delivered, but whether the requirement was '
+        f'understood without the client is not answered",""),'
+        f'IF(AND({T["effort_only"]}{{r}}="Yes",LEN({T["story_points"]}{{r}})=0,LEN({T["hours_dev"]}{{r}})=0,'
+        f'LEN({T["hours_qa"]}{{r}})=0),"Group has no story points or estimate yet","")))')
     _fill_row_formulas(tk, TASK_COLS, 4, last_t, tf)
     pick = f"Periods!$B$5:$B${last_p}"
     for key, vals in (("type", ["Task", "CR", "Scope", "Excluded"]),):
@@ -518,6 +531,15 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         tk.when(4, c, last_t, c, f'={col(c)}4="{bad}"', fill=REDFILL)
     cc = _n(TASK_COLS, "check")
     tk.when(4, cc, last_t, cc, f'={col(cc)}4<>""', fill=AMBER)
+    # A row with something still open: ticket, title and the reason in a soft orange, and
+    # the empty estimate cells marked where the estimate is what is missing.
+    at = T["attention"]
+    for key in ("key", "title", "attention"):
+        c = _n(TASK_COLS, key)
+        tk.when(4, c, last_t, c, f'=${at}4<>""', fill=ATTENTION)
+    for key in ("story_points", "hours_dev", "hours_qa"):
+        c = _n(TASK_COLS, key)
+        tk.when(4, c, last_t, c, f'=ISNUMBER(SEARCH("estimate",${at}4))', fill=ATTENTION)
     tk.hidden_cols = [_n(TASK_COLS, k) for k in ("handover", "client_check", "item", "delivery_unknown")]
     tk.readback = {"kind": "table", "first": 4, "key": "item", "alt_key": "key", "cols": TASK_COLS}
 

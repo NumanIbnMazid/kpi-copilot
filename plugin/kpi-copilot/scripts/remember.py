@@ -68,6 +68,12 @@ def _coerce(text: str) -> Any:
         return False
     if low in ("null", "none", ""):
         return None
+    if t[:1] in "{[":
+        # A structured setting (a mapping or a list of them) is given as JSON.
+        try:
+            return json.loads(t)
+        except ValueError:
+            pass
     try:
         return int(t) if t.lstrip("-").isdigit() else float(t)
     except ValueError:

@@ -59,6 +59,31 @@ def resolve(classifier) -> tuple[dict, dict]:
                 raise ValueError("A group member has a separate approved estimate. Remove it from the "
                                  "group to avoid counting the same budget twice.")
             members[child["id"]] = group
+    # A group named in linked_members whose parent matches no approved source row keeps its
+    # estimate on the parent card itself (story points or hours on the card). Its members
+    # still count one by one; the parent's estimate counts once.
+    for key, keys in explicit.items():
+        parent = lookup.get(str(key))
+        if not parent or parent["id"] in parents:
+            continue
+        missing = [k for k in keys if str(k) not in lookup]
+        if missing:
+            raise ValueError(f"Group {parent.get('key') or parent['id']} is missing configured members: "
+                             + ", ".join(missing) + ". Refresh the bounded board export.")
+        children = [lookup[str(k)] for k in keys]
+        children = [i for i in children if not any(rx.search(i.get("title") or "") for rx in excluded)]
+        children = list({i["id"]: i for i in children}.values())
+        if len(children) < 2:
+            continue
+        source = {"_idx": "card:" + parent["id"], "_src": "card", "title": parent.get("title")}
+        group = {"parent": parent, "source": source, "members": children, "card": True,
+                 "inherit_delivery": bool(cfg.get("inherit_parent_delivery"))}
+        parents[parent["id"]] = group
+        for child in children:
+            if child["id"] == parent["id"] or child["id"] in members:
+                raise ValueError("A delivery ticket belongs to more than one configured group; resolve "
+                                 "the overlap before counting it.")
+            members[child["id"]] = group
     if set(parents) & set(members):
         raise ValueError("Nested estimated groups need an explicit non-overlapping member mapping.")
     return parents, members
