@@ -51,9 +51,13 @@ RUBRIC = {
         "on a build, an environment, access, test data, a priority call or a sign-off is NOT a comprehension "
         "problem. A developer asking a teammate is not either. Quote or link the message that shows it."),
     "reopened": (
-        "Yes only if the item was closed (accepted as done) and afterwards put back in play. Failing QA while "
-        "it is still being tested for the first time is normal testing, not rework. A card moved by mistake "
-        "and moved straight back is not rework."),
+        "Yes only if the item was closed (accepted as done) and afterwards put back in play because its own "
+        "work was at fault. Failing QA while it is still being tested for the first time is normal testing, "
+        "not rework. A card moved by mistake and moved straight back is not rework. Neither is a move back "
+        "caused by something else: another item's bug, a build, deployment or environment problem, test "
+        "data, a question or a priority change, or a card QA later closed with no change to this item. "
+        "Read the comments around each move back. When only some moves back were real rework, answer Yes "
+        "and add field 'reopen_count' with how many were."),
     "pre_existing": (
         "Yes if the problem was already in the product before this project's work touched it - the team found "
         "it, but did not cause it. Signs: a tag like [Existing] (however it is spelled), 'also happens in "
@@ -83,6 +87,7 @@ RUBRIC = {
 FIELDS = {
     "nature": ["Task", "CR", "Scope", "Excluded", "Bug", "Observation", "Improvement", "Query"],
     "period": None, "understood": ["Yes", "No"], "reopened": ["Yes", "No"],
+    "reopen_count": [str(n) for n in range(0, 21)],
     "pre_existing": ["Yes", "No"], "rejected": ["Yes", "No"],
     "phase": ["QA", "Post-release", "UAT", "Development"],
 }
@@ -220,6 +225,8 @@ def apply_answers(answers_path: Path, board: dict, ledger, facts: dict, period_n
     applied, refused, unsure = [], [], []
     for a in doc.get("answers") or []:
         iid, field, value = str(a.get("item_id") or ""), a.get("field"), a.get("value")
+        if field == "reopen_count" and isinstance(value, int):
+            value = str(value)
         it = items.get(iid)
         label = (it or {}).get("key") or ((it or {}).get("title") or iid)[:40]
         if not it:

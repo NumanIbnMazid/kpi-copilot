@@ -68,10 +68,20 @@ Rework Rate is **closed, then reopened**.
 | `ignore_first_qa_fail` | Default yes. A QA failure while the item is still being tested for the first time is normal testing, not rework |
 | `group_history` | `tickets` (default) judges each ticket inside a grouped feature. `count-group` counts the group once, from the group card's own history, wherever its tickets carry none of their own; the note says how many groups and how many were reopened, and each ticket's remarks name the group |
 | `no_history` | `unknown` (default) leaves a completed task with no reopen on record out of the rate. `not-reopened` counts it as not reopened, and the note says so. A ticket inside a group that was reopened is never assumed: the reopen is on record, just not which ticket needed the change |
+| `confirm` | `rule` (default) counts every move back after closure. `judge` puts each one to review with the comments around it; it counts only when the item's own work was at fault - not another item's bug, a build or environment problem, or a card QA later closed with no change. The review can say how many of several moves back were real rework |
 
 Leave `ignore_first_qa_fail` on unless you have a specific reason. Turning it off is the most
 common way a Rework Rate comes out far too high — and it is named in the note as not counted,
 so nothing is hidden by leaving it on.
+
+## `judge` — how much the rules decide alone
+
+`uncertain` (default) puts to review only the calls the rules are unsure of. `all` reviews every
+call the rules make - what each card is, its period, whether it was understood, reopened,
+pre-existing, rejected, and where a defect was found - against the card's comments and history, so
+nothing is counted on a title or a status move alone. A reviewed call is kept and asked again only
+when the card changes, so the first run after turning it on carries the big queue. Plain facts are
+not asked about: a card that never moved back, an Asana milestone marker.
 
 ## `clarification_when` — Task Comprehension
 

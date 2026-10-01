@@ -991,6 +991,31 @@ def pipeline_tests(tmp: Path) -> None:
           "NEXT" in r.stdout and "Do not open the board or search anywhere else" in r.stdout, r.stdout[-500:])
     check("what nobody can know from outside is put to a person", "scope:deliverydocumentation" in r.stdout)
 
+    print("\nReview every rule-made call when the profile asks")
+    import yaml
+    wa = tmp / "nw-all"
+    shutil.copytree(EX / "northwind-board", wa)
+    pa = yaml.safe_load((wa / "profile.yaml").read_text())
+    pa.setdefault("workflow", {})["judge"] = "all"
+    pa["workflow"].setdefault("reopened_when", {})
+    pa.setdefault("conventions", {}).setdefault("exclude_patterns", []).append("^Delivery Documentation")
+    (wa / "profile.yaml").write_text(yaml.safe_dump(pa, sort_keys=False))
+    ra = run(["scripts/kpi.py", "run", "--profile", str(wa / "profile.yaml"), "--project", "northwind-q3",
+              "--today", "2026-09-18", "--board", str(wa / "board.json")], env=env)
+    qa = json.loads((wa / "northwind-q3" / "judge" / "queue.json").read_text())
+    asks_all = [(i["item"]["key"], a["field"], a["proposal"]) for i in qa["items"] for a in i["asks"]]
+    check("judge: all reviews the confident calls too", len(qa["items"]) > len(queue["items"]), f"{len(qa['items'])} vs {len(queue['items'])}")
+    check("...including a reopen, with the comments around it",
+          any(f == "reopened" and k == "NW-104" for k, f, _ in asks_all) and
+          all("history" in i["item"] for i in qa["items"] if any(a["field"] == "reopened" for a in i["asks"])), str(asks_all))
+    check("...but not a card that never moved back",
+          all("Fail" in (i["item"].get("history") or "") for i in qa["items"]
+              for a in i["asks"] if a["field"] == "reopened" and a["proposal"] == "No"))
+    ka = json.loads((wa / "northwind-q3" / "runs" / "2026-09-18" / "run.kif.json").read_text())
+    doc_all = next(t for t in ka["tasks"] if t["key"].startswith("PLAN: Delivery"))
+    check("a plan line that is not a deliverable is excluded like a card with that title, and not asked about",
+          doc_all["type"] == "Excluded" and "scope:deliverydocumentation" not in ra.stdout, f"{doc_all['type']}")
+
     print("\nThe assistant answers once, and it is kept")
     ids = {i["item"]["title"][:30]: i["item_id"] for i in queue["items"]}
     def iid(part): return next(v for k, v in ids.items() if part in k)

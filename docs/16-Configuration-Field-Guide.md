@@ -129,6 +129,7 @@ fictional; no external PDF is required to reproduce them.
 | `policy.count_pre_existing` | Include defects already in the product | Default false; excluded reports remain visible |
 | `policy.count_post_release` | Include post-release defects in Defect Rate | Default true; release-based measures still need release evidence |
 | `policy.no_defects_as_zero` | Show 0% for Escaped Defect Rate (once handed over) and Defect Rejection Rate when a cycle has no defect reports | Default false (unmeasured); turn on when "no defect found" is the result the client expects to see |
+| `workflow.judge` | `uncertain` reviews only unsure calls; `all` reviews every rule-made call against comments and history | Turn on `all` when counts must rest on judgement, not titles and status moves |
 | `output.mode` | Review or submission workflow | Start with `review-only` |
 | `output.workbook` | Local `xlsx` or additional `google-sheets` output | The current runner always writes a local workbook, including legacy `none` |
 | `output.workbook_file` | Dedicated Google Sheet to update | Use its approved link/ID; do not use a valuable reference workbook |

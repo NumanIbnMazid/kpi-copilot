@@ -157,7 +157,11 @@ class Classifier:
                             flag=("the item changed after this was decided by hand"
                                   if kept["by"] == "human" and kept.get("fingerprint") not in (None, fp) else ""),
                             evidence=kept.get("evidence"))
-        if prop["confidence"] < SURE or prop["flag"]:
+        # judge: all puts every call the rules made to review, so nothing is counted on a title
+        # or a status move alone. Plain facts (a card that never moved back, an Asana milestone
+        # marker) are not worth a question.
+        review_all = self.wf.get("judge") == "all" and prop["by"] == "rule" and not prop.get("fact")
+        if prop["confidence"] < SURE or prop["flag"] or review_all:
             deferred = self.ledger.usable(item["id"], "deferred:" + field, fp) if self.ledger else None
             if deferred:
                 self.questions.append({"id": f"judge:{item['id']}:{field}", "about": item.get("key") or item["title"],
@@ -258,7 +262,9 @@ class Classifier:
                 row, _ = self.match_scope(item)
                 return Proposal(kind.strip(), rule.get("why") or "explicit include_key rule", 1.0), row
         if item.get("kind") in ("milestone", "approval", "section"):
-            return Proposal("Excluded", f"an Asana {item['kind']} marker, not a deliverable", 0.95), None
+            marker = Proposal("Excluded", f"an Asana {item['kind']} marker, not a deliverable", 0.95)
+            marker["fact"] = True
+            return marker, None
         row, score = self.match_scope(item)
         # An explicit approved scope match is stronger evidence than an administrative
         # title convention. A QA service may itself be paid, approved delivery work.
@@ -438,12 +444,24 @@ class Classifier:
         if "status_history" in self.caps or item.get("events"):
             proposed_rework = self._reopened(item, row)
             event_count = proposed_rework.get("count")
+            judged = ((self.wf.get("reopened_when") or {}).get("confirm") == "judge"
+                      or self.wf.get("judge") == "all")
             p = self.settle(item, "reopened", proposed_rework,
                             "Was this item closed and then reopened (rework)? A QA failure while it was "
-                            "still being tested for the first time is not rework.", ["Yes", "No"], "events")
+                            "still being tested for the first time is not rework." +
+                            (" Count it only when the move back was caused by a problem in this item's own work. "
+                             "If Yes and only some of the moves back were real rework, also answer field "
+                             "'reopen_count' with how many were." if judged and event_count else ""),
+                            ["Yes", "No"], "rework" if judged else "events")
             row["reopened"] = keep("reopened", p) if rework_closed or p["value"] == "Yes" else None
             row["reopen_count"] = ((event_count or 1) if row["reopened"] == "Yes" else
                                    0 if row["reopened"] == "No" else None)
+            told = (self.ledger.usable(item["id"], "reopen_count", B.fingerprint(item))
+                    if self.ledger and row["reopened"] == "Yes" else None)
+            if told and str(told.get("value")).isdigit():
+                row["reopen_count"] = int(told["value"])
+                if row["reopen_count"] == 0:
+                    row["reopened"] = "No"
             if p.get("evidence") and row["reopened"] == "Yes":
                 row["rework_evidence"] = p["evidence"]
         if "comments" in self.caps or "status_history" in self.caps or item.get("comments"):
@@ -535,8 +553,14 @@ class Classifier:
         hit = hits[0] if hits else None
         if hit:
             closed_on = B.first_entered(item, closed_states) or "earlier"
-            out = Proposal("Yes", f"closed {_md(closed_on)}, then moved back to '{hit.get('to') or 'open'}' on "
-                                  f"{_md(B.day(hit.get('at')))}", 0.85,
+            judged = cfg.get("confirm") == "judge"
+            moves = "; ".join(f"back to '{h.get('to') or 'open'}' on {_md(B.day(h.get('at')))}" for h in hits)
+            out = Proposal("Yes", (f"closed {_md(closed_on)}, then moved {moves}" if judged else
+                                   f"closed {_md(closed_on)}, then moved back to '{hit.get('to') or 'open'}' on "
+                                   f"{_md(B.day(hit.get('at')))}"),
+                           # A move back is only rework when this item's own work was at fault, which
+                           # the history alone cannot show: with confirm: judge each one is reviewed.
+                           0.6 if judged else 0.85,
                            evidence=f"Closed on {_md(closed_on)} and reopened on {_md(B.day(hit.get('at')))}")
             out["count"] = len(hits)
             return out
@@ -547,7 +571,9 @@ class Classifier:
             when = _md(B.day(fails[0].get("at")))
             row["rework_evidence"] = (f"Failed QA on {when} while still being tested for the first time, so it "
                                       f"is not counted as rework (the task was never closed and reopened)")
-        return Proposal("No", "never moved back after being closed", 0.9)
+        never = Proposal("No", "never moved back after being closed", 0.9)
+        never["fact"] = not fails
+        return never
 
     def _understood(self, item: dict) -> Proposal:
         cfg = self.wf.get("clarification_when") or {}
@@ -936,13 +962,18 @@ class Classifier:
             delivered = ans.get("delivered") or r.get("delivered")
             known = bool(delivered or ans)      # somebody has said something about it
             scoped_out = bool(self.assignee_include)
+            # A plan line that is not a deliverable (QA admin, delivery paperwork) stays out
+            # of the counts exactly as a card with that title would.
+            admin = next((pat for pat in self.conv.get("exclude_patterns") or []
+                          if (rx := _rx(pat)) and rx.search(r["title"])), None)
             commit = r.get("commit_date") or p.get("commit_date") or self.project_dates.get("commit_date")
             client = r.get("client_date") or p.get("client_date") or self.project_dates.get("client_date")
             tasks.append({
                 "period": per, "key": f"PLAN: {r['title']}"[:60], "link": None, "title": r["title"],
-                "type": "Excluded" if scoped_out else ("Task" if r["_src"] == "plan" else "CR"),
-                "exclude_reason": "no tracker assignee to establish project-team scope" if scoped_out else None,
-                "planned": False if scoped_out else r["_src"] == "plan", "hours_dev": _num(r.get("dev_hours")),
+                "type": "Excluded" if (scoped_out or admin) else ("Task" if r["_src"] == "plan" else "CR"),
+                "exclude_reason": ("no tracker assignee to establish project-team scope" if scoped_out else
+                                   f"not a deliverable: title matches the exclude pattern {admin}" if admin else None),
+                "planned": False if (scoped_out or admin) else r["_src"] == "plan", "hours_dev": _num(r.get("dev_hours")),
                 "hours_qa": _num(r.get("qa_hours")),
                 "hours_source": "Project plan" if r["_src"] == "plan" else "Estimates sheet",
                 "story_points": None, "assignee": None, "created": None, "delivered": delivered,
@@ -954,11 +985,12 @@ class Classifier:
                 "met_commitment": on_time(delivered, commit, self.today) if (commit and known) else None,
                 "commit_date": commit, "reopened": None, "reopen_count": None, "rework_evidence": None,
                 "remarks": ("Excluded: no tracker assignee to establish project-team scope" if scoped_out
+                            else "Excluded: in the plan, but not a deliverable" if admin
                             else "In the plan with no card of its own on the board"), "basis": {},
-                "check": "" if known or scoped_out else "no card on the board; delivery date not known", "_item": None,
+                "check": "" if known or scoped_out or admin else "no card on the board; delivery date not known", "_item": None,
                 "_row": f"plan:{B.norm(r['title'])[:40]}",
             })
-            if not known and not scoped_out:
+            if not known and not scoped_out and not admin:
                 self.questions.append({
                     "id": qid, "about": r["title"],
                     "question": f"'{r['title']}' is in the {r['_src']} but has no card on the board. Was it "
@@ -1009,9 +1041,23 @@ class Classifier:
                     "counting_grain": self.grain}
             if want in ("description", "comments"):
                 q["item"]["description"] = (it.get("description") or "")[:600]
-            if want in ("events", "comments"):
+            if want in ("events", "comments", "rework"):
                 q["item"]["history"] = " -> ".join(
-                    f"{e.get('to') or e.get('kind')} {_md(B.day(e.get('at')))}" for e in B.moves(it)[-10:])
+                    f"{e.get('to') or e.get('kind')} {_md(B.day(e.get('at')))}"
+                    for e in B.moves(it)[-(20 if want == "rework" else 10):])
+            if want == "rework":
+                # Whether a move back was this item's fault is in what was said around it.
+                back = (self.wf.get("reopened_when") or {}).get("values") or []
+                days = [B.day(e.get("at")) for e in B.moves(it) if B._in(e.get("to"), back)]
+                comments = it.get("comments") or []
+                near = [i for i, c in enumerate(comments)
+                        if any(abs(_days(B.day(c.get("at")), d)) <= 3 for d in days if d)]
+                selected = sorted(set(near[:15] + list(range(max(0, len(comments) - 4), len(comments)))))
+                q["item"]["comments"] = [
+                    {"at": B.day(comments[i].get("at")), "by": comments[i].get("by"),
+                     "text": (comments[i].get("text") or "")[:700], "url": comments[i].get("url")}
+                    for i in selected]
+                q["item"]["comments_omitted"] = len(comments) - len(selected)
             if want == "comments":
                 comments = it.get("comments") or []
                 clarification_states = (self.wf.get("clarification_when") or {}).get("values") or []

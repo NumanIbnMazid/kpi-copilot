@@ -518,6 +518,15 @@
             "label": "Closed when the item reaches"
           }
         },
+        "judge": {
+          "type": "string",
+          "enum": ["uncertain", "all"],
+          "default": "uncertain",
+          "description": "'uncertain' puts to review only the calls the rules are unsure of. 'all' reviews every call the rules make - what each card is, its period, whether it was understood, reopened, pre-existing, rejected, and where a defect was found - against the card's comments and history, so nothing counts on a title or a status move alone. Each reviewed call is kept and asked again only when the card changes.",
+          "x-workbook": {
+            "label": "Review every rule-made call"
+          }
+        },
         "reopened_when": {
           "type": "object",
           "description": "Rework Rate compares reopening events after the agreed closure boundary with completed tasks whose outcome is known. Repeated reopening uses reopen_count where available; an explicit Yes without a count contributes one. First-round QA failure before closure is not rework.",
@@ -544,6 +553,12 @@
               "enum": ["tickets", "count-group"],
               "default": "tickets",
               "description": "Tickets inside a grouped feature that carry no reopen history of their own. 'tickets' judges each ticket; 'count-group' counts the group once, from the group card's own history, and names the group in each ticket's remarks."
+            },
+            "confirm": {
+              "type": "string",
+              "enum": ["rule", "judge"],
+              "default": "rule",
+              "description": "'rule' counts every move back after closure as rework. 'judge' puts each one to review with the comments around it, and counts it only when the item's own work was at fault - not another item's bug, a build or environment problem, or a card QA later closed with no change."
             }
           },
           "x-workbook": {
