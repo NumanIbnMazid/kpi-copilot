@@ -796,9 +796,25 @@ def pipeline_tests(tmp: Path) -> None:
     check("a move in this board's columns becomes a status event", [e["to"] for e in it["events"]] == ["Closed"], str(it["events"]))
     check("...and a move in some other project's column does not", all(e["to"] != "Another project's column" for e in it["events"]))
     check("a comment keeps a link to itself", it["comments"][0]["url"].endswith("/1/s3/f"), it["comments"][0]["url"])
+    # The message is built from what is connected, so build it as a machine with nothing signed in sees it.
+    import importlib, os as _os
+    saved = {k: _os.environ.get(k) for k in ("KPI_COPILOT_HOME", "ASANA_TOKEN")}
+    _os.environ["KPI_COPILOT_HOME"] = str(tmp / "nobody-signed-in")
+    _os.environ.pop("ASANA_TOKEN", None)
+    import connect as _connect
+    importlib.reload(_connect)
+    fresh = importlib.reload(asana)
+    no_token = fresh.NO_TOKEN
+    for k, v in saved.items():
+        if v is None:
+            _os.environ.pop(k, None)
+        else:
+            _os.environ[k] = v
+    importlib.reload(_connect)
+    importlib.reload(asana)
     check("not being signed in is an explanation with every way in, not a stack trace",
-          "Do not paste a token into a chat" in asana.NO_TOKEN and "browser_snapshot.js" in asana.NO_TOKEN
-          and "Sign in in your browser" in asana.NO_TOKEN, asana.NO_TOKEN[:300])
+          "Do not paste a token into a chat" in no_token and "browser_snapshot.js" in no_token
+          and "Sign in in your browser" in no_token, no_token[:300])
 
     print("\nOther trackers: Jira and GitHub, through the same pipeline")
     import importlib.util

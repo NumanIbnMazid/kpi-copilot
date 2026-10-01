@@ -119,6 +119,11 @@ def _velocity(s: dict) -> list[str]:
         out.append(f"{s['open']} more {w(s['open'], 'item is', 'items are')} still in progress.")
     if s.get("grouped"):
         out.append("Tickets inside a grouped feature are counted separately. Each group's estimate is included once.")
+    if s.get("unestimated"):
+        k = s["unestimated"]
+        out.append((f"{k} more delivered {w(k, 'item has', 'items have')} no story points yet" if s["points"] else
+                    f"{k} more delivered {w(k, 'item is', 'items are')} not estimated yet")
+                   + f", so {w(k, 'it is', 'they are')} not in this total.")
     if s.get("partial"):
         k = s["partial"]
         out.append(f"{k} {w(k, 'item has', 'items have')} only part of {w(k, 'its', 'their')} estimate on file and "
@@ -151,8 +156,8 @@ def _comprehension(s: dict) -> list[str]:
     if b:
         first = first.replace("one item in this cycle", "one assessed item").replace(
             f"{den} items", f"{den} assessed items")
-    blank = (f"{b} other {w(b, 'item could', 'items could')} not be assessed because individual discussion "
-             "history was unavailable.") if b else ""
+    blank = (f"{b} other {w(b, 'item is', 'items are')} left out until someone records whether "
+             f"{w(b, 'it was', 'they were')} clear without the client.") if b else ""
     return [first, blank]
 
 

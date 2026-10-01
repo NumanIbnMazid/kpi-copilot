@@ -503,20 +503,22 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
              f'LEN({T["hours_qa"]}{{r}})=0))')
     tf["estimate_missing"] = (
         f'=IF(OR(B{{r}}="",N({dl}{{r}})=0),"No",IF({ref["velocity_unit"]}="Story Points",'
-        f'IF(AND({T["type"]}{{r}}<>"Excluded",LEN({T["story_points"]}{{r}})=0),"Yes","No"),'
+        f'IF(AND(OR(AND({T["type"]}{{r}}<>"Excluded",{T["effort_group"]}{{r}}="No group"),'
+        f'{T["effort_only"]}{{r}}="Yes"),LEN({T["story_points"]}{{r}})=0),"Yes","No"),'
         f'IF(AND(OR(AND({T["type"]}{{r}}<>"Excluded",{T["effort_group"]}{{r}}="No group"),'
         f'{T["effort_only"]}{{r}}="Yes"),{lacks}),"Yes","No")))')
     # What is still open on a row, in words, so it can be settled later. Live: typing the
     # missing story points or hours clears it without a rerun.
+    # A story-point project needs story points; an hours project needs any estimate.
     no_estimate = (f'AND({T["effort_group"]}{{r}}="No group",LEN({T["story_points"]}{{r}})=0,'
-                   f'LEN({T["hours_dev"]}{{r}})=0,LEN({T["hours_qa"]}{{r}})=0)')
+                   f'OR({ref["velocity_unit"]}="Story Points",AND(LEN({T["hours_dev"]}{{r}})=0,LEN({T["hours_qa"]}{{r}})=0)))')
     tf["attention"] = (
         f'=IF(OR(B{{r}}="",{T["type"]}{{r}}="Excluded"),"",TEXTJOIN("; ",TRUE,'
-        f'IF({no_estimate},"No story points or estimate yet",""),'
+        f'IF({no_estimate},IF({ref["velocity_unit"]}="Story Points","No story points yet","No story points or estimate yet"),""),'
         f'IF(AND(N({dl}{{r}})>0,LEN({T["understood"]}{{r}})=0),"Delivered, but whether the requirement was '
         f'understood without the client is not answered",""),'
-        f'IF(AND({T["effort_only"]}{{r}}="Yes",LEN({T["story_points"]}{{r}})=0,LEN({T["hours_dev"]}{{r}})=0,'
-        f'LEN({T["hours_qa"]}{{r}})=0),"Group has no story points or estimate yet","")))')
+        f'IF(AND({T["effort_only"]}{{r}}="Yes",LEN({T["story_points"]}{{r}})=0,OR({ref["velocity_unit"]}="Story Points",'
+        f'AND(LEN({T["hours_dev"]}{{r}})=0,LEN({T["hours_qa"]}{{r}})=0))),"Group has no story points or estimate yet","")))')
     _fill_row_formulas(tk, TASK_COLS, 4, last_t, tf)
     pick = f"Periods!$B$5:$B${last_p}"
     for key, vals in (("type", ["Task", "CR", "Scope", "Excluded"]),):
@@ -539,7 +541,7 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         tk.when(4, c, last_t, c, f'=${at}4<>""', fill=ATTENTION)
     for key in ("story_points", "hours_dev", "hours_qa"):
         c = _n(TASK_COLS, key)
-        tk.when(4, c, last_t, c, f'=ISNUMBER(SEARCH("estimate",${at}4))', fill=ATTENTION)
+        tk.when(4, c, last_t, c, f'=OR(ISNUMBER(SEARCH("estimate",${at}4)),ISNUMBER(SEARCH("story points",${at}4)))', fill=ATTENTION)
     tk.hidden_cols = [_n(TASK_COLS, k) for k in ("handover", "client_check", "item", "delivery_unknown")]
     tk.readback = {"kind": "table", "first": 4, "key": "item", "alt_key": "key", "cols": TASK_COLS}
 
@@ -619,7 +621,8 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     if (profile.get("sources") or {}).get("team_hours_when") == "handover":
         shared = f'IF(COUNTIFS({PN},$A{{r}},{PH},">0")>0,{shared},0)'
     num = {
-        "Velocity": f'=IF({ref["velocity_unit"]}="Story Points",SUMIFS({tSp},{live},{tDl},">0",{tEm},"<>Yes"),'
+        "Velocity": f'=IF({ref["velocity_unit"]}="Story Points",SUMIFS({tSp},{live},{tDl},">0",{tEm},"<>Yes",{tGm},"<>Yes",{tEg},"No group")+'
+                    f'SUMIFS({tSp},{tP},$A{{r}},{tEo},"Yes",{tDl},">0",{tEm},"<>Yes",{tGm},"<>Yes"),'
                     f'SUMIFS({tHr},{live},{tDl},">0",{tEm},"<>Yes",{tGm},"<>Yes",{tEg},"No group")+'
                     f'SUMIFS({tHr},{tP},$A{{r}},{tEo},"Yes",{tDl},">0",{tEm},"<>Yes",{tGm},"<>Yes")'
                     f'+{shared})',

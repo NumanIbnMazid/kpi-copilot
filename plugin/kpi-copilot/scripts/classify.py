@@ -709,6 +709,9 @@ class Classifier:
                         row["reopened"], row["reopen_count"], row["rework_evidence"] = None, None, None
                     if not item.get("comments") and (row.get("basis", {}).get("understood", {}).get("by") or "rule") == "rule":
                         row["understood"] = None
+                        if group.get("card"):
+                            # The requirement was discussed on the card that holds the estimate.
+                            row["_from_group_card"] = parent["id"]
                     row["remarks"] = (f"Counted separately under {parent.get('key')}. Effort is held once on "
                                       "the group row. " + ("Delivery follows the group handoff where no separate "
                                       "child handoff is recorded. " if row.get("delivery_evidence") else "") +
@@ -766,6 +769,14 @@ class Classifier:
                 else:
                     tasks.append(self.task_row(item, nat, scope_row))
 
+        cards = {t.get("_item"): t for t in tasks if t.get("effort_only")}
+        for row in tasks:
+            card = cards.get(row.pop("_from_group_card", None))
+            if card and row.get("understood") is None and card.get("understood") in ("Yes", "No"):
+                row["understood"] = card["understood"]
+                row["understood_why"] = f"Taken from the group card {card.get('key')}, where the requirement was discussed."
+                row.setdefault("basis", {})["understood"] = {"by": "rule", "confidence": 0.9,
+                                                             "why": "inherited from the group card"}
         for row in tasks + defects:
             self._overlay(row)
             if "assignee" in row and not row.get("effort_only") and not self._assignee_allowed(row):

@@ -456,13 +456,14 @@ class Engine:
                        [t for t in self.tasks_in(name) if t.get("effort_only") and t.get("delivered")])
         basis = (self.sources.get("hours_basis") or "dev")
 
-        missing = [t for t in (delivered if by_points else effort_rows) if
+        # A group's estimate (hours or story points) sits once on its card; its member tickets
+        # carry none of their own and are not missing one.
+        missing = [t for t in effort_rows if
                    (t.get("story_points") is None if by_points else
                     t.get("hours_dev") is None or
                     (basis == "dev+qa" and t.get("closed") and t.get("hours_qa") is None))]
-        if not by_points:
-            eligible_groups = {t.get("_item") for t in effort_rows if t.get("effort_only")}
-            missing.extend(t for t in delivered if t.get("effort_group") and t["effort_group"] not in eligible_groups)
+        eligible_groups = {t.get("_item") for t in effort_rows if t.get("effort_only")}
+        missing.extend(t for t in delivered if t.get("effort_group") and t["effort_group"] not in eligible_groups)
         def missing_why(t: dict) -> str:
             status = f"; status {t['status']}" if t.get("status") else ""
             if by_points:
@@ -497,8 +498,8 @@ class Engine:
         measured_delivered = [t for t in delivered if (t.get("_row") or t.get("_item")) not in missing_rows]
         effort_rows = [t for t in effort_rows if (t.get("_row") or t.get("_item")) not in missing_rows]
         partial_gap = (f"{len(missing)} of {len(delivered)} delivered items have no usable estimate and are "
-                       "excluded from the known-hours total. Review whether an estimate source should be added."
-                       if missing else "")
+                       f"excluded from the known {'story-point' if by_points else 'hours'} total. Review whether an "
+                       f"estimate source should be added." if missing else "")
         if missing and not measured_delivered:
             why = (f"Velocity is not measured in {'story points' if by_points else 'hours'} because none of the "
                    f"{len(delivered)} delivered items has a usable estimate.")
@@ -515,7 +516,7 @@ class Engine:
             qa = float(t.get("hours_qa") or 0) if basis == "dev+qa" and t.get("closed") else 0.0
             return dev + qa
 
-        item_total = sum(effort(t) for t in (measured_delivered if by_points else effort_rows))
+        item_total = sum(effort(t) for t in effort_rows)
         team_hours = float(period.get("team_hours") or 0) if not by_points else 0.0
         if (self.profile.get("sources") or {}).get("team_hours_when") == "handover" and not period.get("handover_date"):
             team_hours = 0.0
@@ -578,7 +579,7 @@ class Engine:
                   "dev": sum(float(t.get("hours_dev") or 0) for t in effort_rows),
                   "qa": sum(float(t.get("hours_qa") or 0) for t in effort_rows if t.get("closed")),
                   "grouped": sum(bool(t.get("effort_only")) for t in effort_rows),
-                  "partial": len(partial_rows)}
+                  "partial": len(partial_rows), "unestimated": len(missing)}
         return m
 
     def _ratio_measure(
@@ -1161,6 +1162,33 @@ class Engine:
                     f" by {_md(d)}, {phrase}"
         return head
 
+    NOT_STARTED = ("to do", "todo", "backlog", "not started", "open", "new", "")
+
+    def _progress(self, name: str) -> dict:
+        rows = self.deliverables_in(name)
+        done = [t for t in rows if t.get("delivered")]
+        waiting = [t for t in rows if not t.get("delivered")]
+        idle = [t for t in waiting if str(t.get("status") or "").strip().lower() in self.NOT_STARTED]
+        return {"total": len(rows), "delivered": len(done), "in_progress": len(waiting) - len(idle), "not_started": len(idle)}
+
+    def _period_status(self, period: dict, name: str) -> str:
+        """One sentence for every note of a period still open: how far it has got and when it is due."""
+        if period.get("handover_date"):
+            return ""
+        due = _md(period.get("client_date") or period.get("commit_date") or self.kif["project"].get("client_date"))
+        g = self._progress(name)
+        if not g["total"]:
+            return ""
+        until = f", due {due}" if due else ""
+        if g["delivered"] == g["total"]:
+            return (f"All {_items_word(g['total'])} in this period are delivered; it stays open until the handover "
+                    f"to the client{until}.")
+        rest = [f"{g['in_progress']} in progress" if g["in_progress"] else "",
+                f"{g['not_started']} not started" if g["not_started"] else ""]
+        rest = " and ".join(x for x in rest if x)
+        return (f"This period is still in progress{until}: {g['delivered']} of its {_items_word(g['total'])} "
+                f"{'is' if g['delivered'] == 1 else 'are'} delivered so far" + (f", {rest}" if rest else "") + ".")
+
     def _nothing_yet(self, period: dict, name: str) -> str:
         rows = self.deliverables_in(name)
         if not rows:
@@ -1203,6 +1231,8 @@ class Engine:
         person would; `fragments` is the older "heading || numbers || what was left out".
         The counting is identical - only the wording differs (note_sentences.py)."""
         sentences = self.note_style == "sentences" and getattr(m, "_say", None)
+        if sentences and getattr(self, "_status_line", "") and m._say.get("kpi") == "velocity":
+            m._say["open"] = 0          # the period line already says what is still open
         if sentences:
             wf = self.profile.get("workflow") or {}
             m._say["close_explanation"] = (wf.get("reopened_when") or {}).get("note")
@@ -1218,6 +1248,10 @@ class Engine:
         if m.value is None:
             review = list(dict.fromkeys(review + generated))
             generated = []
+        status = getattr(self, "_status_line", "")
+        if status and m.value is not None:
+            # Where the period stands is part of the note, never a question for anyone.
+            generated = generated + [status]
         m.generated_note = " || ".join(generated)
         m.note_parts = generated
         tag = f"{period_name}|{m.name}"
@@ -1230,7 +1264,7 @@ class Engine:
         if m.value is None:
             # The run's own reason first (it is current), then anything a person wrote.
             parts: list[str] = []
-            for chunk in (explanation, str(overrides.get(tag) or ""), m.context_note):
+            for chunk in (explanation, str(overrides.get(tag) or ""), m.context_note, status):
                 for sentence in re.split(r"(?<=[.!?])\s+|\s*\|\|\s*", chunk or ""):
                     sentence = sentence.strip()
                     if not sentence or re.fullmatch(r"(?i)not (?:measured|assessed)(?: yet)?[.!]?", sentence):
@@ -1383,9 +1417,11 @@ class Engine:
                 self.rework_rate(period),
                 self.cr_rate(period),
             ]
+            self._status_line = self._period_status(period, name)
             for m in measures:
                 self.finish_note(m, name)
                 self.apply_manual(m, name)
+            self._status_line = ""
             rows = self.deliverables_in(name)
             facts = {
                 "deliverables": len(rows),
