@@ -1209,6 +1209,24 @@ def question_tests(tmp: Path) -> None:
     check("missing_estimate: partial counts the part of an estimate that is recorded, and says so",
           not any("estimate" in x for x in pv["review_items"]) and "part of" in pv["note"], pv["note"])
 
+    nd = json.loads((EX / "northwind-q3" / "run.kif.json").read_text())
+    nd["defects"] = []
+    for p in nd["periods"]:
+        p["handover_date"] = p.get("handover_date") or "2026-09-25"
+    (tmp / "nd.kif.json").write_text(json.dumps(nd))
+    cfg = yaml.safe_load((EX / "northwind-q3" / "profile.yaml").read_text())
+    cfg.setdefault("policy", {})["no_defects_as_zero"] = True
+    (tmp / "nd.yaml").write_text(yaml.safe_dump(cfg))
+    blank = compute(tmp / "nd.kif.json", EX / "northwind-q3" / "profile.yaml", None, tmp / "nd0.json")
+    zero = compute(tmp / "nd.kif.json", tmp / "nd.yaml", None, tmp / "nd1.json")
+    pn = nd["periods"][0]["name"]
+    check("a cycle with no defect reports is unmeasured by default",
+          measure(blank, pn, "Escaped Defect Rate")["value"] is None and measure(blank, pn, "Defect Rejection Rate")["value"] is None)
+    ze, zr = measure(zero, pn, "Escaped Defect Rate"), measure(zero, pn, "Defect Rejection Rate")
+    check("no_defects_as_zero: no defect found reads 0%, and the note says no defects were found",
+          ze["value"] == 0 and zr["value"] == 0 and "No defects were" in ze["note"] and "none was rejected" in zr["note"],
+          f"{ze['value']} {ze['note']} | {zr['value']} {zr['note']}")
+
     rk = json.loads((EX / "northwind-q3" / "run.kif.json").read_text())
     for t in rk["tasks"]:
         if t.get("reopened") == "No":

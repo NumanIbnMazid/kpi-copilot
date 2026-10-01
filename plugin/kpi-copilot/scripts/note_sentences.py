@@ -242,6 +242,9 @@ def _escaped(s: dict) -> list[str]:
         return ["A client handover has not been recorded, so defects found after handover cannot be measured yet."]
     if s.get("no_issues"):
         return ["No valid issues have been reported in this cycle yet."]
+    if s.get("zero_found"):
+        return ["No defects were found in this cycle, before or after handover (0%).",
+                f"The cycle was handed over on {s['handover']}."]
     e = s["escaped"]
     first = (f"No issues found by the client after handover are recorded among the {den} valid {w(den, 'issue')}." if not e else
              f"The client found {e} of the {den} valid {w(den, 'issue')} after handover ({n(s['value'])}%).")
@@ -254,6 +257,8 @@ def _escaped(s: dict) -> list[str]:
 def _rejection(s: dict) -> list[str]:
     if s.get("none_reported"):
         return ["No issues have been reported in this cycle yet."]
+    if s.get("zero_found"):
+        return ["No defects were reported in this cycle, so none was rejected (0%)."]
     r, den = s["rejected"], s["den"]
     if not r:
         return [f"None of the {den} {w(den, 'report was', 'reports were')} rejected."]

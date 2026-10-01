@@ -656,8 +656,15 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     else:
         val["Velocity"] = (f'=IF(Q{{r}}<>"",Q{{r}},IF(OR({deliv}=0,{missing_estimate}>0,'
                            f'AND({ref["velocity_unit"]}<>"Story Points",{missing_group}>0)),"",ROUND(E{{r}},2)))')
-    val["Escaped Defect Rate"] = (f'=IF(Q{{r}}<>"",Q{{r}},IF(OR(N(F{{r}})=0,N(IFERROR(INDEX({PH},MATCH($A{{r}},{PN},0)),0))=0),'
-                                  f'"",ROUND(E{{r}}/F{{r}}*100,2)))')
+    handed = f'N(IFERROR(INDEX({PH},MATCH($A{{r}},{PN},0)),0))'
+    if (profile.get("policy") or {}).get("no_defects_as_zero"):
+        # No defect reports is a result - nothing reached the client, nothing was rejected -
+        # so it reads 0%. Escaped still waits for the handover that makes it observable.
+        val["Escaped Defect Rate"] = (f'=IF(Q{{r}}<>"",Q{{r}},IF({handed}=0,"",IF(N(F{{r}})=0,0,ROUND(E{{r}}/F{{r}}*100,2))))')
+        val["Defect Rejection Rate"] = '=IF(Q{r}<>"",Q{r},IF(N(F{r})=0,0,ROUND(E{r}/F{r}*100,2)))'
+    else:
+        val["Escaped Defect Rate"] = (f'=IF(Q{{r}}<>"",Q{{r}},IF(OR(N(F{{r}})=0,{handed}=0),'
+                                      f'"",ROUND(E{{r}}/F{{r}}*100,2)))')
     reasons, manual = ctx.get("reasons") or {}, ctx.get("manual") or {}
     r = 3
     summary_rows = []

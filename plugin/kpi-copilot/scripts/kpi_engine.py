@@ -888,6 +888,16 @@ class Engine:
             m._say = {"kpi": "escaped_defect_rate", "no_handover": True, "den": den}
             return m
 
+        if den == 0 and self.policy.get("no_defects_as_zero"):
+            m = self._measure("escaped_defect_rate", value=0.0, numerator=0, denominator=0)
+            m.note_parts = [
+                self._heading("escaped_defect_rate", period),
+                "No defects were found in this cycle, before or after handover (0%)",
+                f"Counted from the handover on {_md(period['handover_date'])}",
+            ]
+            m._say = {"kpi": "escaped_defect_rate", "zero_found": True, "handover": _md(period["handover_date"])}
+            return m
+
         if den == 0:
             m = self._measure("escaped_defect_rate", value=None, numerator=0, denominator=0)
             m.note_parts = [
@@ -934,6 +944,16 @@ class Engine:
         reports = [d for d in self.defects_in(name) if self._defect_kind(d)]
         rejected = [d for d in reports if d.get("rejected") == "Yes"]
         den = len(reports)
+
+        if den == 0 and self.policy.get("no_defects_as_zero"):
+            m = self._measure("rejection_rate", value=0.0, numerator=0, denominator=0)
+            m.note_parts = [
+                self._heading("rejection_rate", period),
+                "No defects were reported in this cycle, so none was rejected (0%)",
+                "",
+            ]
+            m._say = {"kpi": "rejection_rate", "zero_found": True}
+            return m
 
         if den == 0:
             m = self._measure("rejection_rate", value=None, numerator=0, denominator=0)

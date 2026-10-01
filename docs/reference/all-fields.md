@@ -200,6 +200,7 @@ Counting choices the company allows a team to make. Everything not listed here i
 | `count_pre_existing` | boolean | `no` |  |  |
 | `count_post_release` | boolean | `yes` |  |  |
 | `count_rejected` | boolean | `no` |  | Fixed at No. Rejected reports are not defects. |
+| `no_defects_as_zero` | boolean | `no` |  | When a cycle has no defect reports, show Escaped Defect Rate (once handed over) and Defect Rejection Rate as 0% - no defect found - instead of leaving them unmeasured. |
 
 ## `output`
 

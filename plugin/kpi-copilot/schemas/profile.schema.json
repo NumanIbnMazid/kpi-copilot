@@ -1004,6 +1004,14 @@
             "label": "Count rejected reports",
             "hint": "Fixed at No. Rejected reports are not defects."
           }
+        },
+        "no_defects_as_zero": {
+          "type": "boolean",
+          "default": false,
+          "description": "When a cycle has no defect reports, show Escaped Defect Rate (once handed over) and Defect Rejection Rate as 0% - no defect found - instead of leaving them unmeasured.",
+          "x-workbook": {
+            "label": "Show 0% when no defects were reported"
+          }
         }
       }
     },
