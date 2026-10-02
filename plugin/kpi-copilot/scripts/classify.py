@@ -449,7 +449,8 @@ class Classifier:
             p = self.settle(item, "reopened", proposed_rework,
                             "Was this item closed and then reopened (rework)? A QA failure while it was "
                             "still being tested for the first time is not rework." +
-                            (" Count it only when the move back was caused by a problem in this item's own work. "
+                            (" Use the project's own close boundary (workflow.reopened_when). Count it only when "
+                             "the move back was caused by a problem in this item's own work. "
                              "If Yes and only some of the moves back were real rework, also answer field "
                              "'reopen_count' with how many were." if judged and event_count else ""),
                             ["Yes", "No"], "rework" if judged else "events")
@@ -720,8 +721,23 @@ class Classifier:
                                       "The group estimate is counted once here; the parent adds no ticket to any ratio.")
                 else:
                     member_source = {k: v for k, v in source.items() if k not in ("dev_hours", "qa_hours")}
-                    row = self.task_row(item, Proposal(kind, f"member of approved group {parent.get('key')}", 1),
-                                        member_source)
+                    member = Proposal(kind, f"member of approved group {parent.get('key')}", 1)
+                    if self.wf.get("judge") == "all":
+                        # A sub-item is not a delivery ticket just because it sits under the group:
+                        # QA testing, admin and duplicate sub-items are judged out, whatever the title.
+                        member = self.settle(item, "nature", member,
+                                             f"This sits under {parent.get('key')} '{parent.get('title')}'. Is it a "
+                                             "delivery ticket of that group (Task/CR), or not a deliverable (Excluded: "
+                                             "QA testing or reporting, admin, duplicate, paperwork)?",
+                                             ["Task", "CR", "Excluded"], "comments")
+                        if member["value"] not in ("Task", "CR", "Excluded"):
+                            member = Proposal(kind, member["why"], member["confidence"], by=member["by"])
+                        elif member["value"] in ("Task", "CR") and member["value"] != kind:
+                            member["value"] = kind     # the group's approval decides Task or CR
+                    if member["value"] == "Excluded":
+                        tasks.append(self.task_row(item, member, member_source))
+                        continue
+                    row = self.task_row(item, member, member_source)
                     row.update(hours_dev=None, hours_qa=None, effort_group=parent["id"],
                                hours_source=f"Included in the group estimate on {parent.get('key')}")
                     own_close = self._closed(item, rework=True)

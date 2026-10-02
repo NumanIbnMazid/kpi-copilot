@@ -51,9 +51,11 @@ RUBRIC = {
         "on a build, an environment, access, test data, a priority call or a sign-off is NOT a comprehension "
         "problem. A developer asking a teammate is not either. Quote or link the message that shows it."),
     "reopened": (
-        "Yes only if the item was closed (accepted as done) and afterwards put back in play because its own "
-        "work was at fault. Failing QA while it is still being tested for the first time is normal testing, "
-        "not rework. A card moved by mistake and moved straight back is not rework. Neither is a move back "
+        "Yes only if the item was closed and afterwards put back in play because its own work was at fault. "
+        "'Closed' is the project's own boundary in workflow.reopened_when (closed_values and note): where "
+        "handing work to QA is the close, a QA failure after that hand-off IS rework, first QA round "
+        "included, when this item's work caused it. Only where closing means QA acceptance is a failure "
+        "during the first round of testing normal testing rather than rework. A card moved by mistake and moved straight back is not rework. Neither is a move back "
         "caused by something else: another item's bug, a build, deployment or environment problem, test "
         "data, a question or a priority change, or a card QA later closed with no change to this item. "
         "Read the comments around each move back. When only some moves back were real rework, answer Yes "

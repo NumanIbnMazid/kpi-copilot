@@ -83,6 +83,11 @@ nothing is counted on a title or a status move alone. A reviewed call is kept an
 when the card changes, so the first run after turning it on carries the big queue. Plain facts are
 not asked about: a card that never moved back, an Asana milestone marker.
 
+Sub-items counted inside a grouped feature are judged too: a QA testing, reporting, admin or
+duplicate sub-item is excluded on judgement even when its title or prefix gives no sign of it.
+Where the project's close is the hand-off to QA, a QA failure after that hand-off is rework when
+the item's own work caused it, first QA round included.
+
 ## `clarification_when` — Task Comprehension
 
 Did the team have to go back to the client about **what the thing should do**.

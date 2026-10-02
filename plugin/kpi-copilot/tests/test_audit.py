@@ -157,6 +157,20 @@ class AuditTests(unittest.TestCase):
         member = next(t for t in kif['tasks'] if t['key'] == 'BASE-A')
         self.assertEqual((member['understood'], member['reopened']), ('No', 'Yes'))
 
+    def test_judge_all_puts_group_members_to_review_and_honours_an_exclusion(self):
+        snap, profile, facts = self.grouped_example()
+        profile['workflow']['judge'] = 'all'
+        _, work = classify.to_kif(snap, profile, {}, facts, None, '2025-03-08')
+        asked = {q['item_id'] for q in work['queue'] if q['field'] == 'nature'}
+        self.assertTrue({'BASE-A', 'BASE-B'} <= asked)
+        stored = ledger.Ledger(self.base / 'member-nature.json')
+        stored.set('BASE-B', 'nature', 'Excluded', 'human', 'A QA verification sub-item, not a delivery ticket.')
+        kif, _ = classify.to_kif(snap, profile, {}, facts, stored, '2025-03-08')
+        row = next(t for t in kif['tasks'] if t['key'] == 'BASE-B')
+        self.assertEqual(row['type'], 'Excluded')
+        engine = kpi_engine.Engine(kif, profile, kpi._registry(self.ws()))
+        self.assertNotIn('BASE-B', [t['key'] for t in engine.deliverables_in('Cycle')])
+
     def test_plain_english_review_answer_resolves_unassessed_comprehension_rows(self):
         snap, profile, facts = self.grouped_example()
         stored = ledger.Ledger(self.base / 'batch-review.json')
