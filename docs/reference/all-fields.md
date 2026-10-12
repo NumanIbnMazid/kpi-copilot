@@ -155,6 +155,16 @@ Where scope, hours and dates come from, and which of them the run is allowed to 
 | `evidence_channels` | list of string |  |  | tool ids of chat spaces or mail labels a DEEP run may consult. A normal run never searches them: what the declared sources cannot answer becomes a question on the Open Questions tab. `kpi.py run --deep` may look those questions up here, and only here. |
 | `hours_first` | one of: `plan`, `tracker` | `tracker` |  | plan \| tracker |
 | `hours_basis` | one of: `dev`, `dev+qa` | `dev` |  | dev = development hours only. dev+qa = adds each item's QA hours once its QA is done. |
+| `capacity` | object |  |  |  |
+| &nbsp;&nbsp;`capacity.basis` | one of: `calendar`, `pms_timelog` |  |  |  |
+| &nbsp;&nbsp;`capacity.hours_per_day` | number |  |  |  |
+| &nbsp;&nbsp;`capacity.eligible_resource_ids` | list of ['string', 'integer'] |  |  |  |
+| &nbsp;&nbsp;`capacity.kind` | one of: `pms` |  | yes |  |
+| &nbsp;&nbsp;`capacity.weekdays` | list of integer |  | yes |  |
+| &nbsp;&nbsp;`capacity.allocations` | object |  |  |  |
+| &nbsp;&nbsp;`capacity.timesheet_crosscheck` | boolean |  |  |  |
+| &nbsp;&nbsp;`capacity.timesheet_weeks` | integer |  |  |  |
+| &nbsp;&nbsp;`capacity.timesheet_entry_lag_days` | integer |  |  |  |
 
 ## `scan`
 
@@ -190,6 +200,15 @@ How this team slices a project for PMS.
 | &nbsp;&nbsp;`by_section[].section` | string |  |  |  |
 | &nbsp;&nbsp;`by_section[].period` | string |  |  |  |
 | `velocity_unit` | one of: `Estimated Hours`, `Story Points` |  |  | Default estimation unit; a project can override it. |
+| `cadence` | object |  |  |  |
+| &nbsp;&nbsp;`cadence.anchor` | string |  | yes |  |
+| &nbsp;&nbsp;`cadence.start` | string |  |  |  |
+| &nbsp;&nbsp;`cadence.end` | string |  |  |  |
+| &nbsp;&nbsp;`cadence.replace_existing` | boolean |  |  |  |
+| &nbsp;&nbsp;`cadence.agreed_delivery_date` | string |  |  |  |
+| &nbsp;&nbsp;`cadence.delivery_date_context` | string |  |  |  |
+| &nbsp;&nbsp;`cadence.decision_recorded_on` | string |  |  |  |
+| &nbsp;&nbsp;`cadence.days` | integer |  |  |  |
 
 ## `policy`
 
@@ -197,12 +216,29 @@ Counting choices the company allows a team to make. Everything not listed here i
 
 | Field | Type | Default | Required | What it is |
 |---|---|---|---|---|
+| `refine_item_types` | boolean | `no` |  |  |
 | `count_observations` | boolean | `no` |  |  |
 | `count_improvements` | boolean | `no` |  |  |
 | `count_pre_existing` | boolean | `no` |  |  |
 | `count_post_release` | boolean | `yes` |  |  |
 | `count_rejected` | boolean | `no` |  | Fixed at No. Rejected reports are not defects. |
 | `no_defects_as_zero` | boolean | `no` |  | When a cycle has no defect reports, show Escaped Defect Rate (once handed over) and Defect Rejection Rate as 0% - no defect found - instead of leaving them unmeasured. |
+| `velocity` | object |  |  |  |
+| &nbsp;&nbsp;`velocity.mode` | one of: `total`, `per_resource_day` |  |  |  |
+| &nbsp;&nbsp;`velocity.effective_from` | string |  |  |  |
+| &nbsp;&nbsp;`velocity.completion` | one of: `delivered`, `closed` |  |  |  |
+| &nbsp;&nbsp;`velocity.missing_timelogs` | one of: `provisional`, `withhold` | `provisional` |  | With capacity from PMS timelogs: 'provisional' publishes the rate and marks it provisional when a billable member has no project hours logged; 'withhold' sends it as not measured, naming who has no hours logged, until those timelogs are in. |
+| `measurement_units` | object |  |  |  |
+| &nbsp;&nbsp;`measurement_units.task_comprehension` | one of: `count`, `story_points`, `hours` |  |  |  |
+| &nbsp;&nbsp;`measurement_units.client_expectation` | one of: `count`, `story_points`, `hours` |  |  |  |
+| &nbsp;&nbsp;`measurement_units.delivery_commitment` | one of: `count`, `story_points`, `hours` |  |  |  |
+| &nbsp;&nbsp;`measurement_units.defect_rate` | one of: `count`, `story_points`, `hours` |  |  |  |
+| &nbsp;&nbsp;`measurement_units.escaped_defect_rate` | one of: `count`, `story_points`, `hours` |  |  |  |
+| &nbsp;&nbsp;`measurement_units.rejection_rate` | one of: `count`, `story_points`, `hours` |  |  |  |
+| &nbsp;&nbsp;`measurement_units.rework_rate` | one of: `count`, `story_points`, `hours` |  |  |  |
+| &nbsp;&nbsp;`measurement_units.cr_rate` | one of: `count`, `story_points`, `hours` |  |  |  |
+| `pilot_targets` | object |  |  |  |
+| `measurement_targets_aligned` | boolean | `no` |  |  |
 
 ## `output`
 
@@ -220,6 +256,24 @@ What the run produces and how far it is allowed to go on its own. This is the se
 | `workbook_file` | string |  |  | A specific Google Sheet (link or id) to update in place, instead of creating one in workbook_location. Tabs the tool owns are rebuilt; tabs a person added are left alone. |
 | `workbook_name` | string |  |  | Name for a Google Sheet the tool creates. {project} is replaced. Default: '[KPI Tracker] {project}'. |
 | `archive` | string |  |  | Folder beside the live Google Sheet where a dated copy is kept before the sheet is updated, at most one a day (e.g. 'Archived'). Empty keeps no copies; Google's version history still applies. |
+| `layout` | one of: `full`, `simple` |  |  |  |
+| `team_review` | boolean |  |  |  |
+| `notifications` | object |  |  |  |
+| &nbsp;&nbsp;`notifications.host` | string |  |  |  |
+| &nbsp;&nbsp;`notifications.channels` | list, any of: `host`, `email`, `webhook` |  |  |  |
+| &nbsp;&nbsp;`notifications.email` | object |  |  |  |
+| &nbsp;&nbsp;&nbsp;&nbsp;`notifications.email.to` | list of string |  |  |  |
+| &nbsp;&nbsp;&nbsp;&nbsp;`notifications.email.from` | string |  |  |  |
+| &nbsp;&nbsp;&nbsp;&nbsp;`notifications.email.route` | one of: `smtp`, `host_gmail` |  |  |  |
+| &nbsp;&nbsp;&nbsp;&nbsp;`notifications.email.smtp_host` | string |  |  |  |
+| &nbsp;&nbsp;&nbsp;&nbsp;`notifications.email.smtp_port` | integer |  |  |  |
+| &nbsp;&nbsp;&nbsp;&nbsp;`notifications.email.username_env` | string |  |  |  |
+| &nbsp;&nbsp;&nbsp;&nbsp;`notifications.email.password_env` | string |  |  |  |
+| &nbsp;&nbsp;`notifications.webhook` | object |  |  |  |
+| &nbsp;&nbsp;&nbsp;&nbsp;`notifications.webhook.provider` | string |  |  |  |
+| &nbsp;&nbsp;&nbsp;&nbsp;`notifications.webhook.url_env` | string |  |  |  |
+| &nbsp;&nbsp;&nbsp;&nbsp;`notifications.webhook.recipients` | list of string |  |  |  |
+| `team_review_blocks` | boolean | `yes` |  | Whether open Team Review rows hold back the PMS push. Off: the rows stay open in the sheet and the push goes ahead, with each missing value sent as not measured and its reason. |
 
 ## `custom_instructions`
 

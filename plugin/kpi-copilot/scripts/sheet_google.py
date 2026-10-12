@@ -29,7 +29,7 @@ import sheet_model as M
 
 _EPOCH = dt.date(1899, 12, 30)
 META_FIELDS = ("spreadsheetUrl,properties(locale,title),"
-               "sheets(properties(sheetId,title,index,gridProperties),conditionalFormats,basicFilter)")
+               "sheets(properties(sheetId,title,index,gridProperties),conditionalFormats,basicFilter,filterViews)")
 
 
 def _rgb(hex6: str) -> dict:
@@ -112,10 +112,10 @@ def tab_requests(tab: M.Tab, sid: int, index: int, existing: dict | None,
                                      "fields": ("userEnteredValue,dataValidation" if compact_existing else
                                                 "userEnteredValue,userEnteredFormat,dataValidation")}})
     reqs.append({"updateSheetProperties": {
-        "properties": {"sheetId": sid, "title": tab.name, "index": index, "tabColor": _rgb(tab.color),
+        "properties": {"sheetId": sid, "title": tab.name, "index": index, "tabColor": _rgb(tab.color),"hidden":tab.hidden,
                        "gridProperties": {"rowCount": rows, "columnCount": cols, "frozenRowCount": tab.freeze[0],
                                           "frozenColumnCount": tab.freeze[1], "hideGridlines": not tab.gridlines}},
-        "fields": "title,index,tabColor,gridProperties(rowCount,columnCount,frozenRowCount,frozenColumnCount,hideGridlines)"}})
+        "fields": "title,index,tabColor,hidden,gridProperties(rowCount,columnCount,frozenRowCount,frozenColumnCount,hideGridlines)"}})
     # Expand the grid before touching dimensions outside the old bounds.
     if not compact_existing:
         reqs.append({"updateDimensionProperties": {
@@ -129,6 +129,9 @@ def tab_requests(tab: M.Tab, sid: int, index: int, existing: dict | None,
     data = [{"values": [_value(tab.cells.get((r, c)) or {}) for c in range(1, last_c + 1)]} for r in range(1, last_r + 1)]
     reqs.append({"updateCells": {"start": {"sheetId": sid, "rowIndex": 0, "columnIndex": 0},
                                  "rows": data, "fields": "userEnteredValue"}})
+    for (r,c),cell in tab.cells.items():
+        if cell.get('note'):
+            reqs.append({'repeatCell':{'range':_grid_range(sid,r,c,r,c),'cell':{'note':cell['note']},'fields':'note'}})
 
     # Formats as runs down each column: a register column is one style for a hundred rows,
     # so this is a few dozen requests instead of a format on every cell.
@@ -212,12 +215,23 @@ def publish(tabs: list[M.Tab], out_cfg: dict, name: str, known_id: str | None = 
     archived = None if created else archive(s, fid, out_cfg.get("archive"))
     meta = s.call("GET", f"{G.SHEETS}/{fid}", params={"fields": META_FIELDS})
     have = {sh["properties"]["title"]: sh for sh in meta.get("sheets") or []}
+    import copy, sheet_navigation
+    tabs=copy.deepcopy(tabs)
+    ids={t.name:have[t.name]['properties']['sheetId'] if t.name in have else sheet_id_for(t.name) for t in tabs}
+    for t in tabs:
+        for cell in t.cells.values():
+            for key in ('v','link'):
+                if key in cell:cell[key]=sheet_navigation.resolve(cell[key],ids)
     reqs: list[dict] = []
     for i, tab in enumerate(tabs):
         ex = have.get(tab.name)
         sid = ex["properties"]["sheetId"] if ex else sheet_id_for(tab.name)
         compact = bool(ex) and G.how_signed_in() == "host-connector" and not out_cfg.get("full_refresh")
         reqs += tab_requests(tab, sid, i, ex, compact_existing=compact)
+        existing_views={v['filterViewId'] for v in (ex or {}).get('filterViews',[])}
+        for view in tab.filter_views:
+            spec={**view,'range':_grid_range(sid,*tab.filter_range)}
+            reqs.append({'updateFilterView':{'filter':spec,'fields':'title,range,criteria'}} if view['filterViewId'] in existing_views else {'addFilterView':{'filter':spec}})
     # Sheets resolves references when a formula is entered. Create every tab first;
     # otherwise an early Dashboard formula can retain #REF! for a later Config tab.
     reqs = [r for r in reqs if "addSheet" in r] + [r for r in reqs if "addSheet" not in r]

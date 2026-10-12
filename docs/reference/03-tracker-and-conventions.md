@@ -159,5 +159,20 @@ For delivery tickets grouped under one estimate, see
 [grouped delivery settings](../05-Adapting-To-Your-Workflow.md#grouped-delivery-tickets-and-client-vocabulary).
 Count the members and hold the shared estimate once; do not duplicate parent effort.
 
+An assistant's excluded QA, administrative or duplicate child stays outside its delivery
+group. A group can retain one genuine delivery child; if all children are excluded, its
+source-matched feature remains the deliverable. A linked group without an approved source
+does not automatically become an Additional Request.
+
+To revisit stored assistant decisions, run `kpi.py run` with `--reconsider nature`,
+`--reconsider reopened`, or another judgment field. The switches can be repeated. Prior
+evidence is retained for review, and human decisions remain protected.
+
+After updating a Google Sheet, `kpi.py verify --profile <profile> --project <id>` reads its
+calculated summary back and checks values and notes against the run. Rework uses the same
+assessed population in the sheet and PMS, including groups counted once and explicit
+undecidable returns excluded from the no-history assumption. Rerun after editing judgments
+so that the assessed population is refreshed.
+
 Some accepted defect signals and source options require adapter-specific support.
 Read the implementation notes before relying on `separate-board` or arbitrary field signals.

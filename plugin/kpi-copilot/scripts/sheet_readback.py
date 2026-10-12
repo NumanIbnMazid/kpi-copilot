@@ -92,6 +92,10 @@ def _read(name: str, spec: dict, grid: Grid) -> dict:
         return {"rows": {str(grid(name, r, spec["id"])): {"answer": grid(name, r, spec["answer"]),
                                                           **{k: grid(name, r, c) for k, c in cols.items()}}
                          for r in range(spec["first"], last + 1) if grid(name, r, spec["id"])}}
+    if kind == 'review':
+        fields=spec['fields']
+        return {'rows':{str(grid(name,r,13)):{k:grid(name,r,c) for c,k,_ in fields}
+                        for r in range(spec['first'],last+1) if grid(name,r,13)}}
     rows, fields = {}, spec["fields"]
     idx = {key: i for i, key, _ in fields}
     for r in range(spec["first"], last + 1):
@@ -214,6 +218,11 @@ def fold(state: dict, grid: Grid, ledger, facts: dict, manual: dict, board_items
         current[tab] = _read(tab, spec_of(tab), grid)
     for tab, before in (state.get("values") or {}).items():
         now = current[tab]
+
+        if tab == 'Team Review':
+            import team_review
+            said.extend(team_review.fold(now,before,ledger,facts,board_items,who,today))
+            continue
 
         if tab == "Dashboard":
             facts["view"] = now["cells"]

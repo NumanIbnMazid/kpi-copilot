@@ -257,8 +257,16 @@ def main(argv: list[str] | None = None) -> int:
         if held:
             p["kpis"] = [k for k in p["kpis"] if k not in held]
             p["held"] = [{"name": k["name"], "value": k["value"], "max": limits[k["name"]][1]} for k in held]
+        # A KPI the PMS project does not track (removed there as not applicable) is never sent.
+        untracked = sorted({k["name"] for k in p["kpis"] + p.get("skipped", [])} - set(limits)) if limits else []
+        if untracked:
+            p["kpis"] = [k for k in p["kpis"] if k["name"] not in untracked]
+            p["skipped"] = [k for k in p.get("skipped", []) if k["name"] not in untracked]
+            p["untracked"] = untracked
     for p in payloads:
         print(f"=== {p['name']}  (period {p.get('periodId') or 'MISSING'}) ===")
+        if p.get("untracked"):
+            print(f"  Not tracked for this project in PMS, so not sent: {', '.join(p['untracked'])}")
         for h in p.get("held") or []:
             print(f"  {h['name']:<22} {_num(h['value'])} is above the PMS maximum of {_num(h['max'])}; "
                   "not sent, PMS keeps its current value")

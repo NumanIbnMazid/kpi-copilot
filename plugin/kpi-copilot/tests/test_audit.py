@@ -29,6 +29,112 @@ def adapter(name):
 
 
 class AuditTests(unittest.TestCase):
+    def test_sheet_verification_rejects_wrong_values_notes_and_missing_rows(self):
+        import sheet_verify
+        results = {'periods':[{'period':'Cycle','measures':[{'name':'Velocity','value':12,'note':'Known estimate.'},
+                              {'name':'Rework Rate','value':None,'note':'No completed work.'}]}]}
+        def row(name, value, note):
+            out = [''] * 15
+            out[0],out[2],out[6],out[13] = 'Cycle',name,value,note
+            return out
+        rows = [row('Velocity',12,'Known estimate.'),row('Rework Rate','','No completed work.')]
+        self.assertTrue(sheet_verify.compare(rows,results)['verified'])
+        rows[0][6] = 13
+        rows[1][13] = 'Unverified claim.'
+        self.assertEqual([e['field'] for e in sheet_verify.compare(rows,results)['errors']], ['value','note'])
+        self.assertFalse(sheet_verify.compare(rows[:1],results)['verified'])
+
+    def test_reconsider_preserves_human_answers_and_refreshes_same_value_evidence(self):
+        led = ledger.Ledger(self.base / 'reconsider.json')
+        led.set('A', 'nature', 'Task', 'ai', 'Old reason', fingerprint='same')
+        led.set('H', 'nature', 'Task', 'human', 'Owner decision', fingerprint='same')
+        self.assertEqual(led.reconsider(['nature']), 1)
+        self.assertIsNone(led.usable('A', 'nature', 'same'))
+        self.assertEqual(led.usable('H', 'nature', 'same')['value'], 'Task')
+        led.set('A', 'nature', 'Task', 'ai', 'Reviewed reason', fingerprint='same')
+        led.set('A', 'nature', 'Task', 'ai', 'More precise evidence', fingerprint='same')
+        self.assertEqual(led.get('A', 'nature')['why'], 'More precise evidence')
+
+    def test_excluded_group_children_do_not_lose_the_parent_budget(self):
+        snap, profile, facts = self.grouped_example()
+        led = ledger.Ledger(self.base / 'members.json')
+        led.set('BASE-B', 'nature', 'Excluded', 'ai', 'QA administration', fingerprint=board.fingerprint(snap['items'][2]))
+        kif, _ = classify.to_kif(snap, profile, {}, facts, led, '2025-03-08')
+        e = kpi_engine.Engine(kif, profile, kpi._registry(self.ws()))
+        self.assertEqual([t['key'] for t in e.deliverables_in('Cycle')], ['BASE-A', 'EXTRA-A', 'EXTRA-B'])
+        self.assertEqual(e.velocity(kif['periods'][0]).value, 28)
+        self.assert_grouped_formulas(kif, profile)
+        led.set('BASE-A', 'nature', 'Excluded', 'ai', 'QA administration', fingerprint=board.fingerprint(snap['items'][1]))
+        kif, _ = classify.to_kif(snap, profile, {}, facts, led, '2025-03-08')
+        e = kpi_engine.Engine(kif, profile, kpi._registry(self.ws()))
+        self.assertEqual([t['key'] for t in e.deliverables_in('Cycle')], ['BASE', 'EXTRA-A', 'EXTRA-B'])
+        self.assertEqual(e.velocity(kif['periods'][0]).value, 28)
+
+    def test_unapproved_card_group_is_not_automatically_a_change_request(self):
+        snap, profile, facts = self.grouped_example()
+        facts['estimates']['items'] = []
+        profile['workflow']['judge'] = 'all'
+        led = ledger.Ledger(self.base / 'scope.json')
+        for item in snap['items'][4:]:
+            led.set(item['id'], 'nature', 'Scope', 'ai', 'In-scope refinement', fingerprint=board.fingerprint(item))
+        kif, _ = classify.to_kif(snap, profile, {}, facts, led, '2025-03-08')
+        self.assertEqual([t['type'] for t in kif['tasks'] if t.get('effort_group') == 'EXTRA'], ['Scope', 'Scope'])
+
+    def test_unestimated_group_members_are_not_reported_as_measured_delivery(self):
+        snap, profile, facts = self.grouped_example()
+        facts['plan']['items'][0].pop('dev_hours')
+        facts['plan']['items'][0].pop('qa_hours')
+        profile['sources']['missing_estimate'] = 'partial'
+        kif, _ = classify.to_kif(snap, profile, {}, facts, None, '2025-03-08')
+        e = kpi_engine.Engine(kif, profile, kpi._registry(self.ws()))
+        m = e.velocity(kif['periods'][0])
+        self.assertEqual(m.value, 12)
+        self.assertEqual(m._say['n'], 2)
+        self.assertEqual(m._say['unestimated'], 2)
+        facts['estimates']['items'][0].pop('dev_hours')
+        facts['estimates']['items'][0].pop('qa_hours')
+        kif, _ = classify.to_kif(snap, profile, {}, facts, None, '2025-03-08')
+        self.assertIsNone(kpi_engine.Engine(kif, profile, kpi._registry(self.ws())).velocity(kif['periods'][0]).value)
+        self.assert_grouped_formulas(kif, profile)
+
+    def test_group_rework_and_explicit_unknown_match_review_sheet(self):
+        snap, profile, facts = self.grouped_example()
+        profile['workflow']['reopened_when'].update(group_history='count-group', no_history='not-reopened')
+        kif, _ = classify.to_kif(snap, profile, {}, facts, None, '2025-03-08')
+        parent = next(t for t in kif['tasks'] if t['key']=='BASE')
+        parent.update(reopened='Yes', reopen_count=2)
+        self.assert_grouped_formulas(kif, profile)
+        child = next(t for t in kif['tasks'] if t['key']=='BASE-A')
+        child['basis'] = {'reopened': {'flag': 'Waiting for a person: cause not established'}}
+        population, groups, assumed = kpi_engine.rework_population(kif, profile, 'Cycle')
+        self.assertIn(child, population)
+        self.assertNotIn(child, assumed)
+        self.assertNotIn(child['key'], groups[0]['_members'])
+        self.assert_grouped_formulas(kif, profile)
+
+    def test_reviewed_summary_refresh_keeps_context_and_old_wording(self):
+        path = self.base / 'answers.json'
+        tag = 'Cycle|Velocity'
+        (self.base / 'queue.json').write_text(json.dumps({'notes':[{'period':'Cycle','kpi':'Velocity','review_signature':'current'}]}))
+        facts = {'reasons': {'Cycle': {'Velocity':'Owner context'}, '_authors':{tag:'human'},
+                            '_summaries':{tag:'Old figures'}, '_summary_bases':{tag:'old'}}}
+        led = ledger.Ledger(self.base / 'summary.json')
+        reason = {'period':'Cycle','kpi':'Velocity','why':'Owner context','use_computed_summary':True,'review_signature':'stale'}
+        path.write_text(json.dumps({'reasons':[reason]}))
+        self.assertTrue(judge.apply_answers(path, {}, led, facts, ['Cycle'])['refused'])
+        self.assertIn(tag, facts['reasons']['_summaries'])
+        reason['review_signature'] = 'current'
+        path.write_text(json.dumps({'reasons':[reason]}))
+        self.assertEqual(judge.apply_answers(path, {}, led, facts, ['Cycle'])['reasons'], 1)
+        self.assertEqual(facts['reasons']['Cycle']['Velocity'], 'Owner context')
+        self.assertNotIn(tag, facts['reasons']['_summaries'])
+        self.assertEqual(facts['reasons']['_summary_history'][tag][0]['text'], 'Old figures')
+        reason.update(use_computed_summary=False, addendum='Later review: one report was split.')
+        path.write_text(json.dumps({'reasons':[reason]}))
+        self.assertEqual(judge.apply_answers(path, {}, led, facts, ['Cycle'])['reasons'], 1)
+        self.assertEqual(facts['reasons']['Cycle']['Velocity'], 'Owner context')
+        self.assertEqual(facts['reasons']['_addenda'][tag], 'Later review: one report was split.')
+
     def grouped_example(self):
         def item(key, title, parent=None, count=0, history=True):
             return {"id": key, "key": key, "title": title, "url": f"https://tracker.example/items/{key}",
@@ -93,6 +199,9 @@ class AuditTests(unittest.TestCase):
             expected = next(m['value'] for m in results['periods'][0]['measures'] if m['name']==name)
             actual = live[f'G{row}']
             self.assertEqual(None if actual in ('',None) else round(float(actual),2), expected, name)
+            m = next(m for m in results['periods'][0]['measures'] if m['name']==name)
+            wanted_note = (m.get('unmeasured_note') if expected is None else m.get('note')) or m.get('note')
+            self.assertEqual(pms_push._clean(str(live[f'N{row}'])), pms_push._clean(wanted_note), name + ' note')
 
     def test_partial_group_delivery_does_not_invent_a_per_ticket_estimate(self):
         snap, profile, facts = self.grouped_example()
@@ -1007,6 +1116,49 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(result,0)
         self.assertEqual(set(sent[0]),{'name','description','periodKpis'})
         self.assertEqual(sent[0]['periodKpis'][0]['value'],10)
+
+    def test_a_value_above_the_pms_maximum_is_held_back_and_the_rest_still_goes(self):
+        import os
+        self.profile_data['output']['mode']='assisted-push'
+        self.profile.write_text(yaml.safe_dump(self.profile_data))
+        payload=self.base/'payload.json'
+        payload.write_text(json.dumps([{'projectId':101,'periodId':7,'name':'Cycle','description':'Delivery',
+            'kpis':[{'name':'Velocity','kpiId':9,'value':231,'note':'Hours.'},
+                    {'name':'Defect Rate','kpiId':5,'value':20,'note':'Two in ten.'}]}]))
+        sent=[]
+        def api(base,path,**kw):
+            if kw.get('method')=='PUT':
+                sent.append(kw['body']); return {}
+            return {'data':{'id':7,'updatedAt':'2026-10-01T00:00:00Z'}}
+        before={'_limits':{'Velocity':(0,30),'Defect Rate':(0,100)},'7':{}}
+        after={'7':{'Defect Rate':{'value':20,'note':'Two in ten.'}}}
+        with patch.dict(os.environ,{'PMS_TOKEN':'test-only'}), patch.object(pms_push,'read_current',side_effect=[before,after]), \
+                patch.object(pms_push,'bind_periods'), patch.object(pms_push,'_api',side_effect=api):
+            result=pms_push.main(['--profile',str(self.profile),'--payloads',str(payload),'--apply'])
+        self.assertEqual(result,0)
+        self.assertEqual([k['kpiId'] for k in sent[0]['periodKpis']],[5])
+
+    def test_a_kpi_the_pms_project_does_not_track_is_never_sent(self):
+        import os
+        self.profile_data['output']['mode']='assisted-push'
+        self.profile.write_text(yaml.safe_dump(self.profile_data))
+        payload=self.base/'payload.json'
+        payload.write_text(json.dumps([{'projectId':101,'periodId':7,'name':'Cycle','description':'Delivery',
+            'kpis':[{'name':'Defect Rate','kpiId':5,'value':0,'note':'None.'},
+                    {'name':'Rework Rate','kpiId':6,'value':0,'note':'None reopened.'}],
+            'skipped':[{'name':'Defect Rejection Rate','kpiId':7,'note':'No reports.'}]}]))
+        sent=[]
+        def api(base,path,**kw):
+            if kw.get('method')=='PUT':
+                sent.append(kw['body']); return {}
+            return {'data':{'id':7,'updatedAt':'2026-10-01T00:00:00Z'}}
+        before={'_limits':{'Rework Rate':(0,100)},'7':{}}
+        after={'7':{'Rework Rate':{'value':0,'note':'None reopened.'}}}
+        with patch.dict(os.environ,{'PMS_TOKEN':'test-only'}), patch.object(pms_push,'read_current',side_effect=[before,after]), \
+                patch.object(pms_push,'bind_periods'), patch.object(pms_push,'_api',side_effect=api):
+            result=pms_push.main(['--profile',str(self.profile),'--payloads',str(payload),'--apply'])
+        self.assertEqual(result,0)
+        self.assertEqual([k['kpiId'] for k in sent[0]['periodKpis']],[6])
 
     def test_minimal_profile_and_local_targets(self):
         path=self.base/'minimal.yaml'

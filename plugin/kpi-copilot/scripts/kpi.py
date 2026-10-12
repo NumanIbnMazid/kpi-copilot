@@ -9,6 +9,7 @@ KPI Copilot, as one command.
     kpi.py push   --profile p.yaml --project acme-web [--apply]
     kpi.py auth   [asana|jira|github|google]               what needs connecting, and the best way to do it
     kpi.py doctor --profile p.yaml --project acme-web     can it reach what it needs?
+    kpi.py verify --profile p.yaml --project acme-web     read back published values and notes
 
 It is built to be driven by an assistant - Claude, Cursor, Codex, anything that can run a
 command and read a file - and the division of labour is the design:
@@ -132,7 +133,8 @@ class Workspace:
         self.facts["extra_rows"] = _yaml_load(self.dir / "facts" / "extra_rows.yaml")
         self.manual = _yaml_load(self.dir / "manual.yaml")
         self._adopt_old_reasons()
-        self.today = getattr(args, "today", None) or dt.date.today().isoformat()
+        from zoneinfo import ZoneInfo
+        self.today = getattr(args, "today", None) or dt.datetime.now(ZoneInfo((self.profile.get('owner') or {}).get('timezone','UTC'))).date().isoformat()
         run_label = getattr(args, "date", None) or self.today
         if Path(run_label).name != run_label or run_label in (".", ".."):
             raise SystemExit("Run date must be a single folder label, not a path.")
@@ -170,7 +172,7 @@ class Workspace:
 
     def save(self) -> None:
         self.ledger.save()
-        for k in ("periods", "plan", "estimates", "reasons", "history_edits", "history_periods", "view"):
+        for k in ("periods", "plan", "estimates", "reasons", "history_edits", "history_periods", "view", "team_review", "capacity"):
             if self.facts.get(k):
                 save_facts(self.dir, k, self.facts[k])
         if (self.facts.get("extra_rows") or {}).get("tasks") or (self.facts.get("extra_rows") or {}).get("defects"):
@@ -364,6 +366,9 @@ def publish(ws: Workspace, kif: dict, results: dict, ctx: dict, args) -> tuple[d
     ctx["history_edits"] = ws.facts.get("history_edits") or {}
     ctx["history_periods"] = ws.facts.get("history_periods") or {}
     ctx["view"] = ws.facts.get("view") or {}
+    if ((ws.profile.get('periods') or {}).get('cadence') or {}).get('replace_existing'):
+        removed=H.replace_periods(ws.history,kif,ws.dir)
+        ctx['questions']=[q for q in ctx.get('questions',[]) if q.get('about') not in removed]
     H.upsert(ws.history, kif, results, ctx)
     book_kif, book_results, book_ctx = H.combine(ws.history, kif, results, ctx)
     tabs = sheet_model.build(book_kif, book_results, book_ctx)
@@ -464,6 +469,9 @@ def cmd_run(args) -> int:
     # 2. what a person typed into the last sheet -----------------------------------------
     edits = read_back(ws, items, args)
     clock.lap("read-back")
+    if getattr(args, "reconsider", None):
+        count = ws.ledger.reconsider(args.reconsider)
+        notes.append(f"Reopened {count} assistant judgements for evidence review; human decisions are retained")
 
     # 3. the sources on the list, and nothing else -----------------------------------------
     statuses: list[dict] = []
@@ -492,10 +500,60 @@ def cmd_run(args) -> int:
 
     import workbook_history
     workbook_history.apply_edits(kif, ws.facts, ws.profile, ws.today)
+    import reporting
+    kif = reporting.intervalize(kif, ws.profile, ws.today, snap)
+    if (ws.profile.get('periods') or {}).get('cadence'):
+        reporting.filter_work(work,kif)
+    capacity_cfg = (ws.profile.get('sources') or {}).get('capacity') or {}
+    if capacity_cfg.get('kind') == 'pms' and (ws.profile.get('policy') or {}).get('velocity', {}).get('mode') == 'per_resource_day':
+        import pms_capacity
+        cache = ws.facts.setdefault('capacity', {})
+        for period in kif['periods']:
+            if not period.get('reporting_window'): continue
+            if period.get('upcoming'):continue
+            key = 'capacity-v2|'+period['start']+'|'+period['as_of']+'|'+json.dumps(capacity_cfg,sort_keys=True)
+            if args.offline or args.rejudge_only:
+                period['capacity'] = cache.get(key) or {'error':'No capacity snapshot for these exact dates; run online.'}
+                continue
+            try:
+                raw_capacity=pms_capacity.read(ws.profile['organization']['pms_base_url'],ws.project['pms_project_id'],period['start'],period['as_of'])
+                if capacity_cfg.get('basis')=='pms_timelog':
+                    logs=pms_capacity.read_timesheets(ws.profile['organization']['pms_base_url'],ws.project['pms_project_id'],period['start'],period['as_of'])
+                    period['capacity']=pms_capacity.normalize_timelogs(raw_capacity,logs,period['start'],period['as_of'],ws.today,
+                        capacity_cfg.get('hours_per_day',8),capacity_cfg.get('timesheet_entry_lag_days',7),capacity_cfg.get('eligible_resource_ids'))
+                else:
+                    period['capacity']=pms_capacity.normalize(raw_capacity,period['start'],period['as_of'],capacity_cfg['weekdays'],capacity_cfg.get('allocations'))
+                period['capacity']['read_at']=B.now_iso()
+                period['capacity']['source']=ws.profile['organization']['pms_base_url']+f'/all-projects/{ws.project["pms_project_id"]}/'+('timesheet/weekly' if capacity_cfg.get('basis')=='pms_timelog' else 'calendar')
+                if capacity_cfg.get('timesheet_crosscheck'):
+                    checks=[]
+                    for start,end in pms_capacity.previous_weeks(period['as_of'],capacity_cfg.get('timesheet_weeks',2)):
+                        try:
+                            raw=pms_capacity.read_timesheets(ws.profile['organization']['pms_base_url'],ws.project['pms_project_id'],start,end)
+                            checks.append(pms_capacity.timesheet_summary(raw,raw_capacity['members']['data'],start,end,ws.today,capacity_cfg.get('timesheet_entry_lag_days',7)))
+                        except Exception as e:
+                            checks.append({'start':start,'end':end,'error':f'Optional timesheet cross-check unavailable ({type(e).__name__}); capacity is unchanged.'})
+                    period['capacity']['timesheet_crosschecks']=checks
+                cache[key]=period['capacity']
+            except Exception as e:
+                period['capacity']={'error':f'PMS capacity could not be verified ({type(e).__name__}); reconnect PMS and rerun.'}
+                notes.append(period['capacity']['error'])
     kif_path.write_text(json.dumps(kif, indent=1, ensure_ascii=False), encoding="utf-8")
 
     # 5. count -------------------------------------------------------------------------------
     results = compute(ws, kif_path)
+    import team_review
+    review_rows,review_questions=team_review.prepare(kif,results,ws.facts,(ws.profile.get('output') or {}).get('team_review',False),ws.profile)
+    work['questions'].extend(review_questions)
+    team_review.apply_context(results,ws.facts)
+    if review_rows:
+        # Generate every downstream artifact from the same reviewed result objects.
+        import kpi_engine
+        objects=[kpi_engine.PeriodResult(period=p['period'],measures=[kpi_engine.Measure(**m) for m in p['measures']],
+                   facts=p['facts'],description=p['description']) for p in results['periods']]
+        (ws.run_dir/'results.json').write_text(json.dumps(results,indent=2))
+        (ws.run_dir/'payloads.json').write_text(json.dumps(kpi_engine.to_pms_payloads(objects,kif),indent=2))
+        (ws.run_dir/'report.md').write_text(kpi_engine.to_markdown(objects,kif))
     for note in J._notes_needed(results, ws.facts):
         tag = f"{note['period']}|{note['kpi']}"
         missing = ((ws.facts.get("reasons") or {}).get("_questions") or {}).get(tag)
@@ -503,8 +561,18 @@ def cmd_run(args) -> int:
             work["questions"].append({"id": "reason:" + tag, "about": note["period"],
                                       "question": f"{note['period']} · {note['kpi']}: {missing}", "blocking": False})
     import note_policy
+    upcoming_names={p['name'] for p in kif.get('periods',[]) if p.get('upcoming')}
     for period in results.get("periods") or []:
+        if period['period'] in upcoming_names:
+            continue
         for measure in period.get("measures") or []:
+            if (ws.profile.get('periods') or {}).get('cadence'):
+                details=list(dict.fromkeys(measure.get('gaps') or measure.get('review_items') or []))
+                if details:
+                    work['questions'].append({'id':'measurement:'+period['period']+'|'+measure['name'],
+                        'about':period['period'],'question':measure['name']+': '+' '.join(details),
+                        'blocking':bool(measure.get('publish_blocked')), 'items':[i for d in details for i in note_policy.items_for(measure,d)]})
+                continue
             work["questions"].extend(note_policy.question(period["period"], measure["name"], detail,
                                                           note_policy.items_for(measure, detail))
                                      for detail in measure.get("review_items") or [])
@@ -512,12 +580,15 @@ def cmd_run(args) -> int:
     clock.lap("compute")
 
     # 6. the sheet -----------------------------------------------------------------------------
+    import notifications
+    work['questions'].extend(notifications.questions((ws.profile.get('output') or {}).get('notifications') or {}))
     questions = question_rows(ws, work["questions"])
     log, pushed = push_history(ws)
     registry = _registry(ws)
     ctx = {
         "profile": ws.profile, "registry": registry, "reasons": ws.facts.get("reasons") or {}, "manual": ws.manual,
         "questions": questions,
+        "team_review": review_rows,
         "changes": moved, "push_log": log, "pushed_on": pushed, "grain": work.get("grain"),
         "as_of": ws.today, "refreshed": (snap or {}).get("fetched_at") or B.now_iso(), "tool_version": _version(),
         "prepared_by": (ws.raw.get("owner") or {}).get("name") or args.by or "",
@@ -547,6 +618,8 @@ def cmd_run(args) -> int:
     clock.lap("save")
 
     report(ws, results, kif, work, queue, qpath, questions, edits, notes, said, moved, dest, clock, args)
+    import notifications
+    notifications.prepare(ws,results,questions,dest,getattr(args,'run_mode',None) or ('unattended' if (ws.profile.get('output') or {}).get('unattended') else 'interactive'))
     return 0
 
 
@@ -729,7 +802,10 @@ def cmd_judge(args) -> int:
         print(f"No answers at {path}. Read {ws.dir / 'judge' / 'queue.json'} and write them first.", file=sys.stderr)
         return 2
     names = [p.get("name") for p in (ws.facts.get("periods") or {}).get("periods") or []] or ["Full Project"]
-    out = J.apply_answers(path, snap, ws.ledger, ws.facts, names, by="human" if args.human else "ai", who=args.by or "")
+    import reporting
+    cadence=(ws.profile.get('periods') or {}).get('cadence')
+    if cadence:names+= [p['name'] for p in reporting.windows(cadence,ws.today)]
+    out = J.apply_answers(path, snap, ws.ledger, ws.facts, names, by="human" if args.human else "ai", who=args.by or "",context_change_reason=getattr(args,'context_change_reason','') or '')
     ws.save()
     print(f"Applied {len(out['applied'])} judgement{'s' if len(out['applied']) != 1 else ''} and {out['reasons']} reason(s).")
     for title, lines in (("Refused", out["refused"]), ("Could not decide - these become questions for a person", out["unsure"])):
@@ -889,9 +965,86 @@ def _question_period(qid: str) -> str | None:
     """'handover:P', 'review:P|KPI:abc', 'reason:P|KPI' -> 'P'. None when a question is not
     about one period, so it holds back every push."""
     kind, _, rest = qid.partition(":")
-    if kind not in ("handover", "review", "reason") or not rest:
+    if kind=='team-review':
+        return rest.partition(':')[2].split('|',1)[0] or None
+    if kind not in ("handover", "review", "reason", "measurement") or not rest:
         return None
     return rest.split("|", 1)[0] if kind != "handover" else rest
+
+
+def cmd_verify(args) -> int:
+    ws = Workspace(args)
+    if args.offline:
+        raise SystemExit("Published-sheet verification requires a connection.")
+    runs = sorted((ws.dir / "runs").glob("*/results.json"))
+    if not runs:
+        raise SystemExit("Run first; there are no computed results to verify.")
+    saved = B.load(ws.dir / "workbook_destination.json") or {}
+    fid = G.file_id((ws.profile.get("output") or {}).get("workbook_file")) or saved.get("id")
+    if not fid:
+        raise SystemExit("There is no published Google Sheet to verify.")
+    import sheet_verify
+    expected=json.loads((ws.dir/'workbook_model.json').read_text())['results'] if getattr(args,'all_periods',False) else json.loads(runs[-1].read_text())
+    report = sheet_verify.google(fid, expected)
+    (runs[-1].parent / "sheet_verification.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    print(f"Read back {report['checked']} KPI values and notes: " + ("verified" if report['verified'] else "mismatches found"))
+    for error in report['errors']:
+        print(f"  {error['period']} · {error['kpi']}: {error['field']}")
+    return 0 if report['verified'] else 2
+
+
+def cmd_archive_pilot(args) -> int:
+    """Move the existing workbook to Archived and keep one continuing pilot copy."""
+    ws=Workspace(args)
+    if args.offline: raise SystemExit('Archival needs Google connected.')
+    marker=ws.dir/'pilot_archive.json'
+    record=B.load(marker)
+    if record and record.get('state')=='verified':
+        print(marker.read_text());return 0
+    import sheet_readback as R
+    snapshot=B.load(ws.dir/'cache'/'board.json') or {}
+    read_back(ws,{i['id']:i for i in snapshot.get('items',[])},args)
+    if ws.preserve_sheet:raise SystemExit('Fresh review inputs could not be read; archival stopped.')
+    ws.save()
+    fid=G.file_id((ws.profile.get('output') or {}).get('workbook_file'))
+    if not fid:raise SystemExit('Configure output.workbook_file before archiving the pilot.')
+    s=G.Session();info=G.drive_meta(s,fid)
+    if record:
+        if fid not in (record['original'],record['pilot']):raise SystemExit('Migration record and configured Sheet disagree.')
+        fid=record['original'];info=G.drive_meta(s,fid)
+        copy=G.drive_meta(s,record['pilot']);parent=(copy.get('parents') or [None])[0]
+        folder={'id':record['archive_folder']}
+    else:
+        parents=info.get('parents') or []
+        if len(parents)!=1:raise SystemExit('The pilot needs one verified Drive parent folder.')
+        parent=parents[0];folder=G.drive_folder(s,parent,'Archived')
+        copy=G.drive_copy(s,fid,parent,info['name']+' - Pilot')
+        record={'original':fid,'pilot':copy['id'],'archive_folder':folder['id'],'state':'copied'}
+        marker.write_text(json.dumps(record,indent=2))
+    if folder['id'] not in info.get('parents',[]):
+        s.call('PATCH',f'{G.DRIVE}/{fid}',{'name':info['name']+' - before rate pilot'},
+               params={'addParents':folder['id'],'removeParents':parent,'supportsAllDrives':'true'})
+    moved=G.drive_meta(s,fid)
+    if folder['id'] not in moved.get('parents',[]) or parent in moved.get('parents',[]):
+        raise SystemExit('Archive parent verification failed; retain the migration record and repair before running.')
+    import remember
+    code=remember.main(['--profile',str(ws.profile_path),'--scope','project:'+ws.pid,
+                       '--set','output.workbook_file='+copy['id'],'--why','User requested an archived original and a continuing rate pilot workbook.'])
+    if code:raise SystemExit('Pilot copy exists, but profile update failed; use the migration record to finish.')
+    destination={'kind':'google','id':copy['id'],'url':'https://docs.google.com/spreadsheets/d/'+copy['id']+'/edit'}
+    state=R.load_state(ws.dir/'sheet_state.json')
+    if state:
+        state['destination']=destination;R.save_state(ws.dir/'sheet_state.json',state)
+    (ws.dir/'workbook_destination.json').write_text(json.dumps(destination,indent=2))
+    record.update(state='verified',url=destination['url']);marker.write_text(json.dumps(record,indent=2))
+    print(json.dumps(record,indent=2));return 0
+
+
+def cmd_notify(args) -> int:
+    ws=Workspace(args)
+    import notifications
+    print(json.dumps(notifications.send(ws.dir/'status.json',(ws.profile.get('output') or {}).get('notifications') or {},args.apply),indent=2))
+    return 0
 
 
 def cmd_push(args) -> int:
@@ -981,16 +1134,20 @@ def main(argv: list[str] | None = None) -> int:
 
     r = common(sub.add_parser("run", help="Read, judge, count and update the sheet."))
     r.add_argument("--deep", action="store_true", help="Allow the open questions to be looked up in the profile's evidence channels.")
+    r.add_argument("--reconsider", action="append", choices=list(J.FIELDS),
+                   help="Revisit stored assistant judgements for this field (repeatable); retain human decisions.")
     r.add_argument("--adapter", help="Force a tracker adapter (asana, jira, github, csv).")
     r.add_argument("--from-raw", help="Raw responses downloaded by the tracker's browser_snapshot.js (no credential needed).")
     r.add_argument("--board", help="A board snapshot file, instead of reading the tracker.")
     r.add_argument("--file", help="CSV export, for --adapter csv.")
     r.add_argument("--no-publish", action="store_true", help="Write the local workbook only.")
     r.add_argument("--review-file", help="Fresh connector CellData snapshot of the configured Google workbook, saved to disk.")
+    r.add_argument('--run-mode',choices=['interactive','unattended'],help='Interactive: host asks unresolved questions. Unattended: retain them and prepare a status notification.')
     j = common(sub.add_parser("judge", help="Fold judge/answers.json into the ledger and recompute."))
     j.add_argument("--answers", help="Default: <project>/judge/answers.json")
     j.add_argument("--human", action="store_true", help="These answers are a person's, not an assistant's.")
     j.add_argument("--no-rerun", action="store_true")
+    j.add_argument('--context-change-reason',help='Only when the person explicitly requests rewriting existing context: record their instruction and retain the previous human text in history. This does not approve a KPI or a PMS submission.')
     a = common(sub.add_parser("answer", help="Record a person's answer to an open question."))
     a.add_argument("--id", required=True)
     a.add_argument("--value")
@@ -998,6 +1155,11 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--why", default="")
     common(sub.add_parser("status", help="What is on file and what is waiting. No network."))
     common(sub.add_parser("doctor", help="Can it reach what it needs?"))
+    verify=common(sub.add_parser("verify", help="Read back the published Google Sheet values, units and notes."))
+    verify.add_argument('--all-periods',action='store_true',help='Also verify retained historical results against the continuing workbook model.')
+    common(sub.add_parser('archive-pilot',help='Archive the current Google workbook and configure one continuing pilot copy.'))
+    notify=common(sub.add_parser('notify',help='Preview or send status using private notification configuration.'))
+    notify.add_argument('--apply',action='store_true')
     p = common(sub.add_parser("push", help="Send the last run to PMS (dry run unless --apply)."))
     p.add_argument("--apply", action="store_true")
     p.add_argument("--create-periods", action="store_true", help="Create missing periods when explicitly authorized.")
@@ -1019,7 +1181,8 @@ def main(argv: list[str] | None = None) -> int:
         if not hasattr(args, k):
             setattr(args, k, v)
     return {"run": cmd_run, "judge": cmd_judge, "answer": cmd_answer, "status": cmd_status,
-            "doctor": cmd_doctor, "push": cmd_push, "auth": cmd_auth}[args.cmd](args)
+            "doctor": cmd_doctor, "verify": cmd_verify, "push": cmd_push, "auth": cmd_auth,
+            'archive-pilot':cmd_archive_pilot,'notify':cmd_notify}[args.cmd](args)
 
 
 if __name__ == "__main__":

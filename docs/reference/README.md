@@ -62,6 +62,7 @@ edits before running; the files are not continuously synchronized.
 | [07-output-and-files.md](07-output-and-files.md) | Modes, where the sheet goes, where every file lives | Changing how results reach PMS |
 | [08-custom-instructions.md](08-custom-instructions.md) | House style, always/never, glossary, rule overrides | The wording is not how you would put it |
 | [09-scan-and-source-of-truth.md](09-scan-and-source-of-truth.md) | Which places may answer a question, and how far back a run looks | A run is slower than it should be, or you want the board to be the only truth |
+| [09-reporting-pilot.md](09-reporting-pilot.md) | Fixed intervals, velocity rates, billable capacity, alternate units, team review and scheduled notifications | Piloting a rate-based reporting workflow |
 | [all-fields.md](all-fields.md) | Every field, generated from the schema | Looking something up |
 
 ## Sections at a glance

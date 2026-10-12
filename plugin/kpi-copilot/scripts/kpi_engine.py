@@ -57,6 +57,33 @@ from profile_lib import load as load_profile, resolve as resolve_profile  # noqa
 # --------------------------------------------------------------------------------------
 
 
+def rework_population(kif: dict, profile: dict, period: str) -> tuple[list[dict], list[dict], list[dict]]:
+    """The assessed population shared by the engine and review-sheet formulas."""
+    completed = [t for t in kif.get("tasks") or [] if t.get("period") == period
+                 and t.get("type") in ("Task", "CR", "Scope")
+                 and t.get("rework_closed", t.get("closed"))]
+    rw = (profile.get("workflow") or {}).get("reopened_when") or {}
+    pending = lambda t: str(((t.get("basis") or {}).get("reopened") or {}).get("flag") or "").startswith("Waiting for a person:")
+    groups = []
+    if rw.get("group_history") == "count-group":
+        cards = {t.get("_item"): t for t in kif.get("tasks") or []
+                 if t.get("period") == period and t.get("effort_only")}
+        stand_in = {t.get("effort_group") for t in completed
+                    if t.get("reopened") not in ("Yes", "No") and not pending(t)
+                    and t.get("effort_group") in cards
+                    and cards[t["effort_group"]].get("reopened") in ("Yes", "No")}
+        groups = [dict(cards[g], _members=[t.get("key") for t in completed
+                  if t.get("effort_group") == g and t.get("reopened") not in ("Yes", "No") and not pending(t)])
+                  for g in sorted(stand_in)]
+        completed = [t for t in completed if not (t.get("effort_group") in stand_in
+                     and t.get("reopened") not in ("Yes", "No") and not pending(t))] + groups
+    group_reopened = {t.get("_item") for t in kif.get("tasks") or []
+                      if t.get("effort_only") and t.get("reopened") == "Yes"}
+    assumed = [t for t in completed if t.get("reopened") not in ("Yes", "No") and not pending(t)
+               and t.get("effort_group") not in group_reopened] if rw.get("no_history") == "not-reopened" else []
+    return completed, groups, assumed
+
+
 def _load_any(path: Path) -> Any:
     """Read JSON, or YAML when PyYAML is around. Profiles are nicer as YAML but we do not
     want a hard dependency for people who only ever touch JSON."""
@@ -154,6 +181,7 @@ class Measure:
     threshold_source: str  # which PMS setting this target came from
     direction: str
     status: str  # Met | Not met | Not measured
+    availability: str = ""
     numerator: float | None = None
     denominator: float | None = None
     counted_keys: list[str] = field(default_factory=list)
@@ -484,9 +512,13 @@ class Engine:
             partial_rows = [t for t in missing if t not in still]
             missing = still
         velocity_refs = [self._refs(r"estimate", missing, missing_why)] if missing else []
+        missing_rows = {t.get("_row") or t.get("_item") for t in missing}
+        missing_groups = {t.get("_item") for t in missing if t.get("effort_only")}
+        unestimated_delivered = [t for t in delivered if (t.get("_row") or t.get("_item")) in missing_rows
+                                or t.get("effort_group") in missing_groups]
         if missing and missing_policy not in ("skip", "partial"):
             why = (f"Velocity is not measured in {'story points' if by_points else 'hours'}: "
-                   f"{len(missing)} of {len(delivered)} delivered items lack the required estimate. "
+                   f"{len(unestimated_delivered)} of {len(delivered)} delivered items lack the required estimate. "
                    "Record the missing estimate or finish the group whose estimate cannot be split; blank does not mean zero.")
             m = self._measure("velocity", value=None, unit=unit, numerator=None, denominator=None, gaps=[why],
                               review_refs=velocity_refs)
@@ -494,15 +526,14 @@ class Engine:
             m._say = {"kpi": "velocity", "empty": why}
             return m
 
-        missing_rows = {t.get("_row") or t.get("_item") for t in missing}
-        measured_delivered = [t for t in delivered if (t.get("_row") or t.get("_item")) not in missing_rows]
+        measured_delivered = [t for t in delivered if t not in unestimated_delivered]
         effort_rows = [t for t in effort_rows if (t.get("_row") or t.get("_item")) not in missing_rows]
-        partial_gap = (f"{len(missing)} of {len(delivered)} delivered items have no usable estimate and are "
+        partial_gap = (f"{len(unestimated_delivered)} of {len(delivered)} delivered items have no usable estimate and are "
                        f"excluded from the known {'story-point' if by_points else 'hours'} total. Review whether an "
                        f"estimate source should be added." if missing else "")
         if missing and not measured_delivered:
-            why = (f"Velocity is not measured in {'story points' if by_points else 'hours'} because none of the "
-                   f"{len(delivered)} delivered items has a usable estimate.")
+            why = (f"Velocity is not measured in {'story points' if by_points else 'hours'} because "
+                   +( "the completed item has no usable estimate." if len(delivered)==1 else f"none of the {len(delivered)} completed items has a usable estimate."))
             m = self._measure("velocity", value=None, unit=unit, numerator=None, denominator=None, gaps=[why],
                               review_refs=velocity_refs)
             m.note_parts = [self._heading("velocity", period), why, ""]
@@ -579,7 +610,7 @@ class Engine:
                   "dev": sum(float(t.get("hours_dev") or 0) for t in effort_rows),
                   "qa": sum(float(t.get("hours_qa") or 0) for t in effort_rows if t.get("closed")),
                   "grouped": sum(bool(t.get("effort_only")) for t in effort_rows),
-                  "partial": len(partial_rows), "unestimated": len(missing)}
+                  "partial": len(partial_rows), "unestimated": len(unestimated_delivered)}
         return m
 
     def _ratio_measure(
@@ -686,7 +717,8 @@ class Engine:
         return m
 
     def task_comprehension(self, period: dict) -> Measure:
-        rows = self.deliverables_in(period["name"])
+        rows = (self.delivered_in(period['name']) if period.get('reporting_window')
+                else self.deliverables_in(period["name"]))
         return self._ratio_measure(
             "task_comprehension", period, rows, "understood",
             ("requirement was clear enough to build without going back to the client",
@@ -992,34 +1024,11 @@ class Engine:
 
     def rework_rate(self, period: dict) -> Measure:
         name = period["name"]
-        completed = [t for t in self.deliverables_in(name) if t.get("rework_closed", t.get("closed"))]
-        rw = (self.profile.get("workflow") or {}).get("reopened_when") or {}
-        # group_history: count-group - tickets inside a grouped feature that carry no reopen
-        # history of their own are counted once, as the group, from the group card's history.
-        groups_counted: list[dict] = []
-        if rw.get("group_history") == "count-group":
-            cards = {t.get("_item"): t for t in self.kif.get("tasks") or [] if t.get("effort_only")}
-            stand_in = {t.get("effort_group") for t in completed
-                        if t.get("reopened") not in ("Yes", "No") and t.get("effort_group") in cards
-                        and cards[t["effort_group"]].get("reopened") in ("Yes", "No")}
-            groups_counted = [dict(cards[g], _members=[t.get("key") for t in completed
-                                                       if t.get("effort_group") == g and t.get("reopened") not in ("Yes", "No")])
-                              for g in sorted(stand_in)]
-            completed = [t for t in completed if not (t.get("effort_group") in stand_in
-                                                      and t.get("reopened") not in ("Yes", "No"))] + groups_counted
+        completed, groups_counted, assumed = rework_population(self.kif, self.profile, name)
         reopened = [t for t in completed if t.get("reopened") == "Yes"]
-        judged = [t for t in completed if t.get("reopened") in ("Yes", "No")]
-        # A project may decide that no record of a reopen means it was not reopened. That is
-        # a person's rule, set in the profile, and the note says it was applied.
-        # A ticket inside a group that was reopened is not "no record": the reopen is on the
-        # group, only not which ticket needed the change. Those stay unknown.
+        judged = [t for t in completed if t.get("reopened") in ("Yes", "No")] + assumed
         group_reopened = {t.get("_item") for t in self.kif.get("tasks") or []
                           if t.get("effort_only") and t.get("reopened") == "Yes"}
-        no_history = rw.get("no_history")
-        assumed = ([t for t in completed if t.get("reopened") not in ("Yes", "No")
-                    and t.get("effort_group") not in group_reopened]
-                   if no_history == "not-reopened" else [])
-        judged = judged + assumed
         reopen_events = sum(int(t.get("reopen_count") or 1) for t in reopened)
         den = len(completed)
 
@@ -1069,15 +1078,18 @@ class Engine:
             if reopen_events
             else f"None of the {den} completed {_plural(den, 'task')} was reopened (0%)"
         )
-        # A QA fail during the first test round is normal testing. Naming it is what stops
-        # the reader assuming we hid something.
+        # A No judgment may reflect first testing, another item's fault, configuration or
+        # an invalid report. Do not invent a shared cause from the status return alone.
         near = [t for t in completed if t.get("reopened") == "No" and t.get("rework_evidence")]
+        first_round = [t for t in near if re.search(r"first (?:test )?round|first time",
+                       str(t.get("rework_evidence") or "") + " " +
+                       str(((t.get("basis") or {}).get("reopened") or {}).get("why") or ""), re.I)]
         unjudged = len(completed) - den
         left = []
         if near:
             left.append(
-                f"{len(near)} {_plural(len(near), 'item')} failed QA while still being tested "
-                f"for the first time, which is normal testing and is not counted as rework"
+                f"{len(near)} {_plural(len(near), 'item')} had a status return judged not to be "
+                "rework of its own implementation; each item judgment records why"
             )
         if unjudged:
             left.append(
@@ -1105,7 +1117,7 @@ class Engine:
         m.note_parts = [self._heading("rework_rate", period), numbers, third]
         m._say = {"kpi": "rework_rate", "reopened": reopen_events, "affected": len(reopened),
                   "den": den, "value": value,
-                  "near": len(near), "unjudged": unjudged, "assumed_no": len(assumed),
+                  "near": len(near), "first_round": len(first_round), "unjudged": unjudged, "assumed_no": len(assumed),
                   "groups": len(groups_counted),
                   "groups_reopened": sum(1 for g in groups_counted if g.get("reopened") == "Yes")}
         return m
@@ -1193,6 +1205,9 @@ class Engine:
 
     def _period_status(self, period: dict, name: str) -> str:
         """One sentence for every note of a period still open: how far it has got and when it is due."""
+        if period.get('reporting_window'):
+            state='Preview' if period.get('as_of','')<period['end'] else 'Completed reporting window'
+            return f'{state}: {_md(period["start"])} to {_md(period["end"])}, through {_md(period["as_of"])}. Output is counted only when completed inside these dates.'
         if period.get("handover_date"):
             return ""
         due = _md(period.get("client_date") or period.get("commit_date") or self.kif["project"].get("client_date"))
@@ -1242,9 +1257,18 @@ class Engine:
 
     def _reason_for(self, period_name: str, kpi_name: str) -> str:
         block = (self.reasons.get(period_name) or {})
-        return note_sentences.terminology((block.get(kpi_name) or block.get(kpi_name.lower()) or "").strip(), self.profile)
+        context = (block.get(kpi_name) or block.get(kpi_name.lower()) or "").strip()
+        addendum = str((self.reasons.get("_addenda") or {}).get(f"{period_name}|{kpi_name}") or "").strip()
+        if addendum and addendum not in context:
+            context = " || ".join(p for p in (context, addendum) if p)
+        return note_sentences.terminology(context, self.profile)
 
     def finish_note(self, m: Measure, period_name: str) -> None:
+        if m.availability=='Not due yet':
+            text=' '.join(m.note_parts)
+            m.summary_note=m.generated_note=m.unmeasured_summary=m.unmeasured_note=m.note=text
+            m.context_note='';m.review_items=[];m.gaps=[]
+            return
         """Join the editable summary and context, preserving their separate sheet fields.
 
         Two styles, one set of numbers. `sentences` (the default) says each part the way a
@@ -1293,7 +1317,7 @@ class Engine:
                     if sentence.lower() not in (x.lower() for x in parts):
                         parts.append(sentence)
             m.unmeasured_summary = _strip_links(" ".join(parts[:1] + [x for x in parts[1:] if x not in m.context_note]))
-            m.unmeasured_note = _strip_links(" ".join(parts)) or "Not measured yet."
+            m.unmeasured_note = _strip_links(" || ".join(p for p in (m.unmeasured_summary, m.context_note) if p)) or "Not measured yet."
         # "Not measured yet." on its own asks nothing; the status already says it, and the
         # sentences around it carry the actual question.
         m.review_items = [x for x in dict.fromkeys(review + summary_review + context_review + m.gaps)
@@ -1439,6 +1463,8 @@ class Engine:
             ]
             self._status_line = self._period_status(period, name)
             for m in measures:
+                import reporting
+                reporting.apply(self, m, period)
                 self.finish_note(m, name)
                 self.apply_manual(m, name)
             self._status_line = ""

@@ -32,6 +32,8 @@ import board as B
 RUBRIC_VERSION = "1.2"
 
 RUBRIC = {
+    'request_kind': 'Additional request adds a new deliverable beyond the agreed scope. Change request changes an already agreed requirement or deliverable. Approval or an estimate alone does not distinguish these. Use the request description and approved scope; if that comparison is absent, answer null and ask for it.',
+    'delivery': 'Yes only when the Closed item represents completed implementation accepted by Dev and QA. No for a finding closed without implementation, an unreproducible or invalid report, duplicate, administration, or cancellation. Closure alone is not evidence of delivered output. If the comments do not establish which occurred, answer null and ask for implementation/acceptance evidence.',
     "nature": (
         "What the card is. Task: work in the agreed plan. CR: an approved addition after the plan was "
         "agreed (the client asked for more, and it was estimated or approved). Scope: in-scope work that is "
@@ -87,6 +89,8 @@ RUBRIC = {
 }
 
 FIELDS = {
+    'request_kind': ['Additional request','Change request'],
+    'delivery': ['Yes','No'],
     "nature": ["Task", "CR", "Scope", "Excluded", "Bug", "Observation", "Improvement", "Query"],
     "period": None, "understood": ["Yes", "No"], "reopened": ["Yes", "No"],
     "reopen_count": [str(n) for n in range(0, 21)],
@@ -104,7 +108,7 @@ def build_queue(work: dict, results: dict | None, facts: dict, project_dir: Path
         for k, v in (q.get("item") or {}).items():
             g["item"].setdefault(k, v)
         g["asks"].append({k: q[k] for k in ("field", "question", "options", "proposal", "because",
-                                            "confidence", "previously") if q.get(k) is not None})
+                                            "confidence", "previously", "candidate_event_dates") if q.get(k) is not None})
     notes = [n for n in _notes_needed(results, facts, review=True, kif=kif, profile=profile)
              if f"{n['period']}|{n['kpi']}" not in ((facts.get("reasons") or {}).get("_questions") or {})] if results else []
     used = sorted({a["field"] for g in grouped.values() for a in g["asks"]} | ({"reasons"} if notes else set()))
@@ -124,9 +128,12 @@ def build_queue(work: dict, results: dict | None, facts: dict, project_dir: Path
         "answer_file": str(answers),
         "answer_shape": {
             "answers": [{"item_id": "<from items[]>", "field": "<from asks[]>", "value": "<one of options>",
-                         "why": "<one sentence>", "evidence": "<url from the context, or null>"}],
+                         "why": "<one sentence>", "evidence": "<url from the context, or null>",
+                         "event_dates": "<optional for reopened Yes: accepted dates from candidate_event_dates; also set reopen_count when only some events count>"}],
             "reasons": [{"period": "<period>", "kpi": "<kpi name>", "why": "<1-3 sentences; empty if no extra context is needed; null if evidence is missing>",
                          "review_signature": "<from notes[]; confirms the COMPLETE note was reviewed for an uninvolved reader>",
+                         "use_computed_summary": "<true only to replace an outdated edited summary with the reviewed current figures; old text is retained in history>",
+                         "addendum": "<optional dated evidence update; preserves existing human context>",
                          "missing": "<when why is null, what the person needs to explain>"}]},
         "items": list(grouped.values()),
         "notes": notes,
@@ -148,11 +155,14 @@ def _notes_needed(results: dict, facts: dict, review: bool = False, kif: dict | 
     """
     reasons = facts.get("reasons") or {}
     periods = {p.get("name"): p for p in ((facts.get("periods") or {}).get("periods") or [])}
+    periods.update({p['name']:p for p in (kif or {}).get('periods',[])})
     log = (facts.get("periods") or {}).get("log") or []
     out = []
     for per in results.get("periods") or []:
         name = per["period"]
+        if periods.get(name,{}).get('upcoming'):continue
         for m in per.get("measures") or []:
+            if m.get('availability')=='Not due yet':continue
             import note_policy
             if review and (reasons.get("_human_reviews") or {}).get(f"{name}|{m['name']}") == note_policy.basis(m):
                 continue
@@ -166,9 +176,11 @@ def _notes_needed(results: dict, facts: dict, review: bool = False, kif: dict | 
                 "review_item_details": {d: items for d in m.get("review_items") or []
                                         if (items := note_policy.items_for(m, d))},
                 "context": {"period_story": p.get("notes") or "", "original_plan": p.get("plan_text") or "",
-                            "dates": {k: p.get(k) or ((facts.get("periods") or {}).get("project") or {}).get(k)
+                            'agreed_project_dates':{k:(kif or {}).get('project',{}).get(k) for k in ('client_date','commit_date','dates_why')},
+                            "dates": {k: p.get(k) or ({} if p.get('reporting_window') else ((facts.get("periods") or {}).get("project") or {})).get(k)
                                       for k in ("client_date", "commit_date", "handover_date", "client_check")},
-                            "log": [e for e in log if e.get("period") in (name, None, "")][:12]},
+                            "log": [e for e in log if e.get("period") in (name, None, "")
+                                    and (not p.get('as_of') or not e.get('date') or e['date']<=p['as_of'])][:12]},
             }
             if review:
                 tasks = [t for t in (kif or {}).get("tasks") or [] if t.get("period") == name]
@@ -191,6 +203,9 @@ def _notes_needed(results: dict, facts: dict, review: bool = False, kif: dict | 
                         for d in (kif or {}).get("defects") or [] if d.get("period") == name and d.get("rejected") == "Yes"
                         and _counts_as_defect(d, profile)]
                 entry["result_summary"] = m.get("summary_note")
+                entry["computed_summary"] = m.get("generated_note")
+                if (reasons.get("_addenda") or {}).get(f"{name}|{m['name']}"):
+                    entry["evidence_addendum"] = reasons["_addenda"][f"{name}|{m['name']}"]
                 # Which items a review question lists is supporting detail, not the note itself.
                 signed = {k: v for k, v in entry.items() if k != "review_item_details"}
                 signature = hashlib.sha256(json.dumps({"note": signed, "version": RUBRIC_VERSION,
@@ -203,7 +218,7 @@ def _notes_needed(results: dict, facts: dict, review: bool = False, kif: dict | 
                     continue
                 entry.update(review_signature=signature, previous_reason=prior,
                              reason_author=(reasons.get("_authors") or {}).get(tag),
-                             complete_note=m.get("note"))
+                             complete_note=(m.get('unmeasured_note') or m.get('note')) if m.get('value') is None else m.get('note'))
             out.append(entry)
     return out
 
@@ -216,7 +231,7 @@ def write_queue(queue: dict, project_dir: Path) -> Path:
 
 
 def apply_answers(answers_path: Path, board: dict, ledger, facts: dict, period_names: list[str],
-                  by: str = "ai", who: str = "") -> dict[str, Any]:
+                  by: str = "ai", who: str = "", context_change_reason: str = "") -> dict[str, Any]:
     """Fold answers into the ledger. Returns what was applied and what was refused, with the
     reason - a silently dropped answer is worse than a refused one."""
     try:
@@ -224,6 +239,7 @@ def apply_answers(answers_path: Path, board: dict, ledger, facts: dict, period_n
     except (OSError, json.JSONDecodeError) as e:
         return {"applied": [], "refused": [f"{answers_path} could not be read: {e}"], "reasons": 0, "unsure": []}
     items = {i["id"]: i for i in board.get("items") or []}
+    queued=json.loads((answers_path.parent/'queue.json').read_text()) if (answers_path.parent/'queue.json').exists() else {}
     applied, refused, unsure = [], [], []
     for a in doc.get("answers") or []:
         iid, field, value = str(a.get("item_id") or ""), a.get("field"), a.get("value")
@@ -253,10 +269,17 @@ def apply_answers(answers_path: Path, board: dict, ledger, facts: dict, period_n
         if not (a.get("why") or "").strip():
             refused.append(f"{label} · {field}: no 'why' given. A judgement that cannot say why is a guess")
             continue
+        accepted=a.get('event_dates')
+        if accepted is not None:
+            ask=next((c for g in queued.get('items',[]) if g['item_id']==iid for c in g['asks'] if c['field']==field),{})
+            if field!='reopened' or value!='Yes' or not isinstance(accepted,list) or not accepted or any(d not in (ask.get('candidate_event_dates') or []) for d in accepted):
+                refused.append(f'{label}: accepted rework dates must come from the queued candidate events');continue
         ok = ledger.set(iid, field, value, by, a["why"].strip(), evidence=a.get("evidence"),
                         fingerprint=B.fingerprint(it), key=it.get("key"), title=it.get("title"), who=who)
         if ok:
             ledger.forget(iid, "deferred:" + field)
+            if accepted is not None:
+                ledger.set(iid,'reopen_dates',accepted,by,a['why'].strip(),fingerprint=B.fingerprint(it),evidence=a.get('evidence'),who=who)
         (applied if ok else refused).append(
             f"{label} · {field} = {value}" if ok else f"{label} · {field}: a person already answered this; left alone")
 
@@ -281,14 +304,30 @@ def apply_answers(answers_path: Path, board: dict, ledger, facts: dict, period_n
         if per not in period_names or not kpi or (not why and not reviewed):
             refused.append(f"reason for {per} · {kpi}: needs a known period, a KPI name and some text")
             continue
-        if authors.get(tag) == "human" and by != "human" and why != (reasons.get(per) or {}).get(kpi):
+        changing_human=authors.get(tag)=='human' and by!='human' and why!=(reasons.get(per) or {}).get(kpi)
+        if changing_human and not context_change_reason:
             refused.append(f"reason for {per} · {kpi}: a person wrote this one; left alone")
             continue
+        if changing_human:
+            reasons.setdefault('_context_history',{}).setdefault(tag,[]).append({'text':(reasons.get(per) or {}).get(kpi),'author':'human','changed_by':by,'request':context_change_reason})
+            authors[tag]=by
         reasons.setdefault(per, {})[kpi] = why
         reasons.setdefault("_questions", {}).pop(tag, None)
         if authors.get(tag) != "human" or by == "human":
             authors[tag] = by
         if reviewed:
             reasons.setdefault("_reviews", {})[tag] = {"signature": r["review_signature"], "text": why, "by": by}
+            if r.get("addendum"):
+                reasons.setdefault("_addenda", {})[tag] = str(r["addendum"]).strip()
+                reasons.setdefault("_addendum_authors", {})[tag] = by
+            if r.get("use_computed_summary"):
+                # Keep the edited wording for audit, while explicitly refreshing only the
+                # factual summary. Context written by a person stays protected above.
+                old = reasons.setdefault("_summaries", {}).pop(tag, None)
+                if old is not None:
+                    reasons.setdefault("_summary_history", {}).setdefault(tag, []).append({
+                        "text": old, "basis": reasons.setdefault("_summary_bases", {}).pop(tag, None),
+                        "by": by, "review_signature": r["review_signature"],
+                    })
         n += 1
     return {"applied": applied, "refused": refused, "reasons": n, "unsure": unsure}

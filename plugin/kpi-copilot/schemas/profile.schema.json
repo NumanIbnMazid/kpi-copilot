@@ -315,12 +315,30 @@
           "type": "object",
           "description": "Count member tickets of approved source groups individually while retaining the group's estimate once.",
           "properties": {
-            "split_source_children": {"type": "boolean", "default": false},
-            "inherit_parent_delivery": {"type": "boolean", "default": false},
-            "exclude_member_patterns": {"type": "array", "items": {"type": "string"}},
+            "split_source_children": {
+              "type": "boolean",
+              "default": false
+            },
+            "inherit_parent_delivery": {
+              "type": "boolean",
+              "default": false
+            },
+            "exclude_member_patterns": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
             "linked_members": {
               "type": "object",
-              "additionalProperties": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"type": "string"}}
+              "additionalProperties": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string"
+                }
+              }
             }
           },
           "additionalProperties": false
@@ -520,7 +538,10 @@
         },
         "judge": {
           "type": "string",
-          "enum": ["uncertain", "all"],
+          "enum": [
+            "uncertain",
+            "all"
+          ],
           "default": "uncertain",
           "description": "'uncertain' puts to review only the calls the rules are unsure of. 'all' reviews every call the rules make - what each card is, its period, whether it was understood, reopened, pre-existing, rejected, and where a defect was found - against the card's comments and history, so nothing counts on a title or a status move alone. Each reviewed call is kept and asked again only when the card changes.",
           "x-workbook": {
@@ -544,19 +565,28 @@
             },
             "no_history": {
               "type": "string",
-              "enum": ["unknown", "not-reopened"],
+              "enum": [
+                "unknown",
+                "not-reopened"
+              ],
               "default": "unknown",
               "description": "A completed task with no record either way. 'unknown' leaves it out of the rate; 'not-reopened' counts it as not reopened, and the note says so."
             },
             "group_history": {
               "type": "string",
-              "enum": ["tickets", "count-group"],
+              "enum": [
+                "tickets",
+                "count-group"
+              ],
               "default": "tickets",
               "description": "Tickets inside a grouped feature that carry no reopen history of their own. 'tickets' judges each ticket; 'count-group' counts the group once, from the group card's own history, and names the group in each ticket's remarks."
             },
             "confirm": {
               "type": "string",
-              "enum": ["rule", "judge"],
+              "enum": [
+                "rule",
+                "judge"
+              ],
               "default": "rule",
               "description": "'rule' counts every move back after closure as rework. 'judge' puts each one to review with the comments around it, and counts it only when the item's own work was at fault - not another item's bug, a build or environment problem, or a card QA later closed with no change."
             }
@@ -772,6 +802,72 @@
             "label": "Velocity counts",
             "hint": "dev = development hours only. dev+qa = adds each item's QA hours once its QA is done."
           }
+        },
+        "capacity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "weekdays"
+          ],
+          "properties": {
+            "basis": {
+              "enum": [
+                "calendar",
+                "pms_timelog"
+              ]
+            },
+            "hours_per_day": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "eligible_resource_ids": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "string",
+                  "integer"
+                ]
+              },
+              "uniqueItems": true
+            },
+            "kind": {
+              "enum": [
+                "pms"
+              ]
+            },
+            "weekdays": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              }
+            },
+            "allocations": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "timesheet_crosscheck": {
+              "type": "boolean"
+            },
+            "timesheet_weeks": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4
+            },
+            "timesheet_entry_lag_days": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 30
+            }
+          }
         }
       }
     },
@@ -973,6 +1069,46 @@
             "Story Points"
           ],
           "description": "Default estimation unit; a project can override it."
+        },
+        "cadence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "anchor"
+          ],
+          "properties": {
+            "anchor": {
+              "type": "string",
+              "format": "date"
+            },
+            "start": {
+              "type": "string",
+              "format": "date"
+            },
+            "end": {
+              "type": "string",
+              "format": "date"
+            },
+            "replace_existing": {
+              "type": "boolean"
+            },
+            "agreed_delivery_date": {
+              "type": "string",
+              "format": "date"
+            },
+            "delivery_date_context": {
+              "type": "string"
+            },
+            "decision_recorded_on": {
+              "type": "string",
+              "format": "date"
+            },
+            "days": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 366
+            }
+          }
         }
       }
     },
@@ -984,6 +1120,10 @@
         "title": "Counting choices"
       },
       "properties": {
+        "refine_item_types": {
+          "type": "boolean",
+          "default": false
+        },
         "count_observations": {
           "type": "boolean",
           "default": false,
@@ -1027,6 +1167,133 @@
           "x-workbook": {
             "label": "Show 0% when no defects were reported"
           }
+        },
+        "velocity": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "enum": [
+                "total",
+                "per_resource_day"
+              ]
+            },
+            "effective_from": {
+              "type": "string",
+              "format": "date"
+            },
+            "completion": {
+              "enum": [
+                "delivered",
+                "closed"
+              ]
+            },
+            "missing_timelogs": {
+              "enum": [
+                "provisional",
+                "withhold"
+              ],
+              "default": "provisional",
+              "description": "With capacity from PMS timelogs: 'provisional' publishes the rate and marks it provisional when a billable member has no project hours logged; 'withhold' sends it as not measured, naming who has no hours logged, until those timelogs are in."
+            }
+          }
+        },
+        "measurement_units": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "task_comprehension": {
+              "enum": [
+                "count",
+                "story_points",
+                "hours"
+              ]
+            },
+            "client_expectation": {
+              "enum": [
+                "count",
+                "story_points",
+                "hours"
+              ]
+            },
+            "delivery_commitment": {
+              "enum": [
+                "count",
+                "story_points",
+                "hours"
+              ]
+            },
+            "defect_rate": {
+              "enum": [
+                "count",
+                "story_points",
+                "hours"
+              ]
+            },
+            "escaped_defect_rate": {
+              "enum": [
+                "count",
+                "story_points",
+                "hours"
+              ]
+            },
+            "rejection_rate": {
+              "enum": [
+                "count",
+                "story_points",
+                "hours"
+              ]
+            },
+            "rework_rate": {
+              "enum": [
+                "count",
+                "story_points",
+                "hours"
+              ]
+            },
+            "cr_rate": {
+              "enum": [
+                "count",
+                "story_points",
+                "hours"
+              ]
+            }
+          }
+        },
+        "pilot_targets": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "why"
+            ],
+            "properties": {
+              "value": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "why": {
+                "type": "string"
+              },
+              "strategy": {
+                "enum": [
+                  "fixed",
+                  "previous_velocity_median"
+                ]
+              },
+              "minimum_periods": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "measurement_targets_aligned": {
+          "type": "boolean",
+          "default": false
         }
       }
     },
@@ -1123,11 +1390,99 @@
           }
         },
         "archive": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "Folder beside the live Google Sheet where a dated copy is kept before the sheet is updated, at most one a day (e.g. 'Archived'). Empty keeps no copies; Google's version history still applies.",
           "x-workbook": {
             "label": "Archive folder"
           }
+        },
+        "layout": {
+          "enum": [
+            "full",
+            "simple"
+          ]
+        },
+        "team_review": {
+          "type": "boolean"
+        },
+        "notifications": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "host": {
+              "type": "string"
+            },
+            "channels": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "host",
+                  "email",
+                  "webhook"
+                ]
+              }
+            },
+            "email": {
+              "type": "object",
+              "properties": {
+                "to": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "email"
+                  }
+                },
+                "from": {
+                  "type": "string",
+                  "format": "email"
+                },
+                "route": {
+                  "enum": [
+                    "smtp",
+                    "host_gmail"
+                  ]
+                },
+                "smtp_host": {
+                  "type": "string"
+                },
+                "smtp_port": {
+                  "type": "integer"
+                },
+                "username_env": {
+                  "type": "string"
+                },
+                "password_env": {
+                  "type": "string"
+                }
+              }
+            },
+            "webhook": {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string"
+                },
+                "url_env": {
+                  "type": "string"
+                },
+                "recipients": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "team_review_blocks": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether open Team Review rows hold back the PMS push. Off: the rows stay open in the sheet and the push goes ahead, with each missing value sent as not measured and its reason."
         }
       }
     },

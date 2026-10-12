@@ -90,7 +90,9 @@ class Ledger:
         cur = self.get(item_id, field)
         if cur and RANK.get(cur.get("by"), 0) > RANK.get(by, 0):
             return False
-        if cur and cur.get("value") == value and cur.get("by") == by and cur.get("fingerprint") == fingerprint:
+        if (cur and cur.get("value") == value and cur.get("by") == by
+                and cur.get("fingerprint") == fingerprint and cur.get("why") == why
+                and cur.get("evidence") == evidence and cur.get("who", "") == who):
             return True
         entry = self.data["items"].setdefault(item_id, {"judgements": {}})
         if key:
@@ -108,6 +110,20 @@ class Ledger:
         if self.get(item_id, field):
             del self.data["items"][item_id]["judgements"][field]
             self.dirty = True
+
+    def reconsider(self, fields: list[str]) -> int:
+        """Explicitly reopen assistant calls for review, retaining evidence and human authority."""
+        count = 0
+        for entry in self.data["items"].values():
+            for field, judgement in entry.get("judgements", {}).items():
+                if field not in fields or judgement.get("by") != "ai":
+                    continue
+                judgement["fingerprint"] = "reconsider:" + str(judgement.get("fingerprint") or "")
+                judgement["reconsidered_at"] = _now()
+                count += 1
+        if count:
+            self.dirty = True
+        return count
 
     # -- answers to questions that are not about one item --------------------------------
 
@@ -177,7 +193,7 @@ class Ledger:
 # facts files
 # --------------------------------------------------------------------------------------
 
-FACT_FILES = ("periods", "plan", "estimates", "reasons")
+FACT_FILES = ("periods", "plan", "estimates", "reasons", "team_review", "capacity")
 
 
 def _yaml():

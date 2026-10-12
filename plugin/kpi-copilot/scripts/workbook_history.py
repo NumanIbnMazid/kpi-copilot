@@ -58,7 +58,8 @@ def apply_edits(kif, facts, profile=None, as_of=None):
                     row["client_date"] = None
                 if edits.get("team_committed") == "No":
                     row["commit_date"] = None
-                dl, ho = row.get("delivered"), period.get("handover_date")
+                dl = row.get('commitment_delivered', row.get('delivered'))
+                ho = period.get("handover_date")
                 check = period.get("client_check") or project.get("client_check") or "Handover"
                 by_handover = "handover" in str(((profile or {}).get("workflow", {}).get("commitment") or {})
                                                 .get("met_when") or "").lower()
@@ -99,6 +100,20 @@ def upsert(history: dict, kif: dict, results: dict, ctx: dict) -> None:
                  "manual": (ctx.get("manual") or {}).get(name, {}),
                  "questions": [q for q in ctx.get("questions", []) if q.get("about") == name]}
         entries[period_key(p)] = copy.deepcopy(entry)
+
+
+def replace_periods(history: dict, kif: dict, project_dir: Path) -> set[str]:
+    """An explicit reporting-model migration replaces the live view, retaining audit data."""
+    active={period_key(p) for p in kif.get('periods',[])}
+    old=history.get('periods',{})
+    removed={e['period']['name'] for key,e in old.items() if key not in active}
+    if removed:
+        signature=hashlib.sha256(json.dumps(history,sort_keys=True,default=str).encode()).hexdigest()[:12]
+        save(project_dir/'archives'/f'period-history-{signature}.json',history)
+        history['periods']={key:e for key,e in old.items() if key in active}
+        history['replaced_period_names']=sorted(set(history.get('replaced_period_names',[]))|removed)
+    active_names={p['name'] for p in kif.get('periods',[])}
+    return set(history.get('replaced_period_names',[]))-active_names
 
 
 def load(project_dir: Path) -> dict:

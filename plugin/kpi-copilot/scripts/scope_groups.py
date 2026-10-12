@@ -6,6 +6,15 @@ are not guessed to be children: the profile must name those members explicitly.
 from __future__ import annotations
 
 import re
+import board as B
+
+
+def delivery_members(classifier, children):
+    """A grouping relationship cannot turn an excluded QA/checklist card into delivery work."""
+    return [item for item in children
+            if not (classifier.ledger and
+                    (decision := classifier.ledger.usable(item["id"], "nature", B.fingerprint(item)))
+                    and decision.get("value") == "Excluded")]
 
 
 def resolve(classifier) -> tuple[dict, dict]:
@@ -45,7 +54,10 @@ def resolve(classifier) -> tuple[dict, dict]:
         children = [i for i in children if i.get("kind") not in ("milestone", "approval", "section")
                     and not any(rx.search(i.get("title") or "") for rx in excluded)]
         children = list({i["id"]: i for i in children}.values())
-        if len(children) < 2:
+        children = delivery_members(classifier, children)
+        # When all children are administrative, the source-matched feature remains the
+        # deliverable. With even one delivery child, keep the parent as budget only.
+        if not children:
             continue
         group = {"parent": parent, "source": source, "members": children,
                  "inherit_delivery": bool(cfg.get("inherit_parent_delivery"))}
@@ -73,7 +85,8 @@ def resolve(classifier) -> tuple[dict, dict]:
         children = [lookup[str(k)] for k in keys]
         children = [i for i in children if not any(rx.search(i.get("title") or "") for rx in excluded)]
         children = list({i["id"]: i for i in children}.values())
-        if len(children) < 2:
+        children = delivery_members(classifier, children)
+        if not children:
             continue
         source = {"_idx": "card:" + parent["id"], "_src": "card", "title": parent.get("title")}
         group = {"parent": parent, "source": source, "members": children, "card": True,

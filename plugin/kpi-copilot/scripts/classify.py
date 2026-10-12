@@ -178,6 +178,7 @@ class Classifier:
                 "previously": ({"value": before["value"], "why": before.get("why"), "note":
                                 "answered before the item changed"} if before else None),
                 "_context": context,
+                "candidate_event_dates": prop.get('dates'),
             })
         return prop
 
@@ -422,12 +423,14 @@ class Classifier:
 
         row: dict[str, Any] = {
             "period": period, "key": item.get("key") or item["id"], "link": item.get("url"),
+            "_source_fingerprint": B.fingerprint(item),
             "title": item.get("title") or "", "type": ttype, "exclude_reason": None,
             "planned": None, "hours_dev": None, "hours_qa": None, "hours_source": None,
             "story_points": _num((item.get("fields") or {}).get(self.trk.get("story_point_field") or "Story Points")),
             "assignee": item.get("assignee"), "created": B.day(item.get("created_at")),
             "delivered": delivered, "closed": closed, "rework_closed": rework_closed, "status": item.get("section"),
             "delivery_evidence": (scope_row or {}).get("delivery_evidence"),
+            "approved_on": (scope_row or {}).get("approved_on"),
             "understood": None, "understood_evidence": None, "understood_why": None,
             "met_client_date": None, "client_date": None, "met_commitment": None, "commit_date": None,
             "reopened": None, "reopen_count": None, "rework_evidence": None, "remarks": "", "_item": item["id"],
@@ -440,10 +443,18 @@ class Classifier:
 
         row["planned"] = ttype == "Task"
         self._hours(item, row, scope_row)
+        velocity=(self.profile.get('policy') or {}).get('velocity') or {}
+        cadence=(self.profile.get('periods') or {}).get('cadence') or {}
+        anchor=cadence.get('start') or cadence.get('anchor')
+        if velocity.get('completion')=='closed' and closed and (not anchor or closed>=anchor):
+            p=self.settle(item,'delivery',Proposal(None,'Closure alone does not establish completed implementation',0),
+                          'Does this Closed item represent completed implementation accepted by Dev and QA? Exclude closure without implementation (invalid or unreproducible findings, duplicates, administration).', ['Yes','No'])
+            row['delivery_eligible']=keep('delivery',p)
 
         if "status_history" in self.caps or item.get("events"):
             proposed_rework = self._reopened(item, row)
             event_count = proposed_rework.get("count")
+            row['rework_candidates']=proposed_rework.get('dates') or []
             judged = ((self.wf.get("reopened_when") or {}).get("confirm") == "judge"
                       or self.wf.get("judge") == "all")
             p = self.settle(item, "reopened", proposed_rework,
@@ -454,7 +465,7 @@ class Classifier:
                              "If Yes and only some of the moves back were real rework, also answer field "
                              "'reopen_count' with how many were." if judged and event_count else ""),
                             ["Yes", "No"], "rework" if judged else "events")
-            row["reopened"] = keep("reopened", p) if rework_closed or p["value"] == "Yes" else None
+            row["reopened"] = keep("reopened", p) if rework_closed or p["value"] == "Yes" or p.get('by') in ('ai','human') else None
             row["reopen_count"] = ((event_count or 1) if row["reopened"] == "Yes" else
                                    0 if row["reopened"] == "No" else None)
             told = (self.ledger.usable(item["id"], "reopen_count", B.fingerprint(item))
@@ -465,6 +476,11 @@ class Classifier:
                     row["reopened"] = "No"
             if p.get("evidence") and row["reopened"] == "Yes":
                 row["rework_evidence"] = p["evidence"]
+            row['rework_dates'] = (proposed_rework.get('dates') if row['reopened']=='Yes' and
+                                   row['reopen_count']==event_count else [] if row['reopened']=='No' else None)
+            accepted=self.ledger.usable(item['id'],'reopen_dates',B.fingerprint(item)) if self.ledger else None
+            if row['reopened']=='Yes' and accepted and isinstance(accepted['value'],list) and len(accepted['value'])==row['reopen_count'] and all(d in (proposed_rework.get('dates') or []) for d in accepted['value']):
+                row['rework_dates']=accepted['value']
         if "comments" in self.caps or "status_history" in self.caps or item.get("comments"):
             p = self.settle(item, "understood", self._understood(item),
                             "Did the team understand this requirement without having to go back to the "
@@ -564,6 +580,7 @@ class Classifier:
                            0.6 if judged else 0.85,
                            evidence=f"Closed on {_md(closed_on)} and reopened on {_md(B.day(hit.get('at')))}")
             out["count"] = len(hits)
+            out['dates'] = [B.day(h.get('at')) for h in hits]
             return out
         first_close = B.first_entered(item, closed_states) if closed_states else None
         fails = [e for e in B.ever_in(item, back) if "fail" in B.norm(e.get("to") or "")
@@ -695,7 +712,11 @@ class Classifier:
             "rejected": keep("rejected", rej),
             "rejection_reason": (rej_word or sect_word) if rej["value"] == "Yes" else None,
             "evidence": item.get("url"), "final_status": final, "against_task": None,
+            'story_points': _num((item.get('fields') or {}).get(self.trk.get('story_point_field') or 'Story Points')),
+            'hours_dev': _num((item.get('fields') or {}).get(self.trk.get('estimate_field') or 'Estimated Time')),
+            'hours_qa': None,
             "remarks": "", "basis": basis, "check": "; ".join(dict.fromkeys(notes)), "_item": item["id"],
+            "_source_fingerprint": B.fingerprint(item),
         }
 
     # -- the whole board ----------------------------------------------------------------------
@@ -711,7 +732,7 @@ class Classifier:
             if group and (item["id"] == group["parent"]["id"] or self._assignee_allowed(item)):
                 source = group["source"]
                 self._matched.add(source["_idx"])
-                kind = "Task" if source["_src"] == "plan" else "CR"
+                kind = "Task" if source["_src"] == "plan" else "Scope" if group.get("card") else "CR"
                 parent = group["parent"]
                 if item["id"] == parent["id"]:
                     row = self.task_row(item, Proposal(kind, "approved group estimate", 1), source)
@@ -729,10 +750,10 @@ class Classifier:
                                              f"This sits under {parent.get('key')} '{parent.get('title')}'. Is it a "
                                              "delivery ticket of that group (Task/CR), or not a deliverable (Excluded: "
                                              "QA testing or reporting, admin, duplicate, paperwork)?",
-                                             ["Task", "CR", "Excluded"], "comments")
-                        if member["value"] not in ("Task", "CR", "Excluded"):
+                                             ["Task", "CR", "Scope", "Excluded"], "comments")
+                        if member["value"] not in ("Task", "CR", "Scope", "Excluded"):
                             member = Proposal(kind, member["why"], member["confidence"], by=member["by"])
-                        elif member["value"] in ("Task", "CR") and member["value"] != kind:
+                        elif not group.get("card") and member["value"] in ("Task", "CR", "Scope") and member["value"] != kind:
                             member["value"] = kind     # the group's approval decides Task or CR
                     if member["value"] == "Excluded":
                         tasks.append(self.task_row(item, member, member_source))
@@ -824,6 +845,16 @@ class Classifier:
             if "assignee" in row and not row.get("effort_only") and not self._assignee_allowed(row):
                 row.update(type="Excluded", exclude_reason="assignee is outside the configured project team",
                            planned=False)
+        for row in (tasks if (self.profile.get('policy') or {}).get('refine_item_types') else []):
+            if row.get('type')!='CR' or row.get('effort_only'):continue
+            item=by_id.get(row.get('_item'))
+            if not item:continue
+            title=item.get('title') or ''
+            label='Change request' if re.search(r'\bchange request\b',title,re.I) else 'Additional request' if re.search(r'\badditional request\b',title,re.I) else None
+            call=self.settle(item,'request_kind',Proposal(label,'The title explicitly names the request type.' if label else 'Compare the request with the agreed scope before choosing its type.',.9 if label else 0),
+                             'Does this request add a new deliverable, or change an agreed requirement?',['Additional request','Change request'],'description')
+            row['request_kind']=call['value']
+            row.setdefault('basis',{})['request_kind']=call
         understood_by_period = {p: self._review_batch_choice(p, "Task Comprehension")
                                 for p in self.period_names}
         client_by_period = {p: self._review_delivery_choice(p, "Client Expectation")
@@ -1056,7 +1087,9 @@ class Classifier:
                     "url": parent.get("url"), "plan_modules": (scope or {}).get("modules") or [],
                     "counting_grain": self.grain}
             if want in ("description", "comments"):
-                q["item"]["description"] = (it.get("description") or "")[:600]
+                # The diagnosis often follows a long test setup. Silently clipping it can
+                # turn an existing issue or a rejected report into an invented new fault.
+                q["item"]["description"] = it.get("description") or ""
             if want in ("events", "comments", "rework"):
                 q["item"]["history"] = " -> ".join(
                     f"{e.get('to') or e.get('kind')} {_md(B.day(e.get('at')))}"
@@ -1071,7 +1104,7 @@ class Classifier:
                 selected = sorted(set(near[:15] + list(range(max(0, len(comments) - 4), len(comments)))))
                 q["item"]["comments"] = [
                     {"at": B.day(comments[i].get("at")), "by": comments[i].get("by"),
-                     "text": (comments[i].get("text") or "")[:700], "url": comments[i].get("url")}
+                     "text": comments[i].get("text") or "", "url": comments[i].get("url")}
                     for i in selected]
                 q["item"]["comments_omitted"] = len(comments) - len(selected)
             if want == "comments":

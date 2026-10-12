@@ -58,13 +58,15 @@ def write(tabs: list[M.Tab], out: Path) -> Path:
     for tab in tabs:
         ws = wb.create_sheet(tab.name[:31])
         ws.sheet_properties.tabColor = tab.color
+        ws.sheet_state='hidden' if tab.hidden else 'visible'
         ws.sheet_view.showGridLines = tab.gridlines
         for (r, c), cell in tab.cells.items():
             x = ws.cell(row=r, column=c)
             if cell.get("f"):
                 x.value = cell["f"]
             elif "v" in cell:
-                x.value = cell["v"]
+                import sheet_navigation
+                x.value = sheet_navigation.resolve(cell["v"])
                 if isinstance(cell["v"], str):
                     x.data_type = "s"  # tracker text beginning '=' is text, never an executable formula
             font, fill, align, box = cache.get(cell.get("style") or "text", cache["text"])
@@ -75,8 +77,12 @@ def write(tabs: list[M.Tab], out: Path) -> Path:
                 x.border = box
             if cell.get("fmt"):
                 x.number_format = cell["fmt"]
+            if cell.get('note'):
+                from openpyxl.comments import Comment
+                x.comment=Comment(cell['note'],'Notes')
             if cell.get("link"):
-                x.hyperlink = cell["link"]
+                import sheet_navigation
+                x.hyperlink = sheet_navigation.resolve(cell["link"])
         for c, w in tab.widths.items():
             ws.column_dimensions[get_column_letter(c)].width = w
         for c in tab.hidden_cols:

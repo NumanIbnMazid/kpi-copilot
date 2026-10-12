@@ -31,7 +31,8 @@ def terminology(text: str, profile: dict) -> str:
     label = (profile.get("conventions") or {}).get("additional_request_label")
     if not label:
         return text
-    return re.sub(r"\b(?:(?:additional|change)\s+)?requests?\b|\bCRs?\b",
+    pattern=(r'\badditional\s+requests?\b|\bCRs?\b' if (profile.get('policy') or {}).get('refine_item_types') else r"\b(?:(?:additional|change)\s+)?requests?\b|\bCRs?\b")
+    return re.sub(pattern,
                   lambda m: label + ("s" if m.group().lower().endswith("s") else ""), text, flags=re.I)
 
 
@@ -286,8 +287,13 @@ def _rework(s: dict) -> list[str]:
               f"None of the {group} had to be reopened after being closed.") if not r else
              f"{r} reopening {w(r, 'event was', 'events were')} recorded across the {group} ({n(s['value'])}%).")
     q = s.get("near") or 0
-    near = (f"{q} {w(q, 'task')} failed QA while still being tested for the first time. That is normal testing "
-            f"rather than rework, so {w(q, 'it is', 'they are')} not counted here.") if q else ""
+    f = s.get("first_round") or 0
+    near = (f"{f} {w(f, 'task')} failed QA while still being tested for the first time; "
+            "the evidence identifies this as first-round testing rather than rework. ") if f else ""
+    other = q - f
+    if other:
+        near += (f"{other} {w(other, 'task')} had a recorded status return assessed as not being rework of its own implementation. "
+                 "The item judgments record the reason for each exclusion.")
     u = s.get("unjudged") or 0
     gap = (f"{u} completed {w(u, 'task was', 'tasks were')} left out because the history needed to judge "
            f"{w(u, 'it', 'them')} was not available.") if u else ""
