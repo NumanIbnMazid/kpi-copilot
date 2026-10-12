@@ -80,9 +80,18 @@ def _api(base: str, path: str, method: str = "GET", body: dict | None = None,
         req.add_header("Authorization", f"Bearer {token}")
     for k, v in (extra or {}).items():
         req.add_header(k, v)
-    with urllib.request.urlopen(req, timeout=30) as r:
-        raw = r.read().decode("utf-8")
-        return json.loads(raw) if raw.strip() else {}
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            raw = r.read().decode("utf-8")
+            return json.loads(raw) if raw.strip() else {}
+    except urllib.error.HTTPError as e:
+        # A bare "400 Bad Request" says nothing; PMS puts the reason in the body.
+        try:
+            reason = re.sub(r"\s+", " ", e.read().decode("utf-8", "replace"))[:300]
+        except Exception:  # noqa: BLE001
+            reason = ""
+        raise urllib.error.HTTPError(e.url, e.code, f"{e.reason}: {reason}" if reason else e.reason,
+                                     e.headers, None) from None
 
 
 def read_current(base: str, project_id: int, token: str | None) -> dict | None:
@@ -97,6 +106,9 @@ def read_current(base: str, project_id: int, token: str | None) -> dict | None:
         return None
     current: dict = {}
     for kpi in (data if isinstance(data, list) else data.get("kpis") or data.get("data") or []):
+        meta = kpi.get("kpi") or kpi
+        if meta.get("name") and isinstance(meta.get("maxValue"), (int, float)):
+            current.setdefault("_limits", {})[meta["name"]] = (meta.get("minValue"), meta["maxValue"])
         for per in (kpi.get("periods") or []):
             pid = per.get("periodId") or (per.get("period") or {}).get("id") or per.get("id")
             val = per.get("periodKpiValue") or {}
@@ -236,8 +248,20 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"PMS {base}   project {project_id}   mode '{mode}'\n")
     blocked = False
+    limits = (current or {}).get("_limits") or {}
+    for p in payloads:
+        # PMS rejects the whole period when one value is outside the KPI's range. A value
+        # that does not fit is held back, so PMS keeps what it has and the rest still goes.
+        held = [k for k in p["kpis"] if k["name"] in limits and isinstance(k.get("value"), (int, float))
+                and not (limits[k["name"]][0] or 0) <= k["value"] <= limits[k["name"]][1]]
+        if held:
+            p["kpis"] = [k for k in p["kpis"] if k not in held]
+            p["held"] = [{"name": k["name"], "value": k["value"], "max": limits[k["name"]][1]} for k in held]
     for p in payloads:
         print(f"=== {p['name']}  (period {p.get('periodId') or 'MISSING'}) ===")
+        for h in p.get("held") or []:
+            print(f"  {h['name']:<22} {_num(h['value'])} is above the PMS maximum of {_num(h['max'])}; "
+                  "not sent, PMS keeps its current value")
         if not p.get("periodId"):
             print("  A new period will be created." if a.create_periods else
                   "  This period is not in PMS. Authorize --create-periods to create it.")
@@ -347,6 +371,7 @@ def main(argv: list[str] | None = None) -> int:
             "period": p["name"], "periodId": pid,
             "result": "verified" if not mismatched else f"mismatch: {', '.join(mismatched)}",
             "kpis": [{"name": k["name"], "value": k["value"]} for k in p["kpis"]],
+            **({"held": p["held"]} if p.get("held") else {}),
         })
         if mismatched:
             break  # Do not continue writing after the API contract fails verification.
