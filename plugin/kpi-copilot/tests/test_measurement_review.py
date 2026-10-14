@@ -126,7 +126,7 @@ class ReviewedMethods(unittest.TestCase):
 
     def test_method_is_retained_in_blank_notes(self):
         e,p=self.setup_case();m=e.rejection_rate(p);review.apply(e,m,p);e.finish_note(m,p['name']);review.annotate(e,m,p)
-        self.assertIn('Formula:',m.unmeasured_note);self.assertIn('decided',m.measurement_method.lower())
+        self.assertIn('Formula:',m.unmeasured_note);self.assertIn('reviewed',m.measurement_method.lower())
         self.assertEqual(m.review_items,[])
 
     def test_changed_feature_estimate_is_not_incremental_effort(self):

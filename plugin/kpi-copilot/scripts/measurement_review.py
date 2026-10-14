@@ -24,7 +24,7 @@ def description(profile, key, velocity_unit='Story Points'):
         'delivery_commitment':(size.title(),f'{size.title()} delivered by the agreed commitment date / {size} committed for that date x 100'),
         'defect_rate':(f'Defects per 100 {size}; completed project work to date',f'Confirmed unique defects linked to completed project work / {size} of that completed project work x 100'),
         'escaped_defect_rate':('Defect counts; same released delivery', 'Confirmed defects found after release / confirmed defects found before and after that same release x 100'),
-        'rejection_rate':('Decided bug-report counts','Reports confirmed as rejected / bug reports with a confirmed accepted or rejected decision x 100'),
+        'rejection_rate':('Reviewed bug reports','Rejected bug reports / bug reports confirmed as valid or rejected x 100'),
         'rework_rate':(f'Affected {size}; project work reviewed to date',f'{size.title()} of reviewed work with a valid return for correction / {size} of all work reviewed after the agreed completion boundary x 100'),
         'cr_rate':(size.title(),f'{size.title()} of newly approved additional or changed work / {size} in the original agreed scope x 100'),
     }[key]
@@ -118,7 +118,8 @@ def apply(engine,m,p):
             rows=[d for d in engine.defects_in(p['name']) if engine._defect_kind(d)]
             decided=[d for d in rows if d.get('rejected') in ('Yes','No')]
             num=sum(d.get('rejected')=='Yes' for d in decided);den=len(decided)
-            detail=f'{num} rejected '+('report' if num==1 else 'reports')+f' among {den} decided reports; {len(rows)-den} reports still need a decision. PMS rejection reasons remain in the review; duplicates are named separately rather than treated as new defects.'
+            detail=(f'{den} bug reports have been reviewed: {num} rejected and {den-num} confirmed as valid. '
+                    f'{len(rows)-den} reports still await review. Rejection reasons are recorded with each report.')
             _set(engine,m,num,den,detail,'Decide the pending bug reports before treating this result as complete.' if len(decided)!=len(rows) else None)
             return True
         if m.key=='rework_rate':
