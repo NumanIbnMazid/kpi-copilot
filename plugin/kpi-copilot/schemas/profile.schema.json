@@ -831,6 +831,23 @@
               },
               "uniqueItems": true
             },
+            "completion_confirmations": {
+              "type": "array",
+              "description": "Dated confirmations that one resource has entered all project time for an inclusive range. A zero in that range is no longer treated as an unresolved missing entry; no hours are invented.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["resource_id", "start", "end", "confirmed_on", "by", "why"],
+                "properties": {
+                  "resource_id": {"type": ["string", "integer"]},
+                  "start": {"type": "string", "format": "date"},
+                  "end": {"type": "string", "format": "date"},
+                  "confirmed_on": {"type": "string", "format": "date"},
+                  "by": {"type": "string", "minLength": 1},
+                  "why": {"type": "string", "minLength": 1}
+                }
+              }
+            },
             "kind": {
               "enum": [
                 "pms"
@@ -1294,6 +1311,22 @@
         "measurement_targets_aligned": {
           "type": "boolean",
           "default": false
+        },
+        "measurement_review": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use reviewed pilot methods: original scope counted once for rework, decided-report rejection, matching completed-work defect density and same-release escape counts. Print method and formula in notes."
+        },
+        "productivity_index": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Track total Velocity and Productivity Index separately. Enable at profile or account scope for a shared rollout.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            }
+          }
         }
       }
     },

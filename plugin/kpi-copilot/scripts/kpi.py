@@ -505,7 +505,8 @@ def cmd_run(args) -> int:
     if (ws.profile.get('periods') or {}).get('cadence'):
         reporting.filter_work(work,kif)
     capacity_cfg = (ws.profile.get('sources') or {}).get('capacity') or {}
-    if capacity_cfg.get('kind') == 'pms' and (ws.profile.get('policy') or {}).get('velocity', {}).get('mode') == 'per_resource_day':
+    import productivity
+    if capacity_cfg.get('kind') == 'pms' and (productivity.enabled(ws.profile) or (ws.profile.get('policy') or {}).get('velocity', {}).get('mode') == 'per_resource_day'):
         import pms_capacity
         cache = ws.facts.setdefault('capacity', {})
         for period in kif['periods']:
@@ -520,7 +521,8 @@ def cmd_run(args) -> int:
                 if capacity_cfg.get('basis')=='pms_timelog':
                     logs=pms_capacity.read_timesheets(ws.profile['organization']['pms_base_url'],ws.project['pms_project_id'],period['start'],period['as_of'])
                     period['capacity']=pms_capacity.normalize_timelogs(raw_capacity,logs,period['start'],period['as_of'],ws.today,
-                        capacity_cfg.get('hours_per_day',8),capacity_cfg.get('timesheet_entry_lag_days',7),capacity_cfg.get('eligible_resource_ids'))
+                        capacity_cfg.get('hours_per_day',8),capacity_cfg.get('timesheet_entry_lag_days',7),capacity_cfg.get('eligible_resource_ids'),
+                        capacity_cfg.get('completion_confirmations'))
                 else:
                     period['capacity']=pms_capacity.normalize(raw_capacity,period['start'],period['as_of'],capacity_cfg['weekdays'],capacity_cfg.get('allocations'))
                 period['capacity']['read_at']=B.now_iso()
@@ -561,11 +563,18 @@ def cmd_run(args) -> int:
             work["questions"].append({"id": "reason:" + tag, "about": note["period"],
                                       "question": f"{note['period']} · {note['kpi']}: {missing}", "blocking": False})
     import note_policy
+    if (ws.profile.get('policy') or {}).get('measurement_review') and not (ws.profile.get('policy') or {}).get('measurement_targets_aligned'):
+        work['questions'].append({'id':'measurement:method-alignment','about':'Project measurement methods',
+            'question':'Review the KPI formulas in Decisions and agree the matching PMS units and targets. Previous count-based targets do not automatically apply to the revised measurements.', 'blocking':True})
     upcoming_names={p['name'] for p in kif.get('periods',[]) if p.get('upcoming')}
     for period in results.get("periods") or []:
         if period['period'] in upcoming_names:
             continue
         for measure in period.get("measures") or []:
+            publication = measure.get('publication_review') or {}
+            if publication.get('status') == 'stale':
+                work['questions'].append({'id':'publication:'+period['period']+'|'+measure['name']+':'+publication['basis'],
+                    'about':period['period'], 'question':measure['name']+': the publication decision no longer matches the evidence. Review a fresh decision before publication.', 'blocking':True})
             if (ws.profile.get('periods') or {}).get('cadence'):
                 details=list(dict.fromkeys(measure.get('gaps') or measure.get('review_items') or []))
                 if details:

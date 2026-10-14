@@ -182,6 +182,9 @@ class Measure:
     direction: str
     status: str  # Met | Not met | Not measured
     availability: str = ""
+    measurement_method: str = ""
+    measurement_formula: str = ""
+    publication_review: dict = field(default_factory=dict)
     numerator: float | None = None
     denominator: float | None = None
     counted_keys: list[str] = field(default_factory=list)
@@ -1356,6 +1359,8 @@ class Engine:
         entry = (self.manual.get(period_name) or {}).get(m.name)
         if not entry:
             return
+        if entry.get('publication') in ('notes_only', 'reviewed_value'):
+            return  # Applied after computation/annotation against the reviewed basis.
         has_value = entry.get("value") is not None and str(entry.get("value")).strip() != ""
         has_note = bool(str(entry.get("note") or "").strip())
         if not (has_value or has_note):
@@ -1461,12 +1466,22 @@ class Engine:
                 self.rework_rate(period),
                 self.cr_rate(period),
             ]
+            import productivity
+            if productivity.enabled(self.profile):
+                productivity.prepare_velocity(self, period, measures[0])
+                measures.insert(1, productivity.measure(self, period, measures[0]))
             self._status_line = self._period_status(period, name)
             for m in measures:
                 import reporting
                 reporting.apply(self, m, period)
                 self.finish_note(m, name)
                 self.apply_manual(m, name)
+                if (self.profile.get('policy') or {}).get('measurement_review'):
+                    import measurement_review
+                    measurement_review.annotate(self,m,period)
+            import publication_decisions
+            publication_decisions.apply(self, period, measures)
+            productivity.add_pms_fallback(measures)
             self._status_line = ""
             rows = self.deliverables_in(name)
             facts = {

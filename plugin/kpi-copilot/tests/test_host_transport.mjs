@@ -27,6 +27,10 @@ const opts={directory:'/private',fs,origins:{pms:'https://pms.example'},
 assert.equal((await drain(opts))[0].ok,false);
 assert.equal(browserCalls,0);
 files.delete('/private/one.response.json');
+assert.equal((await drain({...opts,allowPeriodDeletion:true}))[0].ok,true);
+assert.equal(browserCalls,1);
+browserCalls=0;
+files.delete('/private/one.response.json');
 pending.method='PUT';pending.expires_at=1;
 files.set('/private/one.request.json',JSON.stringify(pending));
 assert.deepEqual(await drain(opts),[]);

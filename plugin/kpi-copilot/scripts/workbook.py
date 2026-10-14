@@ -599,7 +599,7 @@ EDITABLE = {
                       "commitment_evidence", "reopened", "rework_evidence", "exclude_reason",
                       "remarks"},
     "Defect Register": {"kind", "phase", "pre_existing", "rejected", "rejection_reason",
-                        "evidence", "final_status", "remarks"},
+                        "evidence", "final_status", "remarks", "against_task"},
     "Periods": {"client_date", "commit_date", "client_check", "handover_date", "team_hours",
                 "notes", "plan_text"},
     "KPI Summary": {"why", "set_value_by_hand", "set_note_by_hand", "why_set_by_hand"},

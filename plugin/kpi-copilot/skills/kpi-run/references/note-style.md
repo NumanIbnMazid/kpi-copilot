@@ -6,9 +6,36 @@ can act on, and a note that reads like machine output gets skimmed and then dist
 **Must have: write for a decision maker who has no project background.** A reader must be
 able to understand the result, what work is involved, what happened, and how it affects the
 delivery or decision without asking the project team to translate it. Describe work before
-using ticket references. Explain local terms such as a QA handoff counting as closure.
+using ticket references. State a nonstandard measurement boundary when it affects the result.
 Never turn an estimate row into a claimed ticket count, or a high defect ratio into a
 percentage of faulty features. Use the client's configured name for additional work.
+
+PMS readers may have no access to the KPI workbook. Every note must stand alone: include
+the relevant agreement, dates, decision and practical scope instead of saying "see
+Decisions", "see Team Review" or referring to an internal sheet. Assume readers know the
+standard KPIs and story points. State the unit where needed, such as defects per 100 SP;
+do not teach basic definitions. Distinguish a scoped zero from an absence of all problems.
+
+Keep each note to the result or basis plus the material cause, exception or delivery fact.
+Usually two to four clauses separated by ` || ` suffice. Preserve enough work and event
+context for an unfamiliar reader; do not shorten notes into unexplained fragments. Include
+the formula and substituted numbers when the measurement differs from the usual KPI
+interpretation. Keep only qualifications that change interpretation. Avoid generic inclusion rules,
+review-process narration, or "under the project lead's instruction" wording. Retain
+reviewer and authorization details in the audit rather than management notes.
+Use natural sentences: explain what happened, then how it produced the number. A formula
+supports the work context; it should not replace it or become a repeated "Formula:" heading.
+For added scope, name the work and approved hours when supported by the approval source,
+then identify the team's internal SP estimate and compare it with the original scope.
+Do not say the client approved SP or an internal hours estimate unless the source says so.
+Explain any shared estimate or unestimated request that affects the result.
+For PI, distinguish the eligible resource count from the hours-per-person-day conversion.
+
+When PMS caps a known or explicitly reviewed result, send its maximum and state the
+actual result and cap in the note. Retain the actual value in the workbook and downstream
+calculations. A reviewed publication decision keeps `value` as the actual result and sets
+`pms_value` to the ceiling. A missing measurement is not a reason to send the maximum.
+For cumulative measures, say "since project start" rather than "project-to-date".
 
 The queue requests review of every KPI note, including Met and Not measured. Read the
 complete generated note with its evidence and earlier explanation, rewrite the explanation
@@ -31,11 +58,12 @@ Changed figures require renewed review of an edited summary.
 
 Example:
 
-> The team completed 685 hours of work in this cycle, across 53 delivered items: 39 from the
-> plan and 14 additional requests. || That is 432 hours of development and 118 hours of QA,
-> plus 135 hours of shared work such as bug fixing, QA checks and regression. || The hours for
-> the additional requests come from the Additional Effort Estimates sheet, which Northwind
-> approved on 07/31 and 08/12.
+> 24 SP completed across 8 accepted items || Calendar sync excluded pending QA acceptance.
+
+For a less familiar unit:
+
+> 5 defects per 100 SP (2/40 × 100), since project start through 08/14 || Calendar sync and kiosk
+> sign-in faults; both corrections accepted by QA.
 
 The older style - a heading, then joined fragments ("Work finished in this cycle || 685 h
 across 53 items: ...") - is still available as `organization.note_style: fragments`. The
