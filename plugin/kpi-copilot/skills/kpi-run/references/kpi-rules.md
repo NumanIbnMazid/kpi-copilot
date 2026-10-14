@@ -76,6 +76,20 @@ Work finished in the period, in the project's unit.
 - Story-point projects count points and ignore team hours, because there is no sensible way
   to express shared effort in points.
 
+### Productivity Index (separate companion KPI)
+
+Enable `policy.productivity_index.enabled` to keep Velocity as total completed points and
+add **Productivity Index = completed story points / productive project person-days**.
+Exclude holidays and leave from calendar capacity. When actual project worklogs supply
+the denominator, divide eligible billable Dev/QA project hours by configured hours per
+day; do not deduct absences a second time. Shared staff contribute only their project
+effort. A confirmed participant with missing hours stays included and makes PI unmeasured.
+
+PI has its own field in local results and Sheets. Until PMS exposes a PI field ID, append
+its reviewed result to the Velocity note, preserving Velocity's total as the numeric
+value. A real PI registry field disables that fallback. Do not inherit Velocity targets
+or interpret a change in PI as proof of any particular cause.
+
 ### Task Comprehension (higher is better, min 80)
 
 The share of items the team could build from the requirement without going back to the

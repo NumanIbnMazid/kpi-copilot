@@ -54,6 +54,8 @@ def resolve_path(profile_path: Path | None, profile: dict, explicit: Path | None
 # keys are what our code says. Matching on the name keeps working if PMS renumbers.
 NAME_TO_KEY = {
     "velocity": "velocity",
+    "productivity index": "productivity_index",
+    "productivity index (pi)": "productivity_index",
     "task comprehension": "task_comprehension",
     "client expectation": "client_expectation",
     "delivery commitment": "delivery_commitment",
@@ -194,6 +196,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--project", type=int, action="append", default=[],
                     help="A PMS project id whose own thresholds to read. Repeatable. Omitted: every "
                          "pms_project_id in the profile.")
+    ap.add_argument("--project-definitions", action="store_true",
+                    help="Read definitions from one selected project's KPI endpoint when the master list is restricted.")
     ap.add_argument("--project-from-json", type=Path,
                     help="A saved /api/projects/<id>/kpis response; use with a single --project.")
     ap.add_argument("--out", type=Path)
@@ -219,6 +223,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     rows: list[dict] = []
+    project_rows = {}
     if a.from_json:
         raw = _load(a.from_json)
         rows = raw if isinstance(raw, list) else (raw.get("data") or raw.get("kpis") or [])
@@ -230,7 +235,13 @@ def main(argv: list[str] | None = None) -> int:
         base = (profile.get("organization") or {}).get("pms_base_url")
         token = os.environ.get("PMS_TOKEN")
         try:
-            raw = fetch(base, token)
+            if a.project_definitions:
+                if len(a.project) != 1:
+                    raise ValueError('--project-definitions requires exactly one --project')
+                raw = fetch_project(base, a.project[0], token)
+                project_rows[a.project[0]] = raw
+            else:
+                raw = fetch(base, token)
             rows = raw if isinstance(raw, list) else (raw.get("data") or raw.get("kpis") or [])
         except urllib.error.HTTPError as e:
             print(f"PMS answered {e.code}. If it is 401 or 403, this machine has no PMS token: open the KPI "
@@ -255,10 +266,14 @@ def main(argv: list[str] | None = None) -> int:
     ]
     base = (profile.get("organization") or {}).get("pms_base_url", "")
     token = os.environ.get("PMS_TOKEN")
-    reg["projects"] = {}
+    # A focused refresh must not discard other projects' recorded thresholds.
+    previous = _load(a.out) if a.out.exists() else {}
+    reg["projects"] = dict(previous.get("projects") or {})
     for pid in wanted:
         try:
-            if a.project_from_json:
+            if pid in project_rows:
+                prows = project_rows[pid]
+            elif a.project_from_json:
                 prows = _load(a.project_from_json)
                 prows = prows if isinstance(prows, list) else (prows.get("kpis") or prows.get("data") or [])
             else:
@@ -273,6 +288,7 @@ def main(argv: list[str] | None = None) -> int:
             bits = ", ".join(f"{k} {v['threshold']}" for k, v in sorted(own.items()))
             print(f"Project {pid} sets its own targets: {bits}")
         else:
+            reg["projects"].pop(str(pid), None)
             print(f"Project {pid} uses the PMS defaults for every KPI.")
 
     a.out.parent.mkdir(parents=True, exist_ok=True)

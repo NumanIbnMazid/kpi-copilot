@@ -30,7 +30,7 @@ def build(periods, names, ctx, last):
         def lookup(c):
             return f"INDEX('KPI Summary'!${c}$4:${c}${last},$H{i})"
         dashboard.put(i, 2, None, "calc_r", f=f'=IF($B$4="","",IF({lookup("G")}="",{lookup("J")},{lookup("G")}))',
-                      fmt='0.00' if M.metric_name(name) == "Velocity" else '0.00"%"')
+                      fmt='0.0000' if name == 'Productivity Index' else '0.00' if M.metric_name(name) == "Velocity" else '0.00"%"')
         dashboard.put(i, 3, None, "calc", f=f'=IF($B$4="","",IF({lookup("H")}="","Not set",IF({lookup("I")}="Min","At least ","At most ")&{lookup("H")}'
                       + (f'&IF({lookup("T")}="%","%","")' if simple else '&""' if M.metric_name(name) == "Velocity" else '&"%"') + '))')
         dashboard.put(i, 4, None, "calc", f=f'=IF($B$4="","",{lookup("J")} )')
@@ -38,9 +38,9 @@ def build(periods, names, ctx, last):
                       gf=f'=IF(ISNUMBER(B{i}),SPARKLINE(B{i},{{"charttype","bar";"max",MAX(100,B{i});"color1",IF(D{i}="Met","#38761d","#cc0000")}}),"")')
         if simple:
             dashboard.put(i,5,None,'data',f=f'=IF($B$4="","",{lookup("T")})')
-            dashboard.cells[(i,2)]['fmt']='0.0000' if M.metric_name(name)=='Velocity' else '0.00'
-    dashboard.when(8, 4, 16, 4, '=D8="Met"', fill="C6EFCE", color="006100")
-    dashboard.when(8, 4, 16, 4, '=OR(D8="Above maximum",D8="Below minimum")', fill="FFC7CE", color="9C0006")
+            dashboard.cells[(i,2)]['fmt']='0.0000' if name=='Productivity Index' else '0.00'
+    dashboard.when(8, 4, 7+len(names), 4, '=D8="Met"', fill="C6EFCE", color="006100")
+    dashboard.when(8, 4, 7+len(names), 4, '=OR(D8="Above maximum",D8="Below minimum")', fill="FFC7CE", color="9C0006")
     dashboard.put(19, 1, "KPI Summary contains the calculation and notes. Yellow cells there and in the registers remain editable.", "note")
     dashboard.put(21, 1, "Periods retained", "label")
     dashboard.put(21, 2, len(periods), "data_r")
@@ -70,7 +70,7 @@ def build(periods, names, ctx, last):
             value = f"INDEX('KPI Summary'!$G$4:$G${last},{pos})"
             status=f"INDEX('KPI Summary'!$J$4:$J${last},{pos})"
             overview.put(row, c, None, "calc_r", f=f'=IF({value}="",{status},{value})',
-                         fmt='0.00' if M.metric_name(name) == "Velocity" else '0.00"%"')
+                         fmt='0.0000' if name == 'Productivity Index' else '0.00' if M.metric_name(name) == "Velocity" else '0.00"%"')
             helper = c + len(columns)
             overview.put(row, helper, None, "calc", f=f"=INDEX('KPI Summary'!$J$4:$J${last},{pos})")
             overview.when(row, c, row, c, f'=${M.col(helper)}{row}="Met"', fill="C6EFCE", color="006100")
@@ -88,5 +88,5 @@ def build(periods, names, ctx, last):
         for (r,c),cell in overview.cells.items():
             if r>=5 and 2<=c<=len(names)+1:
                 key=names[c-2];unit=(ctx.get('overview_units') or {}).get(key)
-                cell['fmt']='0.0000' if M.metric_name(key)=='Velocity' else '0.00"%"' if unit=='%' else '0.00'
+                cell['fmt']='0.0000' if key=='Productivity Index' else '0.00"%"' if unit=='%' else '0.00'
     return dashboard, overview

@@ -32,6 +32,8 @@ import board as B
 RUBRIC_VERSION = "1.2"
 
 RUBRIC = {
+    'against_task': 'Select the implementation whose requirement or changed code caused this confirmed defect. Use explicit references, the described failure and the candidate scope. A grouping card or the defect-fix card itself is not an implementation link. Similar words alone do not prove causation. If the supplied evidence cannot establish the link, answer null.',
+    'approved_on': 'Select the date the client explicitly authorized this additional deliverable. A dated client instruction to implement it is approval; an internal estimate, card creation or a clarification question alone is not. If approval is pending or its date cannot be established, answer null. Explain the specific authorization evidence.',
     'request_kind': 'Additional request adds a new deliverable beyond the agreed scope. Change request changes an already agreed requirement or deliverable. Approval or an estimate alone does not distinguish these. Use the request description and approved scope; if that comparison is absent, answer null and ask for it.',
     'delivery': 'Yes only when the Closed item represents completed implementation accepted by Dev and QA. No for a finding closed without implementation, an unreproducible or invalid report, duplicate, administration, or cancellation. Closure alone is not evidence of delivered output. If the comments do not establish which occurred, answer null and ask for implementation/acceptance evidence.',
     "nature": (
@@ -75,9 +77,18 @@ RUBRIC = {
         "users after the handover. What decides it is who found it and whether the client already had the "
         "build - not the calendar alone. The team's own QA finding something after a handover is still QA."),
     "reasons": (
-        "MUST: read the complete KPI note as a decision maker with no project background. Explain which work "
-        "is being measured, what happened, its effect on delivery, and any agreed decision. Put missing "
-        "evidence, measurement limitations and requests for clarification in review questions, not PMS notes. "
+        "MUST: read the complete KPI note as a decision maker who knows standard KPIs but has no project "
+        "background or access to the internal workbook. Write natural sentences explaining the actual work "
+        "or event, then how it produced the result and any material exclusion or limit. Use two to four clauses separated "
+        "by ||. Preserve enough work and event context for an unfamiliar reader; do not reduce the note "
+        "to unexplained fragments. For a nonstandard measurement, include its formula and substituted "
+        "numbers. State units where needed. Remove basic definitions and reviewer or "
+        "authorization boilerplate. Keep material measurement limits in the note; put requests for "
+        "missing evidence in review questions. Do not refer readers to Decisions, Team Review or the workbook. "
+        "For CR, distinguish client approval of work and estimated hours from the team's internal story points. "
+        "Never say the client approved story points unless the source explicitly says that. "
+        "Do not describe an internal estimate as approved hours. For PI, label the hours-per-person-day "
+        "conversion and the eligible resource count separately. "
         "Use familiar words, explain project-specific terms, and describe the "
         "work before referring to a ticket number. Do not infer a cause from a high ratio or a status change. "
         "Review Met and Not measured notes as carefully as missed KPIs. The 'why' is one to three plain "
@@ -89,6 +100,7 @@ RUBRIC = {
 }
 
 FIELDS = {
+    'against_task': None, 'approved_on': None,
     'request_kind': ['Additional request','Change request'],
     'delivery': ['Yes','No'],
     "nature": ["Task", "CR", "Scope", "Excluded", "Bug", "Observation", "Improvement", "Query"],
@@ -184,18 +196,27 @@ def _notes_needed(results: dict, facts: dict, review: bool = False, kif: dict | 
             }
             if review:
                 tasks = [t for t in (kif or {}).get("tasks") or [] if t.get("period") == name]
+                if m.get('measurement_method') and m.get('key')=='rework_rate':
+                    source=(kif or {}).get('project',{}).get('measurement_source') or kif or {}
+                    tasks=[t for t in source.get('tasks',[]) if t.get('key') in (m.get('counted_keys') or [])]
                 entry["context"]["groups"] = [
                     {"key": t["key"], "title": t["title"], "members": [
                         x["key"] for x in tasks if x.get("effort_group") == t.get("_item")]}
                     for t in tasks if t.get("effort_only")]
                 entry["context"]["item_evidence"] = [
-                    {k: t.get(k) for k in ("key", "title", "rework_evidence", "understood_why", "remarks")}
+                    {k: t.get(k) for k in ("key", "title", "rework_evidence", "rework_dates", "understood_why", "remarks")}
                     for t in tasks if t.get("type") != "Excluded" and
                     (t.get("understood") == "No" if m.get("key") == "task_comprehension" else
                      t.get("reopened") == "Yes" if m.get("key") == "rework_rate" else False)]
                 entry["context"]["approved_additions"] = [
                     {k: x.get(k) for k in ("title", "approved_on", "dev_hours", "qa_hours")}
                     for x in (facts.get("estimates") or {}).get("items") or [] if x.get("period") == name]
+                if m.get('key')=='cr_rate' and p.get('reporting_window'):
+                    source=(kif or {}).get('project',{}).get('measurement_source') or kif or {}
+                    entry['context']['approved_scope']=[
+                        {k:t.get(k) for k in ('key','title','approved_on','story_points','hours_dev','hours_qa','effort_group','effort_only')}
+                        for t in source.get('tasks',[]) if (t.get('type')=='CR' or t.get('effort_only')) and
+                        p.get('start','')<=str(t.get('approved_on') or '')[:10]<=(p.get('as_of') or p.get('end',''))]
                 if m.get("key") == "rejection_rate":
                     entry["context"]["rejected_reports"] = [
                         {"key": d.get("key"), "title": d.get("title"),
@@ -263,6 +284,9 @@ def apply_answers(answers_path: Path, board: dict, ledger, facts: dict, period_n
             unsure.append(f"{label} · {field}: {why}")
             continue
         allowed = period_names if field == "period" else FIELDS[field]
+        if field in ('against_task','approved_on'):
+            allowed=next((c.get('options',[]) for g in queued.get('items',[]) if g['item_id']==iid
+                          for c in g['asks'] if c['field']==field),[])
         if value not in allowed:
             refused.append(f"{label} · {field}: '{value}' is not one of {', '.join(allowed)}")
             continue

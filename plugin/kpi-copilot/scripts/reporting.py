@@ -8,6 +8,7 @@ import copy
 import datetime as dt
 import math
 import statistics
+from productivity import enabled as productivity_enabled
 
 
 def windows(config, today):
@@ -40,6 +41,10 @@ def intervalize(kif, profile, today, board=None):
     config=(profile.get('periods') or {}).get('cadence')
     if not config: return kif
     out=copy.deepcopy(kif)
+    if (profile.get('policy') or {}).get('measurement_review'):
+        # Keep original delivery/release membership. Calendar discovery and
+        # completion windows are not interchangeable quality populations.
+        out['project']['measurement_source']={k:copy.deepcopy(kif[k]) for k in ('tasks','defects','periods')}
     # Milestone dates are not commitments for every calendar window.
     for field in ('client_date','commit_date'):
         out['project'][field]=None
@@ -124,7 +129,7 @@ def unit(profile, key):
 
 def weight(row, chosen, basis='dev'):
     if chosen=='count': return 1.0
-    if row.get('effort_group'):
+    if row.get('effort_group') and chosen!='story_points':
         raise ValueError('A group estimate cannot be divided between member outcomes; provide member estimates')
     values=[row.get('story_points')] if chosen=='story_points' else [row.get('hours_dev')]
     if chosen=='hours' and basis=='dev+qa': values.append(row.get('hours_qa'))
@@ -159,14 +164,23 @@ def pilot_target(engine, key, period):
 def apply(engine, measure, period):
     """Change a metric's mathematical basis before its note and status are finalized."""
     m=measure;cfg=(engine.profile.get('policy') or {})
+    if m.key == 'productivity_index':
+        return
+    if cfg.get('measurement_review'):
+        import measurement_review
+        if measurement_review.apply(engine,m,period):return
     agreed=((engine.profile.get('periods') or {}).get('cadence') or {}).get('agreed_delivery_date')
     if agreed and m.key in ('client_expectation','delivery_commitment') and period.get('as_of','')<agreed and not period.get('upcoming'):
         m.value=None;m.pms_value=None;m.status='Not measured';m.availability='Not due yet';m.gaps=[];m.review_items=[];m._say={}
-        m.note_parts=[f'{m.name} is not due yet. The agreed project delivery date is {agreed}.',
-                      'The client expectation and team commitment use this same date. No on-time delivery result is claimed before the project handover is due. See Decisions for the agreement.']
+        context=((engine.profile.get('periods') or {}).get('cadence') or {}).get('delivery_date_context')
+        m.note_parts=[f'{m.name} is not scored yet because the agreed delivery date has not arrived. '
+                      f'The client expects the completed project by {agreed}, and the team has committed to the same date.',
+                      context or 'This date applies to the whole project, rather than a separate delivery every reporting period.',
+                      'The result will show whether the project was delivered on time once the agreed date or actual delivery is reached.']
         return
     v=cfg.get('velocity') or {}
-    active_rate=(m.key=='velocity' and v.get('mode')=='per_resource_day' and
+    import productivity
+    active_rate=(m.key=='velocity' and not productivity.enabled(engine.profile) and v.get('mode')=='per_resource_day' and
                  (not v.get('effective_from') or period.get('start','')>=v['effective_from']))
     chosen=unit(engine.profile,m.key)
     if period.get('upcoming'):
@@ -296,8 +310,8 @@ def apply(engine, measure, period):
                 from kpi_engine import rework_population
                 completed,_,assumed=rework_population(engine.kif,engine.profile,name)
                 rows=[t for t in completed if t.get('reopened') in ('Yes','No')]+assumed
-                num=sum(weight(t,chosen,basis)*int(t.get('reopen_count') or 1) for t in rows if t.get('reopened')=='Yes')
-                den=w(rows);m.unit='%';formula=f'{label} of rework events / assessed completed {label} × 100'
+                num=sum(weight(t,chosen,basis)*(1 if cfg.get('measurement_review') else int(t.get('reopen_count') or 1)) for t in rows if t.get('reopened')=='Yes')
+                den=w(rows);m.unit='%';formula=f'{label} of affected completed work / assessed completed {label} × 100' if cfg.get('measurement_review') else f'{label} of rework events / assessed completed {label} × 100'
             elif m.key=='cr_rate':
                 rows=engine.tasks_in(name)
                 base=[t for t in rows if t.get('type')=='Task']

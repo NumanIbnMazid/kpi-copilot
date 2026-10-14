@@ -2,7 +2,7 @@
  * Requests use the current tab's own origin. Session credentials stay in that origin.
  * Asana reads use its ordinary reader, including complete paginated story histories.
  */
-export async function drain({directory, fs, clients, origins, limit = 12}) {
+export async function drain({directory, fs, clients, origins, limit = 12, allowPeriodDeletion = false}) {
   const files = (await fs.readdir(directory)).filter(n => n.endsWith('.request.json'));
   const jobs = [];
   for (const name of files) {
@@ -22,7 +22,8 @@ export async function drain({directory, fs, clients, origins, limit = 12}) {
           (q.service === 'asana' && q.method !== 'GET')) throw new Error('Request outside configured API scope');
       if(q.service==='pms' && q.method!=='GET' &&
          !((q.method==='POST' && /^\/api\/projects\/\d+\/periods$/.test(url.pathname)) ||
-           (q.method==='PUT' && /^\/api\/projects\/\d+\/periods\/\d+$/.test(url.pathname))))
+           (q.method==='PUT' && /^\/api\/projects\/\d+\/periods\/\d+$/.test(url.pathname)) ||
+           (allowPeriodDeletion && q.method==='DELETE' && /^\/api\/projects\/\d+\/periods\/\d+$/.test(url.pathname))))
         throw new Error('Only project KPI period writes are supported');
       for (const [key, value] of Object.entries(q.params || {})) url.searchParams.set(key, String(value));
       const job = {path: url.pathname + url.search, method: q.method, body: q.body, service: q.service,

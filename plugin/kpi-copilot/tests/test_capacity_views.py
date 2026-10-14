@@ -32,7 +32,8 @@ class CapacityTests(unittest.TestCase):
         logs={'data':[{'entryDate':'2026-09-07','worklogs':[{'user':{'id':1},'timeSpentInMinute':120},{'user':{'id':2},'timeSpentInMinute':480}]}]}
         cap=C.normalize_timelogs(raw,logs,'2026-09-07','2026-09-18','2026-10-07',8,7,[1,3])
         self.assertEqual(cap['resource_days'],.25)
-        self.assertEqual([r['included'] for r in cap['resources']],['Yes','No','No'])
+        self.assertEqual([r['included'] for r in cap['resources']],['Yes','No','Pending hours'])
+        self.assertTrue(cap['resources'][2]['eligible'])
         self.assertEqual(cap['missing_entry_resources'],['Jo'])
         self.assertFalse(cap['provisional'])
 
@@ -58,7 +59,8 @@ class CapacityTests(unittest.TestCase):
 
     def test_future_agreement_is_not_a_zero_or_a_missing_date(self):
         import reporting
-        profile={'periods':{'cadence':{'agreed_delivery_date':'2026-12-01'}}}
+        profile={'periods':{'cadence':{'agreed_delivery_date':'2026-12-01',
+                                     'delivery_date_context':'The client and team agreed this date on 10/01.'}}}
         engine=type('Engine',(),{'profile':profile})()
         m=E.Measure('client_expectation','Client Expectation',1,0,'% ',90,'setting','higher-is-better','Not met')
         reporting.apply(engine,m,{'as_of':'2026-10-07'})
@@ -66,6 +68,8 @@ class CapacityTests(unittest.TestCase):
         self.assertEqual(m.availability,'Not due yet')
         self.assertEqual(m.gaps,[])
         self.assertIn('2026-12-01',' '.join(m.note_parts))
+        self.assertIn('agreed this date on 10/01',' '.join(m.note_parts))
+        self.assertNotIn('See Decisions',' '.join(m.note_parts))
 
     def test_refined_types_do_not_rename_a_change_as_an_addition(self):
         import note_sentences

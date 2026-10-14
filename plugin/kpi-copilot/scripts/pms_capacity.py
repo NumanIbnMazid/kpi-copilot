@@ -55,7 +55,8 @@ def _read_timesheet_week(base, project_id, start, end):
     raise ValueError('PMS worklog pagination did not finish')
 
 
-def normalize_timelogs(raw, logs, start, end, today, hours_per_day=8, entry_lag_days=7, eligible_ids=None):
+def normalize_timelogs(raw, logs, start, end, today, hours_per_day=8, entry_lag_days=7, eligible_ids=None,
+                      completion_confirmations=None):
     """Actual project effort, with no assumed full allocation or second leave deduction."""
     hours_per_day=float(hours_per_day)
     if not math.isfinite(hours_per_day) or hours_per_day<=0:raise ValueError('Hours per day must be positive')
@@ -75,18 +76,24 @@ def normalize_timelogs(raw, logs, start, end, today, hours_per_day=8, entry_lag_
         billable=m.get('isBillable') is True
         eligible=billable and (eligible_ids is None or uid in {str(i) for i in eligible_ids})
         h=minutes[uid]/60
+        confirmed = next((c for c in completion_confirmations or []
+                          if str(c.get('resource_id')) == uid
+                          and all(str(c.get(k) or '').strip() for k in ('start', 'end', 'confirmed_on', 'by', 'why'))
+                          and day(c['start']) <= day(start) <= day(end) <= day(c['end'])), None)
         reason=('Recorded billable Dev/QA project hours.' if eligible and h else
+                'No project hours in this window; the project lead confirmed these entries are complete.' if eligible and confirmed else
                 'No project hours recorded; confirm whether entries are missing.' if eligible else
                 'Non-billable membership.' if not billable else 'Outside the configured Dev/QA resource list.')
         rows.append({'resource_id':uid,'resource':m['user']['name'],'logged_hours':round(h,4),
                      'net_days':round(h/hours_per_day,4) if eligible else 0,
-                     'included':'Yes' if eligible and h else 'No','reason':reason,'eligible':eligible})
+                     'included':'Yes' if eligible and (h or confirmed) else 'Pending hours' if eligible else 'No',
+                     'reason':reason,'eligible':eligible,'completion_confirmation':confirmed})
     provisional=day(today)<day(end)+dt.timedelta(days=entry_lag_days)
     return {'start':start,'end':end,'basis':'pms_timelog','hours_per_day':hours_per_day,
             'resource_days':round(sum(minutes[r['resource_id']]/60/hours_per_day for r in rows if r['eligible']),4),
             'resources':rows,'billable_count':sum(r['eligible'] for r in rows),
             'non_billable_count':sum(m.get('isBillable') is False for m in members),
-            'provisional':provisional,'missing_entry_resources':[r['resource'] for r in rows if r['eligible'] and not r['logged_hours']],
+            'provisional':provisional,'missing_entry_resources':[r['resource'] for r in rows if r['eligible'] and not r['logged_hours'] and not r['completion_confirmation']],
             'allocation_basis':f'Recorded billable Dev/QA hours for this project divided by {hours_per_day:g} hours per day. Shared resources contribute only their recorded project hours. Missing entries need review; they do not prove that no work occurred.'+(' Entries may still arrive next week; this result is provisional.' if provisional else '')}
 
 

@@ -32,6 +32,7 @@ import datetime as dt
 import re
 from typing import Any
 from kpi_registry import NAME_TO_KEY
+import reporting
 
 MODEL_VERSION = "2.9.1"
 LAST = 999            # formulas look down to here, so a row added by hand is still counted
@@ -208,6 +209,7 @@ DEFECT_COLS = [
     ('story_points','Report story points',12,'in','r'),
     ('hours_dev','Report Dev estimate (h)',14,'in','r'),
     ('hours_qa','Report QA estimate (h)',14,'in','r'),
+    ('against_task','Implementation ticket',22,'in',''),
 ]
 PERIOD_COLS = [
     ("n", "#", 4, "calc", "c"), ("name", "Period Name", 32, "in", ""), ("start", "Start", 12, "in", ""),
@@ -288,6 +290,8 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     display_names = {metric_name(m["name"]): m["name"] for p in results.get("periods") or []
                      for m in p.get("measures") or []}
     display_order = [display_names.get(name, name) for name in KPI_ORDER]
+    if 'Productivity Index' in display_names:
+        display_order.insert(1, 'Productivity Index')
     by_handover = "handover" in str(((profile.get("workflow") or {}).get("commitment") or {}).get("met_when") or "").lower()
     hours_basis = (profile.get("sources") or {}).get("hours_basis") or "dev"
     cr_den = ctx.get("cr_denominator") or "period"
@@ -376,7 +380,7 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
         r += 1
         m, g = measures[name], reg.get(name) or {}
         cfg.put(r, 2, name, "kpi")
-        cfg.put(r, 3, "Per Config" if name == "Velocity" else "%", "data_c")
+        cfg.put(r, 3, m.get('unit') or ("Per Config" if name == "Velocity" else "%"), "data_c")
         cfg.put(r, 4, m.get("pms_id"), "data_c")
         cfg.put(r, 5, "Min" if m.get("direction") == "higher-is-better" else "Max", "data_c")
         cfg.put(r, 6, m.get("threshold"), "data_c")
@@ -587,6 +591,7 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
             "reported_on": d.get("reported_on"), "phase": PHASE_OUT.get(d.get("phase"), "Pre-release"),
             "pre_existing": d.get("pre_existing"), "rejected": d.get("rejected"),
             "rejection_reason": d.get("rejection_reason"),
+            "against_task": d.get("against_task"),
             "evidence": ({"v": "Open", "link": d["evidence"], "style": "link"}
                          if str(d.get("evidence") or "").startswith("http") else plain(d.get("evidence"))),
             "final_status": FINAL_OUT.get(d.get("final_status"), d.get("final_status")),
@@ -714,13 +719,20 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
             sm.put(r, 5, None, "calc_r", f=num.get(metric_name(name), "").format(r=r) or None)
             sm.put(r, 6, None, "calc_r", f=(den.get(metric_name(name)) or "").format(r=r) or None)
             sm.put(r, 7, None, "calc_r", f=val.get(metric_name(name), ratio).format(r=r))
-            import reporting
             period=next((p for p in kif['periods'] if p['name']==pn),{})
-            if name=='Velocity' and '/resource-day' in m.get('unit',''):
+            if m.get('key')=='productivity_index':
+                sm.put(r,5,m.get('numerator'),'data_r')
+                sm.put(r,6,m.get('denominator'),'data_r')
+                sm.put(r,7,None,'calc_r',f=f'=IF(Q{r}<>"",Q{r},IF(OR(F{r}="",F{r}<=0,O{r}=""),"",ROUND(E{r}/F{r},4)))')
+            elif name=='Velocity' and reporting.productivity_enabled(profile):
+                sm.put(r,5,m.get('value'),'data_r')
+                sm.put(r,6,None,'data_r')
+                sm.put(r,7,None,'calc_r',f=f'=IF(Q{r}<>"",Q{r},IF(O{r}="","",E{r}))')
+            elif name=='Velocity' and '/resource-day' in m.get('unit',''):
                 cap=(period.get('capacity') or {}).get('resource_days')
                 sm.put(r,6,cap,'data_r')
                 sm.put(r,7,None,'calc_r',f=f'=IF(Q{r}<>"",Q{r},IF(OR(F{r}="",F{r}<=0,O{r}=""),"",ROUND(E{r}/F{r},4)))')
-            elif reporting.unit(profile,m.get('key'))!='count' or (period.get('reporting_window') and m.get('key')=='cr_rate'):
+            elif m.get('measurement_method') or reporting.unit(profile,m.get('key'))!='count' or (period.get('reporting_window') and m.get('key')=='cr_rate'):
                 # Alternate weighted populations are assessed by the engine. Inputs
                 # require rerun; never retain a count formula under a weighted label.
                 sm.put(r,5,m.get('numerator'),'data_r')
@@ -758,6 +770,9 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
             sm.heights[r] = max(45, min(250, 15 * (len(note_text) // 65 + 2)))
             sm.put(r, 12, auto, "in")
             man = (manual.get(pn) or {}).get(name) or {}
+            if man.get('publication') == 'reviewed_value' and (m.get('publication_review') or {}).get('status') != 'applied':
+                # A changed evidence basis invalidates this score in the Sheet too.
+                man = dict(man, value=None)
             period = next((p for p in kif.get("periods") or [] if p.get("name") == pn), {})
             reviewed_override = ((name == "Client Expectation" and period.get("client_expectation_override")) or
                                  (name == "Delivery Commitment" and period.get("delivery_commitment_override")))
@@ -901,14 +916,40 @@ def build(kif: dict, results: dict, ctx: dict) -> list[Tab]:
     tabs = [db, overview, sm, tk, df, per, oq, cfg, rl, pl, rm]
     decisions=Tab('Decisions')
     agreed=(profile.get('periods') or {}).get('cadence') or {}
+    decision_rows=[]
     if agreed.get('agreed_delivery_date'):
+        decision_rows.append({'date':agreed.get('decision_recorded_on'),'decision':'Client expectation and team delivery commitment: '+agreed['agreed_delivery_date'],
+                              'context':agreed.get('delivery_date_context'),'affects':'Client Expectation; Delivery Commitment'})
+    if reporting.productivity_enabled(profile):
+        decision_rows.append({'decision':'Velocity is completed story points; Productivity Index is completed story points per productive project person-day.',
+                              'context':'Keep separate fields and units. Until PMS provides a Productivity Index field, include PI in the Velocity note without changing the Velocity total.',
+                              'affects':'Velocity; Productivity Index'})
+    if ((profile.get('sources') or {}).get('capacity') or {}).get('basis')=='pms_timelog':
+        decision_rows.append({'decision':'Use PMS project timelogs for billable Dev and QA effort.',
+                              'context':'People working on several projects contribute only the hours recorded here. Check missing entries before final review. The hours per day and entry delay are configurable.',
+                              'affects':('Productivity Index' if reporting.productivity_enabled(profile) else 'Velocity')+'; Capacity'})
+    for result in results.get('periods') or []:
+        for measure in result.get('measures') or []:
+            review=measure.get('publication_review') or {}
+            if review.get('status')=='applied':
+                action=(f'publish reviewed value {measure["value"]:g}.' if review.get('mode')=='reviewed_value'
+                        else 'publish explanation without a score.')
+                decision_rows.append({'date':review.get('decided_on'), 'decision':measure['name']+': '+action,
+                                      'context':review.get('why'), 'affects':result['period']})
+    if decision_rows:
         _register(decisions,'Agreed dates and decisions','These agreements explain how the KPIs are measured. Review them when the delivery date or measurement basis changes.',
                   [('date','Recorded on',14,'data',''),('decision','Agreement',46,'data',''),('context','Why / context',65,'data',''),('affects','Affected KPIs',35,'data','')],
-                  [{'date':agreed.get('decision_recorded_on'),'decision':'Client expectation and team delivery commitment: '+agreed['agreed_delivery_date'],
-                    'context':agreed.get('delivery_date_context'),'affects':'Client Expectation; Delivery Commitment'},
-                   {'date':agreed.get('decision_recorded_on'),'decision':'Use PMS project timelogs for billable Dev and QA effort.',
-                    'context':'People working on several projects contribute only the hours recorded here. Check missing entries before final review. The hours per day and entry delay are configurable.', 'affects':'Velocity; Capacity'}])
+                  decision_rows)
         tabs.insert(7,decisions)
+        if (profile.get('policy') or {}).get('measurement_review'):
+            import measurement_review
+            for row,k in enumerate(results.get('periods',[{}])[0].get('measures',[]),max(9,5+len(decision_rows))):
+                method,formula=measurement_review.description(profile,k['key'],project.get('velocity_unit','Story Points'))
+                decisions.put(row,1,'Pilot v2','data')
+                decisions.put(row,2,k['name'],'kpi')
+                decisions.put(row,3,formula,'data')
+                decisions.put(row,4,method,'data')
+                decisions.heights[row]=70
     if ctx.get('team_review') is not None and (profile.get('output') or {}).get('team_review'):
         import team_review
         tabs.insert(3,team_review.tab(ctx['team_review']))

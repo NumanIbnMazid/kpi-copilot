@@ -77,8 +77,9 @@ This single rule produced most of the design:
   current inputs — never typed separately. Before every push the configured review sheet is
   read again: Google Sheets when configured, otherwise the local workbook. An unavailable
   Google Sheet is not permission to substitute an older local copy.
-- A hand-set value never replaces the computed one; both are kept, the reason is printed
-  above the numbers, and the note itself says a person recorded a different figure.
+- A hand-set value never replaces the computed one; both are kept with the decision and
+  reviewer in the audit. The published note states the material basis, scope or exception
+  concisely. It does not append generic reviewer or authorization boilerplate.
 - A target set for one project is marked, so nobody comparing two projects mistakes a local
   bar for the company default.
 - A local rule override is printed before the values, not in a footnote.

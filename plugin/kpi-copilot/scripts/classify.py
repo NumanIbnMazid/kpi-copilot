@@ -413,6 +413,14 @@ class Classifier:
         # event instead of crediting old work to the new cycle.
         period_start = per.get("start")
         source_delivery = (scope_row or {}).get("delivered")
+        if (self.profile.get('policy') or {}).get('measurement_review'):
+            # A cutoff snapshot starts when work first reached the agreed QA
+            # boundary. A later retest must not move it out of an earlier snapshot.
+            states=(self.wf.get('reopened_when') or {}).get('closed_values')
+            if states is None:states=(self.wf.get('closed_when') or {}).get('values') or []
+            hits=[B.day(e.get('at')) for e in B.moves(item) if B._in(e.get('to'),states)
+                  and B.day(e.get('at')) and (not period_start or B.day(e.get('at'))>=period_start)]
+            if hits:rework_closed=min(hits)
         if period_start:
             if not source_delivery and delivered and delivered < period_start:
                 delivered = None
@@ -915,6 +923,8 @@ class Classifier:
                 rows.append(self._hand_row(kind, x))
         if self.grain == "plan-items":
             tasks = self._explode(tasks)
+        if (self.profile.get('policy') or {}).get('measurement_review'):
+            self._measurement_links(tasks,defects,by_id)
         for period in self.periods:
             choice, date = self._review_delivery_choice(period["name"], "Client Expectation")
             if choice:
@@ -929,6 +939,45 @@ class Classifier:
         self._attach_context()
         self._period_questions(defects)
         return {"tasks": tasks, "defects": defects}
+
+    def _measurement_links(self,tasks,defects,by_id):
+        """Review missing method inputs in the normal queue, with source context."""
+        implementations=[t for t in tasks if t.get('type') in ('Task','CR','Scope') and not t.get('effort_only')]
+        keys={t['key'] for t in implementations}
+        for row in defects:
+            item=by_id.get(row.get('_item'))
+            if not item or row.get('kind')!='Bug' or row.get('pre_existing')!='No' or row.get('rejected')!='No':continue
+            if row.get('against_task') in keys:continue
+            options=sorted(keys-{row['key']})
+            call=self.settle(item,'against_task',Proposal(None,'This confirmed defect has no implementation link.',0),
+                             'Which implementation introduced this defect?',options,'comments')
+            row['against_task']=call['value'];row.setdefault('basis',{})['against_task']=call
+            question=next((q for q in reversed(self.queue) if q['item_id']==item['id'] and q['field']=='against_task'),None)
+            if question:
+                text=' '.join([item.get('title',''),item.get('description','')]+[c.get('text','') for c in item.get('comments') or []]).lower()
+                terms=set(re.findall(r'[a-z]{4,}',text))
+                title_terms=set(re.findall(r'[a-z]{4,}',item.get('title','').lower()))
+                def rank(t):
+                    source=by_id.get(t.get('_item'),{})
+                    words=set(re.findall(r'[a-z]{4,}',(t.get('title','')+' '+source.get('description','')).lower()))
+                    candidate_title=t.get('title','').lower().replace('dob','date birth')
+                    headings=set(re.findall(r'[a-z]{4,}',candidate_title))
+                    return (int(t['key'].lower() in text),len(title_terms & headings)*20+len(title_terms & words)*2+len(terms & words))
+                candidates=sorted([t for t in implementations if t['key']!=row['key']],key=rank,reverse=True)[:8]
+                question['_extra_context']={'implementation_index':[
+                    {k:t.get(k) for k in ('key','title','closed')} for t in implementations],
+                    'implementation_candidates':[
+                    {**{k:t.get(k) for k in ('key','title','link','closed','story_points')},
+                     'description':by_id.get(t.get('_item'),{}).get('description','')}
+                    for t in candidates]}
+        for row in implementations:
+            item=by_id.get(row.get('_item'))
+            if not item or row.get('type')!='CR' or row.get('approved_on'):continue
+            dates={B.day(item.get('created_at'))}|{B.day(c.get('at')) for c in item.get('comments') or []}
+            options=sorted(d for d in dates if d and d<=self.today)
+            call=self.settle(item,'approved_on',Proposal(None,'The approval date is absent from the configured estimate.',0),
+                             'When did the client authorize this additional deliverable?',options,'comments')
+            row['approved_on']=call['value'];row.setdefault('basis',{})['approved_on']=call
 
     def _overlay(self, row: dict) -> None:
         """A value a person typed over in the sheet - a date, an hours figure - outranks what
@@ -1123,6 +1172,7 @@ class Classifier:
                      "text": comments[i].get("text") or "", "url": comments[i].get("url")}
                     for i in selected]
                 q["item"]["comments_omitted"] = len(comments) - len(selected)
+            q['item'].update(q.pop('_extra_context',{}))
 
     def _period_questions(self, defects: list[dict]) -> None:
         for p in self.periods:
