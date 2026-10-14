@@ -30,6 +30,16 @@ then identify the team's internal SP estimate and compare it with the original s
 Do not say the client approved SP or an internal hours estimate unless the source says so.
 Explain any shared estimate or unestimated request that affects the result.
 For PI, distinguish the eligible resource count from the hours-per-person-day conversion.
+Remove calculation asides such as "not divided by four again". Keep the useful formula.
+
+Give each sentence a concrete subject and outcome. "Nine planned changes accepted by QA"
+does not tell the reader what changed. Name the feature areas and say that QA completed
+testing or confirmed the fixes, when the evidence supports that. For rejection, write a
+short account of the reports and their outcomes: how many were reviewed, how many were
+rejected, and why. Use "bug reports reviewed" instead of "decided bug reports". Say QA
+reported them only if the evidence establishes that; do not invent a reporter or outcome.
+Read the note sentence by sentence: can an unfamiliar reader tell which work, period and
+event each sentence refers to? A formula cannot supply missing project context.
 
 When PMS caps a known or explicitly reviewed result, send its maximum and state the
 actual result and cap in the note. Retain the actual value in the workbook and downstream
@@ -58,7 +68,15 @@ Changed figures require renewed review of an edited summary.
 
 Example:
 
-> 24 SP completed across 8 accepted items || Calendar sync excluded pending QA acceptance.
+> The team finished the calendar display and visitor search changes, and QA completed
+> testing during this period. Together they account for 24 SP || Calendar synchronization
+> is still being tested and is excluded from completed work.
+
+For rejected reports:
+
+> QA reported four bugs. After review, three were confirmed and one was rejected because
+> the reported login prompt was expected behavior || Rejection rate = 1 rejected report /
+> 4 reviewed reports × 100 = 25%.
 
 For a less familiar unit:
 

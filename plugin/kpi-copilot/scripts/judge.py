@@ -89,6 +89,12 @@ RUBRIC = {
         "Never say the client approved story points unless the source explicitly says that. "
         "Do not describe an internal estimate as approved hours. For PI, label the hours-per-person-day "
         "conversion and the eligible resource count separately. "
+        "Every sentence must identify the relevant work, event or outcome. Name the feature areas "
+        "instead of saying only planned changes or accepted items. Say QA completed testing or "
+        "confirmed the fix when supported by evidence. For rejection, describe how many bug reports "
+        "were reviewed, how many were rejected, and the actual rejection reasons; do not say decided "
+        "bug reports. Use the reporter's role only when established. Tell a short factual story, then "
+        "show the calculation. Remove arithmetic asides such as not divided by the resource count again. "
         "Use familiar words, explain project-specific terms, and describe the "
         "work before referring to a ticket number. Do not infer a cause from a high ratio or a status change. "
         "Review Met and Not measured notes as carefully as missed KPIs. The 'why' is one to three plain "
@@ -196,6 +202,30 @@ def _notes_needed(results: dict, facts: dict, review: bool = False, kif: dict | 
             }
             if review:
                 tasks = [t for t in (kif or {}).get("tasks") or [] if t.get("period") == name]
+                source=(kif or {}).get('project',{}).get('measurement_source') or kif or {}
+                if m.get('key') in ('velocity','productivity_index','task_comprehension'):
+                    output=next((x for x in per.get('measures',[]) if x.get('key')=='velocity'),m)
+                    keys=set(output.get('counted_keys') or [])
+                    # The output population is already selected by the engine. Supply
+                    # its work context, never infer completion from a title or status.
+                    entry['context']['completed_work']=[
+                        {k:t.get(k) for k in ('key','title','story_points','hours_dev','hours_qa',
+                                              'delivered','closed','delivery_evidence','understood','understood_why')}
+                        for t in tasks if t.get('key') in keys]
+                if m.get('key')=='productivity_index':
+                    cap=p.get('capacity') or {}
+                    entry['context']['project_effort']={k:cap.get(k) for k in
+                        ('basis','hours_per_day','resource_days','billable_count','provisional','missing_entry_resources')}
+                if m.get('key') in ('defect_rate','escaped_defect_rate','rejection_rate'):
+                    counted=set(m.get('counted_keys') or [])
+                    reports=source.get('defects',[]) if m.get('key')=='defect_rate' else (kif or {}).get('defects',[])
+                    entry['context']['bug_report_outcomes']=[
+                        {**{k:d.get(k) for k in ('key','title','kind','reported_on','phase','pre_existing',
+                                                'rejected','rejection_reason','against_task','final_status')},
+                         'counted':d.get('key') in counted,
+                         'rejection_evidence':((d.get('basis') or {}).get('rejected') or {}).get('why')}
+                        for d in reports if (d.get('key') in counted if m.get('key')=='defect_rate'
+                                             else d.get('period')==name)]
                 if m.get('measurement_method') and m.get('key')=='rework_rate':
                     source=(kif or {}).get('project',{}).get('measurement_source') or kif or {}
                     tasks=[t for t in source.get('tasks',[]) if t.get('key') in (m.get('counted_keys') or [])]
