@@ -1165,6 +1165,17 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(kpi._question_period('measurement:Cycle|Defect Rate'), 'Cycle')
         self.assertIsNone(kpi._question_period('notification:webhook'))
 
+    def test_kpi_ranges_follow_pms(self):
+        import types
+        reg=self.base/'registry.json'
+        reg.write_text(json.dumps({'kpis':[{'name':'Velocity','range':[0,30]},{'name':'CR Rate','range':[0,100]}]}))
+        ws=types.SimpleNamespace(project={'pms_project_id':101},profile={'organization':{'pms_base_url':'https://pms.example.com'}},registry_path=reg)
+        with patch.object(pms_push,'read_current',return_value={'_limits':{'Velocity':(0,500),'CR Rate':(0,100)}}), \
+                patch.object(kpi,'_module',return_value=pms_push):
+            said=kpi.sync_kpi_ranges(ws)
+        self.assertEqual(json.loads(reg.read_text())['kpis'][0]['range'],[0,500])
+        self.assertEqual(len(said),1)
+
     def test_minimal_profile_and_local_targets(self):
         path=self.base/'minimal.yaml'
         profile_tool.init(path,None)

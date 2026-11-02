@@ -473,6 +473,10 @@ def cmd_run(args) -> int:
         count = ws.ledger.reconsider(args.reconsider)
         notes.append(f"Reopened {count} assistant judgements for evidence review; human decisions are retained")
 
+    # PMS owns each KPI's numeric range; a range changed there must not keep capping here.
+    if not args.offline:
+        notes += sync_kpi_ranges(ws)
+
     # 3. the sources on the list, and nothing else -----------------------------------------
     statuses: list[dict] = []
     mode = (ws.profile.get("sources") or {}).get("mode") or "tracker-first"
@@ -707,6 +711,35 @@ def _board_note(snap: dict | None) -> str:
     st = snap.get("stats") or {}
     return (f"{len(snap.get('items') or [])} cards; history refreshed for {st.get('refreshed', 0)}, reused for "
             f"{st.get('reused', 0)} unchanged")
+
+
+def sync_kpi_ranges(ws: Workspace) -> list[str]:
+    """Copy each KPI's min/max from the PMS project into the registry when they differ.
+    Quiet when PMS cannot be read: the registry's ranges stay as they are."""
+    pid = (ws.project or {}).get("pms_project_id")
+    base = (ws.profile.get("organization") or {}).get("pms_base_url")
+    if not pid or not base or not ws.registry_path.exists():
+        return []
+    push = _module(HERE / "pms_push.py", "kpic_push_ranges")
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            limits = (push.read_current(base, int(pid), os.environ.get("PMS_TOKEN")) or {}).get("_limits") or {}
+    except Exception:  # noqa: BLE001
+        return []
+    reg = json.loads(ws.registry_path.read_text(encoding="utf-8"))
+    said = []
+    for k in reg.get("kpis", []):
+        lo, hi = limits.get(k.get("name"), (None, None))
+        if hi is None:
+            continue
+        new = [lo if lo is not None else (k.get("range") or [0, hi])[0], hi]
+        if k.get("range") != new:
+            said.append(f"PMS range for {k['name']} is now {new[0]:g}-{new[1]:g} (was "
+                        f"{'-'.join(f'{x:g}' for x in k.get('range') or []) or 'unset'}); registry updated")
+            k["range"] = new
+    if said:
+        ws.registry_path.write_text(json.dumps(reg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return said
 
 
 def _registry(ws: Workspace) -> dict:

@@ -23,7 +23,7 @@
       "unit": "configurable",
       "range": [
         0,
-        1000
+        500
       ],
       "description_pms": "Work completed in the period, measured in the project's unit of estimation.",
       "basis": "Sum of the effort of every item delivered in the period, plus team-level effort that is not attributable to a single item.",
