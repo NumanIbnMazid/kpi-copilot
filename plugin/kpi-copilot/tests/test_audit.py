@@ -1160,6 +1160,11 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(result,0)
         self.assertEqual([k['kpiId'] for k in sent[0]['periodKpis']],[6])
 
+    def test_a_stale_publication_decision_holds_back_only_its_own_period(self):
+        self.assertEqual(kpi._question_period('publication:2026-10-31 to 11-13|Velocity:abc123'), '2026-10-31 to 11-13')
+        self.assertEqual(kpi._question_period('measurement:Cycle|Defect Rate'), 'Cycle')
+        self.assertIsNone(kpi._question_period('notification:webhook'))
+
     def test_minimal_profile_and_local_targets(self):
         path=self.base/'minimal.yaml'
         profile_tool.init(path,None)

@@ -971,12 +971,12 @@ def input_digest(ws: Workspace) -> str:
 
 
 def _question_period(qid: str) -> str | None:
-    """'handover:P', 'review:P|KPI:abc', 'reason:P|KPI' -> 'P'. None when a question is not
+    """'handover:P', 'review:P|KPI:abc', 'reason:P|KPI', 'publication:P|KPI:abc' -> 'P'. None when a question is not
     about one period, so it holds back every push."""
     kind, _, rest = qid.partition(":")
     if kind=='team-review':
         return rest.partition(':')[2].split('|',1)[0] or None
-    if kind not in ("handover", "review", "reason", "measurement") or not rest:
+    if kind not in ("handover", "review", "reason", "measurement", "publication") or not rest:
         return None
     return rest.split("|", 1)[0] if kind != "handover" else rest
 
