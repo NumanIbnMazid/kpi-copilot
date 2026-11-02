@@ -113,7 +113,12 @@ def check(kif: dict) -> tuple[list[str], list[str]]:
         warn("No adapter name recorded, so nobody can tell where these numbers came from.")
 
     deliverables = [t for t in kif["tasks"] if t.get("type") in ("Task", "CR", "Scope")]
-    if not deliverables:
+    windows = any(p.get("reporting_window") for p in kif.get("periods") or [])
+    if not deliverables and windows:
+        # Early in a reporting window nothing may have been created, closed or fallen due inside
+        # it yet: an empty window is not measured, not a broken extract.
+        warn("No work has reached any reporting window yet; every KPI stays not measured until it does.")
+    elif not deliverables:
         err("No deliverable rows at all - every task is Excluded. Check the exclusion patterns; "
             "that is nearly always an over-broad regex.")
     excluded = len(kif["tasks"]) - len(deliverables)

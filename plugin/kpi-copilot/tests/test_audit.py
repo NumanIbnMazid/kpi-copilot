@@ -1176,6 +1176,17 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(json.loads(reg.read_text())['kpis'][0]['range'],[0,500])
         self.assertEqual(len(said),1)
 
+    def test_an_empty_reporting_window_is_not_a_broken_extract(self):
+        spec = importlib.util.spec_from_file_location('audit_validate', ROOT / 'scripts' / 'validate_kif.py')
+        V = importlib.util.module_from_spec(spec); spec.loader.exec_module(V)
+        kif = {'kif_version': '1.0', 'periods': [{'name': '2026-10-28 to 11-10', 'reporting_window': True}], 'tasks': [], 'defects': [],
+               'generated': {'capabilities': ['status_history'], 'adapter': 'asana'}, 'project': {}}
+        errors, warnings = V.check(kif)
+        self.assertFalse(any('No deliverable rows' in e for e in errors), errors)
+        kif['periods'][0].pop('reporting_window')
+        errors, _ = V.check(kif)
+        self.assertTrue(any('No deliverable rows' in e for e in errors), errors)
+
     def test_minimal_profile_and_local_targets(self):
         path=self.base/'minimal.yaml'
         profile_tool.init(path,None)
