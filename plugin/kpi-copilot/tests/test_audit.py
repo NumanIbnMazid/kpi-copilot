@@ -1187,6 +1187,13 @@ class AuditTests(unittest.TestCase):
         errors, _ = V.check(kif)
         self.assertTrue(any('No deliverable rows' in e for e in errors), errors)
 
+    def test_a_scope_delivery_answer_in_json_or_a_sentence_is_read_as_a_date(self):
+        import sheet_readback as R
+        stored = ledger.Ledger(self.base / 'scope-answers.json')
+        for qid, answer in (('scope:a', '{"delivered": "2026-10-06"}'), ('scope:b', 'Uploaded to TestFlight on 10/06/2026.')):
+            R._file_answer(qid, answer, stored, {})
+            self.assertEqual(stored.answer(qid), {'delivered': '2026-10-06'})
+
     def test_minimal_profile_and_local_targets(self):
         path=self.base/'minimal.yaml'
         profile_tool.init(path,None)

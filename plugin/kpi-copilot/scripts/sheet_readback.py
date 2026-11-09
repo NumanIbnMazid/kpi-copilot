@@ -425,6 +425,17 @@ def _apply_answer(qid: str, answer: Any, ledger, facts: dict) -> str | None:
                 p["handover_date"] = iso
                 ledger.set_answer(qid, answer, "human", "answered in the sheet")
                 return f"handover date set to {iso[5:7]}/{iso[8:10]}"
+    if qid.startswith("scope:") and not is_date:
+        # A delivery date given as {"delivered": "..."} or inside a sentence is still a date.
+        text = str(answer)
+        try:
+            parsed = json.loads(text) if text.strip().startswith("{") else None
+        except ValueError:
+            parsed = None
+        found = ([_iso(parsed["delivered"])] if isinstance(parsed, dict) and parsed.get("delivered")
+                 else _dates_in(text))
+        if len(found) == 1 and found[0]:
+            iso, is_date = found[0], True
     if qid.startswith("scope:"):
         ledger.set_answer(qid, {"delivered": iso} if is_date else {"note": str(answer)}, "human",
                           "answered in the sheet")
