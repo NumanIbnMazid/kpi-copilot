@@ -1116,6 +1116,10 @@
             "delivery_date_context": {
               "type": "string"
             },
+            "score_early_delivery": {
+              "type": "boolean",
+              "description": "Score Client Expectation and Delivery Commitment in each window for work completed in it: met when it was finished on or before agreed_delivery_date. Off: every window before that date shows 'not due yet'. Work still open is assessed when it completes."
+            },
             "decision_recorded_on": {
               "type": "string",
               "format": "date"

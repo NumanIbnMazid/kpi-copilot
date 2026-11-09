@@ -62,7 +62,7 @@ A lead can confirm a person's time entries are complete for an explicit date ran
 `by`, `why`). This permits an actual zero in a fully covered window; it never invents
 hours, removes the participant, or confirms future windows.
 
-Record a project agreement with `periods.cadence.agreed_delivery_date`, `delivery_date_context` and `decision_recorded_on`. It appears in Decisions and the dependent date KPIs. A future commitment is “Not due yet”, rather than a failure or a data question. Keep actual handover separate from the agreed date.
+Record a project agreement with `periods.cadence.agreed_delivery_date`, `delivery_date_context` and `decision_recorded_on`. It appears in Decisions and the dependent date KPIs. A future commitment is “Not due yet”, rather than a failure or a data question. With `periods.cadence.score_early_delivery: true`, work completed in a window is scored at once: met when it finished on or before the agreed date; a window with nothing completed stays “Not due yet”. Keep actual handover separate from the agreed date.
 
 Windows include both boundary dates. Completion, decided reports and newly approved requests use their relevant window. The reviewed pilot records quality history against the original work or release: defect density and affected rework scope are project-to-date snapshots at each cutoff. Return dates remain visible; a late bug is not divided by unrelated work completed that fortnight. Retain commitments due later as pending. Do not copy milestone handovers into every window or treat CR creation as approval. An unfinished window is a preview. Keep earlier totals in their original units.
 

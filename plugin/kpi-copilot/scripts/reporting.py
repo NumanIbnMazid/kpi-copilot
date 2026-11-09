@@ -93,6 +93,12 @@ def intervalize(kif, profile, today, board=None):
                 elif task['delivery_eligible'] is None:
                     p.setdefault('delivery_review_pending',[]).append(task['key'])
                     t['delivered']=None
+            if agreed and config.get('score_early_delivery') and t.get('delivered') and t.get('type')!='Excluded':
+                # Work finished inside the window is already known to be on time or late
+                # against the agreed date; open work is assessed when it completes.
+                for date_field, outcome in (('client_date','met_client_date'),('commit_date','met_commitment')):
+                    t[date_field]=agreed
+                    t[outcome]='Yes' if str(t['delivered'])[:10]<=agreed else 'No'
             # The window population is work whose QA close boundary was reached in
             # this interval or whose reviewed reopen occurred in it.
             if task.get('reopened')=='Yes':
@@ -169,8 +175,12 @@ def apply(engine, measure, period):
     if cfg.get('measurement_review'):
         import measurement_review
         if measurement_review.apply(engine,m,period):return
-    agreed=((engine.profile.get('periods') or {}).get('cadence') or {}).get('agreed_delivery_date')
-    if agreed and m.key in ('client_expectation','delivery_commitment') and period.get('as_of','')<agreed and not period.get('upcoming'):
+    cadence=(engine.profile.get('periods') or {}).get('cadence') or {}
+    agreed=cadence.get('agreed_delivery_date')
+    outcome={'client_expectation':'met_client_date','delivery_commitment':'met_commitment'}.get(m.key)
+    scored=bool(outcome and cadence.get('score_early_delivery') and
+                any(t.get(outcome) in ('Yes','No') for t in engine.tasks_in(period['name'])))
+    if agreed and outcome and not scored and period.get('as_of','')<agreed and not period.get('upcoming'):
         m.value=None;m.pms_value=None;m.status='Not measured';m.availability='Not due yet';m.gaps=[];m.review_items=[];m._say={}
         context=((engine.profile.get('periods') or {}).get('cadence') or {}).get('delivery_date_context')
         m.note_parts=[f'{m.name} is not scored yet because the agreed delivery date has not arrived. '
@@ -304,8 +314,21 @@ def apply(engine, measure, period):
                 field={'task_comprehension':'understood','client_expectation':'met_client_date','delivery_commitment':'met_commitment'}[m.key]
                 population=(engine.delivered_in(name) if m.key=='task_comprehension' and period.get('reporting_window') else engine.deliverables_in(name))
                 rows=[t for t in population if t.get(field) in ('Yes','No')]
-                num,den=w([t for t in rows if t[field]=='Yes']),w(rows)
                 m.unit='%';formula=f'{label} meeting the criterion / assessed {label} × 100'
+                if agreed and m.key!='task_comprehension':
+                    formula=(f'{label} completed in this window on or before the agreed {agreed} date / '
+                             f'{label} completed in this window × 100; work still open is assessed when it completes')
+                try:
+                    num,den=w([t for t in rows if t[field]=='Yes']),w(rows)
+                except ValueError as missing:
+                    # When every assessed item has the same outcome the effort share is 100% or 0%
+                    # whatever the estimates are, so a missing estimate cannot change it.
+                    if not rows or len({t[field] for t in rows})!=1:
+                        raise
+                    num=float(sum(t[field]=='Yes' for t in rows));den=float(len(rows))
+                    formula=(f'all {len(rows)} assessed {"item" if len(rows)==1 else "items"} '
+                             f'{"met" if num else "missed"} the criterion, so the {label} share is '
+                             f'{100 if num else 0}% whatever their estimates ({str(missing).split(". ")[0]})')
             elif m.key=='rework_rate':
                 from kpi_engine import rework_population
                 completed,_,assumed=rework_population(engine.kif,engine.profile,name)

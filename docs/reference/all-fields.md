@@ -159,6 +159,13 @@ Where scope, hours and dates come from, and which of them the run is allowed to 
 | &nbsp;&nbsp;`capacity.basis` | one of: `calendar`, `pms_timelog` |  |  |  |
 | &nbsp;&nbsp;`capacity.hours_per_day` | number |  |  |  |
 | &nbsp;&nbsp;`capacity.eligible_resource_ids` | list of ['string', 'integer'] |  |  |  |
+| &nbsp;&nbsp;`capacity.completion_confirmations` | list of objects |  |  | Dated confirmations that one resource has entered all project time for an inclusive range. A zero in that range is no longer treated as an unresolved missing entry; no hours are invented. |
+| &nbsp;&nbsp;&nbsp;&nbsp;`capacity.completion_confirmations[].resource_id` | string or integer |  | yes |  |
+| &nbsp;&nbsp;&nbsp;&nbsp;`capacity.completion_confirmations[].start` | string |  | yes |  |
+| &nbsp;&nbsp;&nbsp;&nbsp;`capacity.completion_confirmations[].end` | string |  | yes |  |
+| &nbsp;&nbsp;&nbsp;&nbsp;`capacity.completion_confirmations[].confirmed_on` | string |  | yes |  |
+| &nbsp;&nbsp;&nbsp;&nbsp;`capacity.completion_confirmations[].by` | string |  | yes |  |
+| &nbsp;&nbsp;&nbsp;&nbsp;`capacity.completion_confirmations[].why` | string |  | yes |  |
 | &nbsp;&nbsp;`capacity.kind` | one of: `pms` |  | yes |  |
 | &nbsp;&nbsp;`capacity.weekdays` | list of integer |  | yes |  |
 | &nbsp;&nbsp;`capacity.allocations` | object |  |  |  |
@@ -207,6 +214,7 @@ How this team slices a project for PMS.
 | &nbsp;&nbsp;`cadence.replace_existing` | boolean |  |  |  |
 | &nbsp;&nbsp;`cadence.agreed_delivery_date` | string |  |  |  |
 | &nbsp;&nbsp;`cadence.delivery_date_context` | string |  |  |  |
+| &nbsp;&nbsp;`cadence.score_early_delivery` | boolean |  |  | Score Client Expectation and Delivery Commitment in each window for work completed in it: met when it was finished on or before agreed_delivery_date. Off: every window before that date shows 'not due yet'. Work still open is assessed when it completes. |
 | &nbsp;&nbsp;`cadence.decision_recorded_on` | string |  |  |  |
 | &nbsp;&nbsp;`cadence.days` | integer |  |  |  |
 
@@ -239,6 +247,9 @@ Counting choices the company allows a team to make. Everything not listed here i
 | &nbsp;&nbsp;`measurement_units.cr_rate` | one of: `count`, `story_points`, `hours` |  |  |  |
 | `pilot_targets` | object |  |  |  |
 | `measurement_targets_aligned` | boolean | `no` |  |  |
+| `measurement_review` | boolean | `no` |  | Use reviewed pilot methods: original scope counted once for rework, decided-report rejection, matching completed-work defect density and same-release escape counts. Print method and formula in notes. |
+| `productivity_index` | object |  |  | Track total Velocity and Productivity Index separately. Enable at profile or account scope for a shared rollout. |
+| &nbsp;&nbsp;`productivity_index.enabled` | boolean | `no` |  |  |
 
 ## `output`
 

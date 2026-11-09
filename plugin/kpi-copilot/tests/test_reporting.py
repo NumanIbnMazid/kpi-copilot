@@ -26,6 +26,25 @@ class ReportingTests(unittest.TestCase):
         registry=json.loads((ROOT/'schemas'/'kpi_registry.default.json').read_text())
         return kpi_engine.Engine(kif,profile,registry)
 
+    def test_early_delivery_against_the_agreed_date_is_scored_when_asked(self):
+        for flag,expected in ((True,100.0),(False,None)):
+            cfg={'periods':{'cadence':{'anchor':'2026-10-03','days':14,'agreed_delivery_date':'2026-12-01',
+                                        'score_early_delivery':flag}}}
+            out=reporting.intervalize(self.kif(),cfg,'2026-10-20');e=self.engine(out,cfg)
+            p=next(x for x in out['periods'] if x['start']<='2026-10-05'<=x['end'])
+            for key in ('client_expectation','delivery_commitment'):
+                m=getattr(e,key)(p);reporting.apply(e,m,p)
+                self.assertEqual(m.value,expected,(key,flag,m.note_parts))
+                if not flag:self.assertEqual(m.availability,'Not due yet')
+        # A missing estimate cannot change a unanimous outcome, so it does not block the share.
+        k=self.kif();k['tasks'][0].pop('story_points')
+        cfg['periods']['cadence']['score_early_delivery']=True
+        cfg['policy']={'measurement_units':{'client_expectation':'story_points'}}
+        out=reporting.intervalize(k,cfg,'2026-10-20');e=self.engine(out,cfg)
+        p=next(x for x in out['periods'] if x['start']<='2026-10-05'<=x['end'])
+        m=e.client_expectation(p);reporting.apply(e,m,p)
+        self.assertEqual(m.value,100.0,m.note_parts);self.assertIn('whatever their estimates',' '.join(m.note_parts))
+
     def test_rate_scales_with_working_days_and_preserves_total(self):
         k=self.kif();p=k['periods'][0];p['capacity']={'resource_days':26,'billable_count':3}
         profile={'policy':{'velocity':{'mode':'per_resource_day'}}}
