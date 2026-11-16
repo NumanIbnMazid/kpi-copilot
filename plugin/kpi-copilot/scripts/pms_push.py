@@ -14,6 +14,10 @@ Four guards, and none of them can be turned off from a config file alone:
   4. After a write, every value and note is read back and compared. A mismatch is
      reported as a failure, not smoothed over.
 
+Periods that a switch to reporting windows replaced (`--replaced`) are named in every preview
+while PMS still has them. They are removed only with `--apply --retire-replaced`, after every
+window in the push is written and verified, and each is backed up beside the push log first.
+
 Usage:
     python3 pms_push.py --payloads payloads.json --profile profile.yaml --dry-run
     python3 pms_push.py --payloads payloads.json --profile profile.yaml --apply
@@ -165,6 +169,7 @@ def bind_periods(base: str, project_id: int, payloads: list, token: str | None) 
             p["periodId"] = matches[0]["id"]
         elif p.get("periodId"):
             raise ValueError("The requested period is not in this project's period list")
+    return periods
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -176,6 +181,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--create-periods", action="store_true",
                     help="Create missing named periods; requires explicit authorization like any PMS write.")
+    ap.add_argument("--replaced", action="append", default=[],
+                    help="A period the reporting windows replaced (repeatable). Shown while PMS still has it.")
+    ap.add_argument("--retire-replaced", action="store_true",
+                    help="Back up and remove the replaced periods once the windows are written; "
+                         "requires explicit authorization like any PMS write.")
     ap.add_argument("--clipboard", action="store_true",
                     help="Print a block to paste into PMS by hand. The review-only path.")
     ap.add_argument("--log", type=Path)
@@ -241,10 +251,14 @@ def main(argv: list[str] | None = None) -> int:
     project_id = next((p.get("projectId") for p in payloads if p.get("projectId")), None)
     current = read_current(base, project_id, token) if project_id else {}
     try:
-        bind_periods(base, project_id, payloads, token)
+        in_pms = bind_periods(base, project_id, payloads, token)
     except Exception as exc:
         print(f"Could not verify PMS periods: {exc}", file=sys.stderr)
         return 2
+    # Old milestone periods a switch to reporting windows replaced. Left in PMS they show
+    # figures the team no longer reports, beside the windows that replaced them.
+    replaced = set(a.replaced) - {p.get("name") for p in payloads}
+    stale = [x for x in in_pms if x.get("name") in replaced]
 
     print(f"PMS {base}   project {project_id}   mode '{mode}'\n")
     blocked = False
@@ -276,6 +290,17 @@ def main(argv: list[str] | None = None) -> int:
             blocked = blocked or not a.create_periods
         print("\n".join(diff_lines(p, current)) or "  nothing to send")
         print()
+
+    if stale:
+        print("=== Replaced by the reporting windows, still in PMS ===")
+        for x in stale:
+            print(f"  {x['name']}  (period {x['id']})")
+        print("  Removed after the windows above are written and verified; each is backed up first."
+              if a.retire_replaced else
+              "  Not removed. Authorize --retire-replaced to back them up and remove them from PMS.")
+        print()
+    elif a.retire_replaced:
+        print("No replaced period is left in PMS.\n")
 
     if not a.apply:
         print("Dry run. Nothing was sent.")
@@ -384,10 +409,30 @@ def main(argv: list[str] | None = None) -> int:
         if mismatched:
             break  # Do not continue writing after the API contract fails verification.
 
+    log_path = a.log or a.payloads.with_name("push_log.json")
+    if a.retire_replaced and stale and not failures:
+        import pms_periods
+        backup = log_path.with_name(log_path.stem.replace("push_log", "retired_periods", 1) + ".json")
+        keep = [p["name"] for p in payloads if p.get("periodId")]
+        done: list[dict] = []
+        try:
+            pms_periods.retire(lambda path, **kw: _api(base, path, token=token, **kw), project_id,
+                               [x["name"] for x in stale], keep, backup, base, done)
+        except Exception as e:  # noqa: BLE001
+            print(f"  Replaced periods: removal stopped ({type(e).__name__}: {e})", file=sys.stderr)
+            failures += 1
+            gone = {r["id"] for r in done}
+            results.extend({"period": x["name"], "periodId": x["id"], "action": "Removed from PMS",
+                            "result": f"failed: {e}"} for x in stale if x["id"] not in gone)
+        for r in done:
+            print(f"  {r['name']}: removed from PMS and verified; backup {backup.name}")
+        results.extend({"period": r["name"], "periodId": r["id"], "action": "Removed from PMS",
+                        "result": r["result"]} for r in done)
+
     log = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
            "pms": base, "project": project_id, "mode": mode, "results": results}
-    (a.log or a.payloads.with_name("push_log.json")).write_text(json.dumps(log, indent=2), encoding="utf-8")
-    print(f"\nLog: {a.log or a.payloads.with_name('push_log.json')}")
+    log_path.write_text(json.dumps(log, indent=2), encoding="utf-8")
+    print(f"\nLog: {log_path}")
     return 1 if failures else 0
 
 

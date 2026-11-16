@@ -70,6 +70,11 @@ use `kpi.py push --apply`. Approval is specific to that payload. Legacy `auto-pu
 `unattended` settings never waive approval. Local review targets must be reconciled with
 PMS before submission. Report only verified writes as successful.
 
+When the preview lists periods **replaced by the reporting windows, still in PMS** (the old
+milestone periods of a project that moved to windows), ask in the same message whether to
+remove them; on a yes, add `--retire-replaced`. Each is backed up beside the push log and
+removed only after the windows are written and verified.
+
 Hand over the workbook link, results, remaining questions and material limitations. Report
 measured timings rather than promising every run takes seconds. Never type, request or echo
 credentials: run `kpi.py auth` and present its connection choices when access is missing.

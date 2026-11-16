@@ -1337,5 +1337,28 @@ class AuditTests(unittest.TestCase):
             writer.assert_not_called()
 
 
+    def test_push_names_the_periods_a_window_switch_replaced(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(kpi.main(['run','--profile',str(self.profile),'--project','northwind-q3',
+                '--board',str(self.profile.parent/'board.json'),'--offline']),0)
+        hist=self.profile.parent/'northwind-q3'/'workbook_history.json'
+        h=json.loads(hist.read_text()); h['replaced_period_names']=['Initial Scope']; hist.write_text(json.dumps(h))
+        seen=[]
+        push=SimpleNamespace(main=lambda argv: seen.append(argv) or 0)
+        args=['push','--profile',str(self.profile),'--project','northwind-q3','--offline','--retire-replaced']
+        with patch.object(kpi,'_module',return_value=push), contextlib.redirect_stdout(io.StringIO()) as out:
+            kpi.main(args)
+        self.assertNotIn('--replaced',seen[0])
+        self.assertNotIn('--retire-replaced',seen[0])
+        self.assertIn('replace_existing is off',out.getvalue())
+        self.profile_data.setdefault('periods',{})['cadence']={'anchor':'2025-03-03','days':14,'replace_existing':True}
+        self.profile.write_text(yaml.safe_dump(self.profile_data))
+        with patch.object(kpi,'_module',return_value=push), contextlib.redirect_stdout(io.StringIO()):
+            kpi.main(args)
+        self.assertEqual(seen[1][seen[1].index('--replaced')+1],'Initial Scope')
+        self.assertIn('--retire-replaced',seen[1])
+        self.assertIn('--dry-run',seen[1])
+
+
 if __name__ == '__main__':
     unittest.main()

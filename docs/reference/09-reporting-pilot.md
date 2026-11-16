@@ -39,7 +39,7 @@ output:
 
 The main Sheet has a dashboard, evidence registers, Team Review and Open Questions. Yellow inputs survive in-place updates. `archive-pilot` moves the original Sheet into Archived and creates the continuing pilot copy; run it once.
 
-To replace milestone reporting for the whole project, add `start`, `end`, and `replace_existing: true` to `periods.cadence`. The anchor fixes the cutoff; project boundaries clip the opening/closing windows. Past windows are recomputed, the current one is a preview, and future ones stay unmeasured. Superseded periods leave the continuing Sheet; their private audit history is retained.
+To replace milestone reporting for the whole project, add `start`, `end`, and `replace_existing: true` to `periods.cadence`. The anchor fixes the cutoff; project boundaries clip the opening/closing windows. Past windows are recomputed, the current one is a preview, and future ones stay unmeasured. Superseded periods leave the continuing Sheet; their private audit history is retained. If any of them already reached PMS, every `kpi.py push` preview lists it until it is gone; `push --apply --retire-replaced` backs each one up beside the push log and removes it once the windows in that push are written and verified. Nothing is removed without that flag.
 
 Comprehension is assessed with completed work. Client and team promises belong to their due window; an earlier delivery remains evidence without earning velocity twice.
 

@@ -29,6 +29,13 @@ Repeated runs keep the same Google Sheet and PMS period IDs. Only the nine manag
 fields are touched; unrelated KPIs are left alone. Previously published managed measures
 that become unmeasured are explicitly cleared, not replaced with zero.
 
+After a switch to reporting windows (`periods.cadence.replace_existing`), the old periods it
+replaced may still be in PMS with the figures last sent to them. Every preview lists them.
+`kpi.py push --apply --retire-replaced` removes them only when the person has authorized it,
+only after the windows in the same push are written and verified, and only by exact name and
+ID with a private backup of each period written first. The MCP submission tool does not
+expose this option.
+
 ## Project-specific workflow settings
 
 Use `workflow.reopened_when.closed_values` when the close boundary for rework differs from

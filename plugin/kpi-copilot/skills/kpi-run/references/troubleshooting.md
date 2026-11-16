@@ -44,6 +44,9 @@ not claim that the client never received the release solely because the date is 
 - **Missing PMS period.** Preview first. The CLI can create missing periods with
   `push --apply --create-periods` only after explicit approval of submission and creation.
   The MCP submission tool does not expose the creation flag.
+- **An old milestone period is still in PMS after moving to reporting windows.** The push
+  preview lists it under "Replaced by the reporting windows, still in PMS". Remove it with
+  `push --apply --retire-replaced` only after explicit approval; it is backed up first.
 - **Period name rejected.** Check the PMS limit (the runner enforces 25 characters) and
   resolve the intended period without silently changing the reporting scope.
 - **Values changed.** Compare the run's change report and retained inputs. Same-date runs

@@ -1147,14 +1147,28 @@ def cmd_push(args) -> int:
             "--log", str(log_path), "--apply" if args.apply else "--dry-run"]
     if getattr(args, "create_periods", False):
         argv.append("--create-periods")
+    # A switch to reporting windows replaces the old periods in the sheet at once. The push
+    # names any still in PMS, and removes them only when that is authorized.
+    if ((ws.profile.get("periods") or {}).get("cadence") or {}).get("replace_existing"):
+        for name in ws.history.get("replaced_period_names") or []:
+            argv += ["--replaced", name]
+        if getattr(args, "retire_replaced", False):
+            argv.append("--retire-replaced")
+    elif getattr(args, "retire_replaced", False):
+        print("Nothing to retire: this project's periods.cadence does not replace earlier periods "
+              "(replace_existing is off).")
     code = push.main(argv)
-    if args.apply and code == 0:
+    if args.apply and code in (0, 1):  # 0 or 1: this push wrote its log; 2: refused, nothing sent
         log = json.loads(log_path.read_text())
         ids = {x["period"]: x["periodId"] for x in log.get("results", [])
                if x.get("result") == "verified" and x.get("periodId")}
+        removed = {x["periodId"] for x in log.get("results", [])
+                   if x.get("result") == "removed and verified"}
         for period in (ws.facts.get("periods") or {}).get("periods") or []:
-            if period.get("name") in ids:
+            if period.get("name") in ids and code == 0:
                 period["pms_period_id"] = ids[period["name"]]
+            elif period.get("pms_period_id") in removed:
+                period.pop("pms_period_id")
         ws.save()
     return code
 
@@ -1205,6 +1219,9 @@ def main(argv: list[str] | None = None) -> int:
     p = common(sub.add_parser("push", help="Send the last run to PMS (dry run unless --apply)."))
     p.add_argument("--apply", action="store_true")
     p.add_argument("--create-periods", action="store_true", help="Create missing periods when explicitly authorized.")
+    p.add_argument("--retire-replaced", action="store_true",
+                   help="Back up and remove from PMS the periods the reporting windows replaced, when explicitly "
+                        "authorized. Every preview lists them.")
     p.add_argument("--period", action="append", help="Send only this period (repeatable). Open questions about "
                    "other periods do not hold it back.")
     au = common(sub.add_parser("auth", help="Connect a service - or, with none named, see what needs connecting and how."))

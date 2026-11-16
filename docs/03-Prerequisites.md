@@ -81,7 +81,9 @@ registry is an error.
 The CLI writer supports `PMS_TOKEN` in the runtime environment and the configured host
 transport. A browser login alone does not connect it. Existing periods can be updated;
 creating missing periods additionally requires explicit authorization and the CLI's
-`--create-periods` option. The MCP submission tool does not expose that creation option.
+`--create-periods` option. Removing periods that a switch to reporting windows replaced
+likewise needs explicit authorization and `--retire-replaced`. The MCP submission tool exposes
+neither option.
 
 Every write requires approval of the current preview and is read back. Do not test access by
 changing production KPIs. The [audit](11-Audit.md) separates implemented safeguards from

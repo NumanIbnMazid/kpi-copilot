@@ -2,6 +2,10 @@
 
 This does not change source milestones or calculation inputs. Prepare a private plan
 first; apply it only after the user authorizes removal of its exact periods.
+
+`retire` is the same check, backup and removal in one pass. `kpi.py push --retire-replaced`
+uses it for the periods a switch to reporting windows replaced, after its preview has
+named them and the person has approved.
 """
 from __future__ import annotations
 
@@ -38,6 +42,51 @@ def select(rows, names, keep):
     return chosen
 
 
+def backed_up(call, endpoint, chosen):
+    """Each period's full current record, confirmed to be the period that was chosen."""
+    details = []
+    for row in chosen:
+        raw = call(endpoint + '/' + str(row['id']))
+        detail = raw.get('data', raw)
+        if detail.get('id') != row['id'] or detail.get('name') != row['name'] or not detail.get('updatedAt'):
+            raise ValueError('PMS period identity or concurrency timestamp is missing.')
+        details.append(detail)
+    return details
+
+
+def write_private(path, doc):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open('x') as f:
+        json.dump(doc, f, indent=2)
+    path.chmod(0o600)
+
+
+def remove_verified(call, endpoint, project_id, saved, keep):
+    call(endpoint + '/' + str(saved['id']), method='DELETE',
+         extra={'Last-Modified': saved['updatedAt']})
+    remaining = period_list(call(endpoint), project_id)
+    if any(r['id'] == saved['id'] for r in remaining):
+        raise ValueError('PMS still contains the removed period; stopping.')
+    if not all(any(r['name'] == n for r in remaining) for n in keep):
+        raise ValueError('A retained period is missing; stopping.')
+    return {'id': saved['id'], 'name': saved['name'], 'result': 'removed and verified'}
+
+
+def retire(call, project_id, names, keep, backup, base='', done=None):
+    """Back up, remove and verify each named period. Every check runs before the first
+    removal; `done` collects what was removed even if a later one fails."""
+    done = [] if done is None else done
+    endpoint = f'/api/projects/{project_id}/periods'
+    rows = period_list(call(endpoint), project_id)
+    details = backed_up(call, endpoint, select(rows, names, keep))
+    write_private(backup, {'pms': base, 'project_id': project_id,
+                           'prepared_at': datetime.now(timezone.utc).isoformat(),
+                           'keep': keep, 'retire': details, 'period_list_before': rows})
+    for saved in details:
+        done.append(remove_verified(call, endpoint, project_id, saved, keep))
+    return done
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--profile', required=True, type=Path)
@@ -55,20 +104,10 @@ def main():
     call = lambda path, **kw: _api(base, path, token=token, **kw)
     rows = period_list(call(endpoint), pid)
     if not args.apply:
-        chosen = select(rows, args.retire, args.keep)
-        details = []
-        for row in chosen:
-            raw = call(endpoint + '/' + str(row['id']))
-            detail = raw.get('data', raw)
-            if detail.get('id') != row['id'] or detail.get('name') != row['name'] or not detail.get('updatedAt'):
-                raise ValueError('PMS period identity or concurrency timestamp is missing.')
-            details.append(detail)
-        plan = {'pms': base, 'project_id': pid, 'prepared_at': datetime.now(timezone.utc).isoformat(),
-                'keep': args.keep, 'retire': details, 'period_list_before': rows}
-        args.plan.parent.mkdir(parents=True, exist_ok=True)
-        with args.plan.open('x') as f:
-            json.dump(plan, f, indent=2)
-        args.plan.chmod(0o600)
+        details = backed_up(call, endpoint, select(rows, args.retire, args.keep))
+        write_private(args.plan, {'pms': base, 'project_id': pid,
+                                  'prepared_at': datetime.now(timezone.utc).isoformat(),
+                                  'keep': args.keep, 'retire': details, 'period_list_before': rows})
         print(f'Backed up {len(details)} obsolete periods to {args.plan}. No PMS data changed.')
         for row in details:
             print(f"  {row['id']}: {row['name']}")
@@ -88,14 +127,7 @@ def main():
     receipt_path = args.plan.with_suffix('.receipt.json')
     try:
         for saved in plan['retire']:
-            call(endpoint + '/' + str(saved['id']), method='DELETE',
-                 extra={'Last-Modified': saved['updatedAt']})
-            remaining = period_list(call(endpoint), pid)
-            if any(r['id'] == saved['id'] for r in remaining):
-                raise ValueError('PMS still contains the removed period; stopping.')
-            if not all(any(r['name'] == n for r in remaining) for n in plan['keep']):
-                raise ValueError('A retained period is missing; stopping.')
-            receipt['results'].append({'id': saved['id'], 'name': saved['name'], 'result': 'removed and verified'})
+            receipt['results'].append(remove_verified(call, endpoint, pid, saved, plan['keep']))
             print(f"Removed {saved['name']}; replacement periods retained.")
     finally:
         receipt_path.write_text(json.dumps(receipt, indent=2))
